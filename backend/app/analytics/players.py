@@ -52,6 +52,7 @@ def latest_snapshot_subquery():
         select(
             PlayerInstance.id.label("instance_id"),
             PlayerInstance.player_id,
+            PlayerInstance.save_local_uid,
             PlayerInstance.club_id,
             PlayerInstance.position,
             PlayerInstance.fm_save_id,
@@ -394,6 +395,8 @@ def _row_summary(row, clubs: dict[int, Club], watched: set[int]) -> dict[str, ob
     return {
         "instance_id": row.instance_id,
         "player_id": row.player_id,
+        # 存档内稳定 ID：阵容 CSV 用它直接关联，避免只按姓名匹配。
+        "save_local_uid": row.save_local_uid,
         "name": row.full_name,
         "age": row.age,
         "birth_date": row.birth_date.isoformat() if row.birth_date else None,

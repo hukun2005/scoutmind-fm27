@@ -19,10 +19,12 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..analytics.fees import compute_effective_fee
+from ..clubs import SOURCE_PAYLOAD_CLUBS, SOURCE_PLAYER_FIELD, ClubResolver
 from ..config import settings as default_settings
 from ..models import (
     Club,
     DataSource,
+    FmSave,
     ImportJob,
     ImportRow,
     LoanRecord,
@@ -90,6 +92,7 @@ class ScanImporter:
 
     def __init__(self, session: Session, raw_dir: Path | None = None) -> None:
         self.session = session
+        self._resolver: ClubResolver | None = None
         self.raw_dir = raw_dir or default_settings.raw_import_dir
 
     # -- public API ---------------------------------------------------------------------------------------------
@@ -216,10 +219,13 @@ class ScanImporter:
     def _upsert_clubs(
         self, save_id: int, payload: ScanPayload, outcome: ImportOutcome
     ) -> dict[str, Club]:
+        """Register the clubs declared by the payload, through the shared resolver.
+
+        A club object with a uid is the strongest source (confidence 1.0); a name that only appears in a player row
+        is weaker (0.6) and gets a deterministic ``name:<slug>`` uid, so the same name never duplicates.
+        """
+        resolver = self._resolver_for(save_id)
         cache: dict[str, Club] = {}
-        existing = {
-            club.uid: club for club in self.session.scalars(select(Club).where(Club.fm_save_id == save_id))
-        }
         for raw in payload.clubs:
             try:
                 record = validate_club_row(raw)
@@ -227,43 +233,51 @@ class ScanImporter:
                 outcome.rows_rejected += 1
                 outcome.errors.append({"entity": "club", "code": exc.code, "message": exc.message})
                 continue
-            club = existing.get(record.uid)
-            if club is None:
-                club = Club(fm_save_id=save_id, uid=record.uid, name=record.name)
-                self.session.add(club)
-                existing[record.uid] = club
-            club.name = record.name
-            club.nation = record.nation or club.nation
-            club.league = record.league or club.league
-            club.reputation = record.reputation if record.reputation is not None else club.reputation
-            club.is_user_club = club.is_user_club or record.is_user_club
+            resolved = resolver.resolve(
+                uid=record.uid,
+                name=record.name,
+                league=record.league,
+                reputation=record.reputation,
+                nation=record.nation,
+                source=SOURCE_PAYLOAD_CLUBS,
+                source_uid=record.uid,
+            )
+            if resolved is None:
+                continue
+            club = resolved.club
             cache[record.uid] = club
+            # A payload that names the managed club is evidence too, but never overrides an explicit choice.
+            save = self.session.get(FmSave, save_id)
+            if record.is_user_club and save is not None and save.user_club_id is None:
+                resolver.set_user_club(club.id, source=SOURCE_PAYLOAD_CLUBS)
         self.session.flush()
         return cache
 
     def _club_for(
         self, save_id: int, uid: str | None, name: str | None, cache: dict[str, Club], is_user: bool = False
     ) -> Club | None:
+        """Resolve a player's club; ``uid`` first, then the name, then nothing (never a guessed club)."""
         if uid and uid in cache:
             return cache[uid]
         if not uid and not name:
             return None
+        resolver = self._resolver_for(save_id)
+        resolved = resolver.resolve(uid=uid, name=name, source=SOURCE_PLAYER_FIELD, source_uid=uid)
+        if resolved is None:
+            return None
+        if is_user:
+            resolved.club.is_user_club = True
         if uid:
-            club = self.session.scalar(select(Club).where(Club.fm_save_id == save_id, Club.uid == uid))
-        else:
-            club = self.session.scalar(select(Club).where(Club.fm_save_id == save_id, Club.name == name))
-        if club is None:
-            club = Club(
-                fm_save_id=save_id,
-                uid=uid or f"name:{name}",
-                name=name or uid or "未知俱乐部",
-                is_user_club=is_user,
-            )
-            self.session.add(club)
-            self.session.flush()
-        if uid:
-            cache[uid] = club
-        return club
+            cache[uid] = resolved.club
+        elif name:
+            cache[name] = resolved.club
+        return resolved.club
+
+    def _resolver_for(self, save_id: int) -> ClubResolver:
+        """One resolver per import so name/uid lookups stay in memory."""
+        if self._resolver is None or self._resolver.save_id != save_id:
+            self._resolver = ClubResolver(self.session, save_id)
+        return self._resolver
 
     def _upsert_players(
         self,

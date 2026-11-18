@@ -18,6 +18,7 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..clubs import ClubResolver
 from ..ingestion.attributes import (
     SLOT_IMPORTANCE,
     SLOT_NAMES_ZH,
@@ -26,7 +27,15 @@ from ..ingestion.attributes import (
     position_group,
     slot_of,
 )
-from ..models import Club, PlayerAttribute, PlayerAttributeValue, PlayerInstance, PlayerSnapshot, TacticalProfile
+from ..models import (
+    Club,
+    PlayerAttribute,
+    PlayerAttributeValue,
+    PlayerInstance,
+    PlayerSnapshot,
+    SquadAssignment,
+    TacticalProfile,
+)
 from ..utils import iso, utcnow
 from .players import latest_snapshot_subquery
 from .scoring import attribute_names, best_role_score
@@ -250,10 +259,12 @@ def resolve_weights(
 
 
 def user_club(session: Session, save_id: int) -> Club | None:
-    """The club the operator manages inside one save."""
-    return session.scalar(
-        select(Club).where(Club.fm_save_id == save_id, Club.is_user_club.is_(True)).order_by(Club.id).limit(1)
-    )
+    """The club the operator manages inside one save.
+
+    ``fm_saves.user_club_id`` is the single source of truth (set by the operator or by a payload that declares it);
+    ``clubs.is_user_club`` remains as a derived flag for older data.
+    """
+    return ClubResolver(session, save_id).user_club()
 
 
 def roster(session: Session, save_id: int, club_id: int | None = None) -> list[RosterPlayer]:
@@ -316,6 +327,7 @@ def squad_overview(
             "contracts": {"buckets": {}, "at_risk_count": 0, "at_risk_names": [], "missing": ["没有阵容数据"]},
             "weakness": [],
             "succession": [],
+            "composition": squad_composition(session, save_id, None),
             "algorithm_version": ALGORITHM_VERSION,
             "data_gaps": ["该存档没有标记为「我的俱乐部」的球队，无法分析阵容"],
             "computed_at": iso(utcnow()),
@@ -359,9 +371,100 @@ def squad_overview(
         "contracts": contract_monitoring(players, _reference_date(session, save_id)),
         "weakness": squad_weakness(depth_rows),
         "succession": succession_plan(players),
+        "composition": squad_composition(session, save_id, club),
         "algorithm_version": ALGORITHM_VERSION,
         "data_gaps": gaps,
         "computed_at": iso(utcnow()),
+    }
+
+
+# -- composition ------------------------------------------------------------------------------------------------
+
+
+def squad_composition(session: Session, save_id: int, club: Club | None) -> dict[str, object]:
+    """Squad composition from imported assignments: senior / reserve / youth / loaned out / loaned in / unknown.
+
+    The source of truth is ``squad_assignments`` (CSV or manual). When nothing was imported the answer is
+    "unavailable", not "everyone is senior": FMSuperScout does not report squad tiers (see the field coverage report).
+    """
+    if club is None:
+        return {
+            "available": False,
+            "source": None,
+            "buckets": {},
+            "counts": {},
+            "missing": ["没有本队，无法统计阵容构成"],
+        }
+    rows = list(
+        session.scalars(
+            select(SquadAssignment)
+            .where(SquadAssignment.fm_save_id == save_id)
+            .order_by(SquadAssignment.observed_at)
+        )
+    )
+    if not rows:
+        return {
+            "available": False,
+            "source": None,
+            "buckets": {},
+            "counts": {},
+            "missing": [
+                "没有导入阵容名单：数据源不提供一线队/预备队/青年队与租借状态，"
+                "请导入阵容 CSV 或手动指定",
+            ],
+        }
+    latest: dict[int, SquadAssignment] = {}
+    for row in rows:
+        latest[row.player_instance_id] = row  # 后写覆盖前写：同一来源以最新观测为准
+    buckets: dict[str, list[dict[str, object]]] = {
+        "senior": [],
+        "reserve": [],
+        "youth": [],
+        "loaned_out": [],
+        "loaned_in": [],
+        "unknown": [],
+    }
+    for assignment in latest.values():
+        instance = session.get(PlayerInstance, assignment.player_instance_id)
+        name = instance.player.full_name if instance is not None and instance.player is not None else None
+        entry = {
+            "instance_id": assignment.player_instance_id,
+            "name": name,
+            "club": session.get(Club, assignment.club_id).name if assignment.club_id else assignment.club_name_raw,
+            "squad_type": assignment.squad_type,
+            "loan_status": assignment.loan_status,
+            "confidence": assignment.confidence,
+            "source": assignment.source,
+        }
+        if assignment.loan_status == "loaned_out":
+            buckets["loaned_out"].append(entry)
+        elif assignment.loan_status == "loaned_in":
+            buckets["loaned_in"].append(entry)
+        elif assignment.squad_type in ("senior", "reserve", "youth"):
+            buckets[assignment.squad_type].append(entry)
+        else:
+            buckets["unknown"].append(entry)
+    counts = {key: len(value) for key, value in buckets.items()}
+    gaps: list[str] = []
+    if counts["unknown"]:
+        gaps.append(f"{counts['unknown']} 名球员的阵容类别无法确认（显示为未知，不按自由球员处理）")
+    unassigned = session.scalar(
+        select(func.count())
+        .select_from(PlayerSnapshot)
+        .join(PlayerInstance, PlayerInstance.id == PlayerSnapshot.player_instance_id)
+        .where(PlayerInstance.fm_save_id == save_id, PlayerSnapshot.club_id == club.id)
+    )
+    assigned_ids = set(latest)
+    covered = sum(1 for item in buckets.values() for entry in item if entry["instance_id"] in assigned_ids)
+    missing_on_squad = max(0, int(unassigned or 0) - covered)
+    if missing_on_squad:
+        gaps.append(f"本队 {missing_on_squad} 名球员不在阵容名单里，梯队归属未知")
+    return {
+        "available": True,
+        "source": latest[next(iter(latest))].source if latest else None,
+        "buckets": buckets,
+        "counts": counts,
+        "gaps": gaps,
     }
 
 

@@ -62,6 +62,12 @@ class FmSave(TimestampMixin, Base):
     game_version: Mapped[str | None] = mapped_column(String(64))
     game_build: Mapped[str | None] = mapped_column(String(64))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # 用户指定的主执教俱乐部。单一事实来源：所有 is_user_club 标记都由它派生。
+    # 故意不加外键：clubs.fm_save_id 指向本表，两个方向都建外键会形成环，SQLite 无法建表/删表。
+    # 归属校验由 ClubResolver.set_user_club 负责（必须属于同一存档）。
+    user_club_id: Mapped[int | None] = mapped_column(Integer)
+    # 本队是怎么定下来的：manual（你自己选的）/ payload（报文声明）/ None（未指定）。
+    user_club_source: Mapped[str | None] = mapped_column(String(16))
 
 
 class DataSource(TimestampMixin, Base):
@@ -135,6 +141,11 @@ class Club(TimestampMixin, Base):
     league: Mapped[str | None] = mapped_column(String(128))
     reputation: Mapped[int | None] = mapped_column(Integer)
     is_user_club: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # 解析器补充：归一化名称用于合并"只有名字"和"带 ID"的两条记录；来源与可信度用于界面展示。
+    normalized_name: Mapped[str | None] = mapped_column(String(128), index=True)
+    source: Mapped[str | None] = mapped_column(String(32))
+    confidence: Mapped[float | None] = mapped_column(Float)
+    external_ids_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
 
 
 class Player(TimestampMixin, Base):
@@ -537,6 +548,33 @@ class TransferCandidate(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(16), default="candidate", nullable=False)
     confirmed_transfer_id: Mapped[int | None] = mapped_column(ForeignKey("transfer_history.id"))
     evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class SquadAssignment(TimestampMixin, Base):
+    """CSV / 手动导入的阵容归属：谁在哪个俱乐部、属于哪个梯队、是否租借。
+
+    与 ``player_availability`` 分开：那个表描述"数据源观测到的状态"，本表描述"用户/文件声明的阵容归属"。
+    两者都不允许在没有依据时把球员算成自由球员。
+    """
+
+    __tablename__ = "squad_assignments"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", "player_instance_id", "source", name="uq_assignment_player_source"),
+        Index("ix_assignment_save_club", "fm_save_id", "club_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), index=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"), index=True)
+    club_name_raw: Mapped[str | None] = mapped_column(String(128))
+    squad_type: Mapped[str] = mapped_column(String(16), default="unknown", nullable=False)
+    loan_status: Mapped[str] = mapped_column(String(16), default="unknown", nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    raw_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
 
 
 class PlayerStatistic(TimestampMixin, Base):
