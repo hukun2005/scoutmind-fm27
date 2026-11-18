@@ -138,6 +138,11 @@ IGNORED_FIELDS: dict[str, str] = {
     "sportsmanship": "隐藏性格属性，ScoutMind 未建模",
     "temperament": "隐藏性格属性，ScoutMind 未建模",
     "job": "职员岗位，不属于球员模型",
+    "askingPrice": "要价，ScoutMind 的估值走自己的可比成交模型",
+    "wageDemand": "合同要价，尚未建模",
+    "dob": "出生日期字符串，协议使用 birthYear/birthDoy + birth_date",
+    "natId": "国籍 ID，协议只存国籍名称",
+    "source": "读取器自报来源，导入时使用报文级 source",
     "jobId": "职员岗位 ID，不属于球员模型",
     "jobPrefs": "职员偏好，不属于球员模型",
     "prefJob": "职员偏好，不属于球员模型",
@@ -194,6 +199,11 @@ KNOWN_PLAYER_FIELDS = frozenset(
         "temperament",
         "state",
         "v",
+        "askingPrice",
+        "wageDemand",
+        "dob",
+        "natId",
+        "source",
     }
 )
 
@@ -348,6 +358,7 @@ def convert_document(
         "parent_club": 0,
         "loan_club": 0,
         "agreed_transfer": 0,
+        "club": 0,
     }
 
     for entry in players:
@@ -403,7 +414,7 @@ def convert_document(
             if str(key) not in KNOWN_PLAYER_FIELDS
         }
     )
-    report.compatibility = _compatibility(report.dump_game)
+    report.compatibility = _compatibility(report.dump_game, meta)
     if report.unknown_fields:
         report.warnings.append(
             "上游新增了适配层不认识的字段：" + "、".join(report.unknown_fields) + "（已保留在报告中，未写入数据库）"
@@ -490,13 +501,13 @@ def _player_row(
         "name": name or "未命名球员",
         "birth_date": birth.isoformat() if birth else None,
         "age": age,
-        "nationality": _text(entry.get("nat")),
+        "nationality": _primary_nationality(entry.get("nat")),
         "position": position,
         "club_uid": club_uid,
         "ca": _positive(entry.get("ca")),
         "pa": _positive(entry.get("pa")),
-        "market_value": _int(entry.get("value"), sentinel_int=True),
-        "wage": _int(entry.get("wage"), sentinel_int=True),
+        "market_value": _money(entry.get("value")),
+        "wage": _money(entry.get("wage")),
         "contract_end": _contract_end(entry.get("expires")),
         "height_cm": _int(entry.get("height")),
         "foot": _foot(entry.get("foot")),
@@ -524,6 +535,7 @@ def _player_row(
         "parent_club": bool(ownership.get("parent_club_uid")),
         "loan_club": bool(ownership.get("loan_club_uid")),
         "agreed_transfer": bool(agreed and agreed.get("to_club_uid")),
+        "club": bool(club_uid),
     }
     return row, present, ignored
 
@@ -635,17 +647,63 @@ def _flag(value: object) -> bool | None:
     return None
 
 
+#: Foot labels seen in real dumps across UI languages. Anything unknown falls back to a prefix match, then to None.
+FOOT_LABELS = {
+    "rechts": "right",
+    "links": "left",
+    "beide": "both",
+    "right": "right",
+    "left": "left",
+    "both": "both",
+    "either": "both",
+    "droit": "right",
+    "gauche": "left",
+    "les deux": "both",
+    "derecho": "right",
+    "izquierdo": "left",
+    "ambos": "both",
+    "destro": "right",
+    "sinistro": "left",
+    "entrambi": "both",
+    "prawo": "right",
+    "lewo": "left",
+    "obojętnie": "both",
+}
+
+
 def _foot(value: object) -> str | None:
-    """Normalise the dump's foot label onto the protocol enum; anything else stays unknown."""
-    text = (_text(value) or "").lower()
-    if text.startswith("l"):
-        return "left"
-    if text.startswith("r"):
+    """Normalise the dump's foot label onto the protocol enum; unknown labels stay None."""
+    text = (_text(value) or "").strip().lower()
+    if not text:
+        return None
+    if text in FOOT_LABELS:
+        return FOOT_LABELS[text]
+    if text.startswith(("r", "p")):  # right / rechts / prawo
         return "right"
-    if text.startswith("b") or text.startswith("e"):  # both / either
+    if text.startswith(("l", "g")):  # left / links / gauche / lewo
+        return "left"
+    if text.startswith(("b", "e")):  # both / beide / either
         return "both"
     return None
 
+
+def _primary_nationality(raw: object) -> str | None:
+    """Take the primary nationality; the dump can carry a list (dual nationality)."""
+    if isinstance(raw, list):
+        for item in raw:
+            text = _text(item)
+            if text:
+                return text
+        return None
+    return _text(raw)
+
+
+def _money(value: object) -> int | None:
+    """Money fields: 0 and sentinels mean "not stated" in the dump, not a real zero."""
+    integer = _int(value, sentinel_int=True)
+    if integer is None or integer <= 0:
+        return None
+    return integer
 
 def _normalise_team_type(value: str | None) -> str | None:
     """Map upstream's squad-type label onto senior/reserve/youth; unknown values are dropped."""
@@ -707,30 +765,43 @@ def _is_ghost(entry: dict[str, object]) -> bool:
     return isinstance(reputation, int) and reputation == SENTINEL_U16
 
 
-def _compatibility(game: str | None) -> dict[str, object]:
+def _compatibility(game: str | None, meta: dict[str, object] | None = None) -> dict[str, object]:
     """Detect a game family the adapter was not written against.
 
-    A mismatch is a compatibility *risk*, not a hard failure: the dump is still converted, but the report says which
-    game it came from and which ones were validated, and callers can refuse to trust the result.
+    Upstream reports its own ``versionOk`` / ``supportedVersion``: when the scanner says the extraction is based on
+    an older build than the running game, field reliability is *lower*, and the report says so instead of silently
+    trusting the numbers.
     """
+    meta = meta or {}
     supported = ", ".join(f"FM{major}" for major in SUPPORTED_GAME_MAJORS)
+    upstream_ok = meta.get("versionOk")
+    upstream_build = _text(meta.get("supportedVersion"))
+    game_version = _text(meta.get("gameVersion"))
     if not game:
         return {
             "game": None,
             "supported": False,
             "known_majors": list(SUPPORTED_GAME_MAJORS),
+            "upstream_version_ok": upstream_ok,
             "message": f"导出里没有 meta.game，无法判断版本；适配层按 {supported} 编写，请人工核对",
         }
     major = "".join(ch for ch in str(game) if ch.isdigit())[:2]
     supported_dump = major in SUPPORTED_GAME_MAJORS
+    messages: list[str] = []
+    if not supported_dump:
+        messages.append(f"导出标注的版本 {game} 不在已验证的 {supported} 内；字段可能已变化")
+    if upstream_ok is False:
+        detail = f"（扫描器按 {upstream_build} 解析游戏 {game_version}）" if upstream_build else ""
+        messages.append(f"读取器自检 versionOk=false：上游认为该版本解析可能不可靠{detail}")
     return {
         "game": game,
         "major": major or None,
-        "supported": supported_dump,
+        "supported": supported_dump and upstream_ok is not False,
         "known_majors": list(SUPPORTED_GAME_MAJORS),
-        "message": None
-        if supported_dump
-        else f"导出标注的版本 {game} 不在已验证的 {supported} 内；字段可能已变化，请先看字段覆盖与未知字段",
+        "upstream_version_ok": upstream_ok,
+        "upstream_supported_version": upstream_build,
+        "game_version": game_version,
+        "message": "；".join(messages) if messages else None,
     }
 
 

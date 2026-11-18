@@ -130,6 +130,11 @@ async def validate_dump(
                 {"label": "已在存档中的球员", "value": known_counts["existing"]},
                 {"label": "将新建的球员", "value": known_counts["new"]},
                 {"label": "缺少稳定 ID 的行", "value": known_counts["no_id"]},
+                {
+                    "label": "我的俱乐部（meta.myClub）",
+                    "value": report.user_club or "未识别",
+                    "detail": None if report.user_club else "阵容/球探模块需要它来确定本队",
+                },
             ],
         },
         {
@@ -143,7 +148,7 @@ async def validate_dump(
             ],
         },
     ]
-    verdict = _verdict(report, duplicates, coverage)
+    verdict = _verdict(report, duplicates, coverage, report.user_club)
     return {
         "sections": sections,
         "verdict": verdict,
@@ -170,6 +175,7 @@ def _coverage_label(key: str) -> str:
         "parent_club": "Ownership / parent club",
         "loan_club": "Loan status",
         "agreed_transfer": "Agreed transfer",
+        "club": "Club",
     }.get(key, key)
 
 
@@ -179,26 +185,39 @@ def _percent(value: object) -> str:
 
 
 def _existing_instances(db: Session, save_id: int, ids: list[str]) -> dict[str, int]:
-    """How many rows already exist for this save; lets the operator spot a wrong save before importing."""
-    if not ids:
-        return {"existing": 0, "new": 0, "no_id": 0}
+    """How many rows already exist for this save; lets the operator spot a wrong save before importing.
+
+    A real dump carries tens of thousands of ids, so the lookup is chunked: SQLite refuses queries with more than a
+    few tens of thousands of bound parameters.
+    """
     unique = list(dict.fromkeys(uid for uid in ids if uid))
-    existing = db.scalar(
-        select(func.count())
-        .select_from(PlayerInstance)
-        .where(
-            PlayerInstance.fm_save_id == save_id,
-            PlayerInstance.save_local_uid.in_(unique),
+    if not unique:
+        return {"existing": 0, "new": 0, "no_id": 0}
+    existing = 0
+    chunk_size = 500
+    for start in range(0, len(unique), chunk_size):
+        chunk = unique[start : start + chunk_size]
+        found = db.scalar(
+            select(func.count())
+            .select_from(PlayerInstance)
+            .where(
+                PlayerInstance.fm_save_id == save_id,
+                PlayerInstance.save_local_uid.in_(chunk),
+            )
         )
-    )
+        existing += int(found or 0)
     return {
-        "existing": int(existing or 0),
-        "new": len(unique) - int(existing or 0),
+        "existing": existing,
+        "new": len(unique) - existing,
         "no_id": sum(1 for uid in ids if not uid),
     }
 
-
-def _verdict(report: fmscout.AdapterReport, duplicates: list[str], coverage: dict[str, float]) -> dict[str, object]:
+def _verdict(
+    report: fmscout.AdapterReport,
+    duplicates: list[str],
+    coverage: dict[str, float],
+    user_club: str | None,
+) -> dict[str, object]:
     """Human-readable conclusion: what blocks the import, what merely needs review."""
     blockers: list[str] = []
     review: list[str] = []
@@ -216,6 +235,12 @@ def _verdict(report: fmscout.AdapterReport, duplicates: list[str], coverage: dic
         review.append("工资覆盖率低于 50%，成本模型只能用假设值")
     if coverage.get("injured", 0) == 0:
         review.append("导出没有当前伤病状态，伤病相关结论只能标记为不可评估")
+    if coverage.get("club", 1) < 0.5:
+        review.append(
+            f"俱乐部覆盖 {_percent(coverage.get('club', 0))}：阵容深度、位置短板与俱乐部画像会大量为空"
+        )
+    if not user_club:
+        review.append("导出没有 meta.myClub，导入后阵容模块会提示缺少本队")
     status = "blocked" if blockers else ("review" if review else "pass")
     return {"status": status, "blockers": blockers, "review": review, "ready_to_import": not blockers}
 

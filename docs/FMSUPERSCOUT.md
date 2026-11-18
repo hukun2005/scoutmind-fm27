@@ -193,3 +193,22 @@ FMSuperScout 每次 F9 都会写新 dump；脚本轮询目录，发现新文件�
 报告含：JSON 是否合法、版本、导出时间、scan_id、球员数、俱乐部数、唯一 ID 与重复 ID、幽灵记录数、字段覆盖率、
 与现有存档的重合度、未知字段、版本兼容结论，以及最终 `verdict`（`pass` / `review` / `blocked`）。
 `review` 常见原因是数据源没有伤病或工资字段——这是数据边界，不是代码错误。
+
+## 11. 真实 FM27 导出核对结果（2026-11-18）
+
+用 FMSuperScout 1.7.3 导出的 93.6MB 真实 dump 核对了一遍，和源码推断不一致的地方都已修：
+
+| 实际字段 | 结论 | 处理 |
+| --- | --- | --- |
+| `nat` 是**数组**（双国籍） | 原先按字符串取，国籍全丢 | 取第一个国籍 |
+| `foot` 是本地化文案（`Rechts`/`Links`/`Beide`） | 前缀匹配能过，但不可靠 | 显式多语言表 + 前缀兜底 |
+| `value` / `wage` 为 `0` | 0 是「未提供」，不是"免费" | `0` → `NULL` |
+| 52 个属性键 | 比映射表多 4 个（`Consistency`/`Dirtiness`/`ImportantMatches`/`Versatility`） | 报告为忽略，不写入 |
+| `askingPrice` / `wageDemand` / `dob` / `natId` | 之前会进"未知字段" | 明确列为忽略并给原因 |
+| `meta.versionOk=false`（扫描器按 27.0 解析 27.1） | 之前只看 `meta.game` | 兼容性结论纳入 `versionOk` 与 `supportedVersion` |
+| `club` 只有 0.2% 的球员有值、`meta.myClub=null` | 阵容/转会/画像会大量为空 | 覆盖率与结论里显式告警 |
+| 没有 `ownerClub` / `transferTo` | 规格建议的租借与待生效转会字段上游不存在 | 报告为「导出缺少」，不推断 |
+| 文件 93.6MB | 默认 64MB 导入上限会拒收 | 上限提到 256MB |
+
+同时补了两处规模问题：审查报告的"已在存档中"查询按 500 条分批（SQLite 参数上限），
+真实 48k 人文件审查耗时约 22 秒。
