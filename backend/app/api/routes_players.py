@@ -86,7 +86,7 @@ def player_history(
     return history(db, instance_id, from_date, to_date)
 
 
-@router.get("/players/{instance_id}/status")
+@router.get("/players/{instance_id}/status", summary="球员状态时间线（挂牌/伤病/租借）")
 def player_status_route(instance_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     """挂牌、伤病、租借与待生效转会的时间线；缺失项以 data_gaps 说明，不做推断。"""
     try:

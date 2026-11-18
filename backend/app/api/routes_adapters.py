@@ -26,7 +26,7 @@ router = APIRouter()
 PREVIEW_PLAYERS = 5
 
 
-@router.get("/imports/fmscout/adapter")
+@router.get("/imports/fmscout/adapter", summary="FMSuperScout 适配器信息")
 def adapter_info() -> dict[str, Any]:
     """What the adapter maps, what it ignores and which fields it can never fill."""
     return {
@@ -48,7 +48,7 @@ def adapter_info() -> dict[str, Any]:
     }
 
 
-@router.post("/imports/fmscout/preview")
+@router.post("/imports/fmscout/preview", summary="字段映射预览（不写库）")
 async def preview(request: Request) -> dict[str, Any]:
     """Convert a dump and report the mapping without writing anything to the database."""
     raw = await _read_upload(request)
@@ -68,7 +68,7 @@ async def preview(request: Request) -> dict[str, Any]:
     }
 
 
-@router.post("/imports/fmscout/validate")
+@router.post("/imports/fmscout/validate", summary="真实数据审查（P0-1，不写库）")
 async def validate_dump(
     request: Request,
     save_id: int | None = Query(default=None),
@@ -220,7 +220,7 @@ def _verdict(report: fmscout.AdapterReport, duplicates: list[str], coverage: dic
     return {"status": status, "blockers": blockers, "review": review, "ready_to_import": not blockers}
 
 
-@router.post("/imports/fmscout", status_code=201)
+@router.post("/imports/fmscout", status_code=201, summary="转换并导入 FMSuperScout 导出")
 async def import_dump(
     request: Request,
     save_id: int | None = Query(default=None),

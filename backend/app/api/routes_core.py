@@ -120,7 +120,7 @@ def save_summary(save_id: int, db: Session = Depends(get_db), user=Depends(get_c
     }
 
 
-@router.post("/imports/transfers", status_code=201)
+@router.post("/imports/transfers", status_code=201, summary="历史交易独立导入")
 async def import_transfers(
     request: Request,
     save_id: int | None = Query(default=None),

@@ -247,7 +247,7 @@ def transfer_investment(
     return investment_score(db, instance_id, total_cost)
 
 
-@router.get("/transfers/candidates")
+@router.get("/transfers/candidates", summary="待确认的俱乐部变化（候选事件）")
 def list_candidates(
     save_id: int | None = Query(default=None),
     status: str = Query(default="candidate"),
@@ -268,7 +268,7 @@ def list_candidates(
     }
 
 
-@router.post("/transfers/candidates/{candidate_id}/confirm", status_code=201)
+@router.post("/transfers/candidates/{candidate_id}/confirm", status_code=201, summary="确认候选事件")
 def confirm_candidate(
     candidate_id: int,
     payload: dict[str, Any] | None = None,
@@ -314,7 +314,7 @@ def confirm_candidate(
     return {"candidate": _candidate_payload(db, candidate), "transfer_id": candidate.confirmed_transfer_id}
 
 
-@router.post("/transfers/candidates/{candidate_id}/dismiss")
+@router.post("/transfers/candidates/{candidate_id}/dismiss", summary="标记候选事件为误报")
 def dismiss_candidate(
     candidate_id: int,
     payload: dict[str, Any] | None = None,
