@@ -28,11 +28,13 @@ public enum CliCommand
 /// <param name="Json">是否输出机器可读 JSON。</param>
 /// <param name="OutputDirectory">扫描输出目录（仅 scan）。</param>
 /// <param name="TimeoutSeconds">扫描超时秒数（仅 scan）。</param>
+/// <param name="Engine">扫描后端：<c>native</c> 内置引擎或 <c>external</c> 外部扫描器；为空时自动选择。</param>
 public sealed record CliOptions(
     CliCommand Command,
     bool Json,
     string? OutputDirectory,
-    int? TimeoutSeconds);
+    int? TimeoutSeconds,
+    string? Engine = null);
 
 /// <summary>
 /// 命令行解析结果。失败时 <see cref="Error"/> 为面向用户的中文说明，调用方应以退出码 64 结束。
@@ -70,6 +72,7 @@ public static class CliCommandParser
         CliCommand? command = null;
         string? outputDirectory = null;
         int? timeoutSeconds = null;
+        string? engine = null;
         var index = 0;
 
         while (index < args.Count)
@@ -122,6 +125,29 @@ public static class CliCommandParser
                             $"未知子命令：{argument}。可用子命令：status、probe、scan、compatibility list。");
                 }
 
+                continue;
+            }
+
+            if (command is CliCommand.Probe or CliCommand.Scan && argument == "--engine")
+            {
+                if (engine is not null)
+                {
+                    return CliParseResult.Failure("选项 --engine 重复指定。");
+                }
+
+                if (index + 1 >= args.Count)
+                {
+                    return CliParseResult.Failure("选项 --engine 需要一个值（native 或 external）。");
+                }
+
+                var requested = args[index + 1].Trim().ToLowerInvariant();
+                if (requested is not ("native" or "external"))
+                {
+                    return CliParseResult.Failure($"选项 --engine 只接受 native 或 external，实际为：{args[index + 1]}。");
+                }
+
+                engine = requested;
+                index += 2;
                 continue;
             }
 
@@ -184,7 +210,7 @@ public static class CliCommandParser
             return CliParseResult.Failure("缺少子命令。可用子命令：status、probe、scan、compatibility list。");
         }
 
-        return CliParseResult.Success(new CliOptions(command.Value, json, outputDirectory, timeoutSeconds));
+        return CliParseResult.Success(new CliOptions(command.Value, json, outputDirectory, timeoutSeconds, engine));
     }
 
     private static string ToDisplayName(CliCommand command) => command switch

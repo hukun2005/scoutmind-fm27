@@ -272,6 +272,7 @@ public sealed class AgentApplication
         var view = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["readerPath"] = configuration.ReaderPath,
+            ["engine"] = string.IsNullOrWhiteSpace(configuration.Config.ScannerPath) ? "native" : "external",
             ["scannerPath"] = configuration.Config.ScannerPath,
             ["probeArguments"] = configuration.Config.ProbeArguments,
             ["scanArgumentsTemplate"] = configuration.Config.ScanArgumentsTemplate,

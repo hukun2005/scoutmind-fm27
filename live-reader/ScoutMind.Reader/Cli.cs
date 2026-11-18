@@ -111,12 +111,16 @@ public sealed class Cli
         }
 
         var scannerConfig = ScannerConfigLoader.Load(_baseDirectory);
-        var adapter = new ScannerAdapter(scannerConfig.Config);
+        var (backend, rationale) = ScanBackendFactory.Create(options.Engine, scannerConfig);
+        if (!options.Json)
+        {
+            _stdout.WriteLine($"扫描后端    : {backend.Name}（{rationale}）");
+        }
 
         ProbeResult probe;
         try
         {
-            probe = await adapter.ProbeAsync(ReaderState.Compatible, cancellationToken).ConfigureAwait(false);
+            probe = await backend.ProbeAsync(ReaderState.Compatible, cancellationToken).ConfigureAwait(false);
         }
         catch (ScanRefusedException ex)
         {
@@ -166,11 +170,15 @@ public sealed class Cli
         }
 
         var scannerConfig = ScannerConfigLoader.Load(_baseDirectory);
-        var adapter = new ScannerAdapter(scannerConfig.Config);
+        var (backend, rationale) = ScanBackendFactory.Create(options.Engine, scannerConfig);
+        if (!options.Json)
+        {
+            _stdout.WriteLine($"扫描后端    : {backend.Name}（{rationale}）");
+        }
 
         try
         {
-            adapter.EnsureScannerConfigured();
+            backend.EnsureUsable();
         }
         catch (ScannerConfigurationException ex)
         {
@@ -196,7 +204,7 @@ public sealed class Cli
             ProbeResult probe;
             try
             {
-                probe = await adapter.ProbeAsync(ReaderState.Compatible, cancellationToken).ConfigureAwait(false);
+                probe = await backend.ProbeAsync(ReaderState.Compatible, cancellationToken).ConfigureAwait(false);
             }
             catch (ScannerConfigurationException ex)
             {
@@ -233,7 +241,7 @@ public sealed class Cli
         ScanResult result;
         try
         {
-            result = await adapter
+            result = await backend
                 .ScanAsync(
                     new ScanRequest(outputDirectory, timeoutSeconds, null),
                     ReaderState.ProbePassed,

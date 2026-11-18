@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    诊断工具：直接调用 ScoutMind.FMReader 引擎，打印 status / probe / scan 的结果（JSON）。
+    它不绕过任何闸门：未验证的构建同样被拒绝，只是把拒绝原因显示得更具体，
+    用于 docs/FM27-VERSION-VERIFICATION.md 描述的偏移核对流程。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ScoutMind.FMReader.Diag</RootNamespace>
+    <AssemblyName>ScoutMind.FMReader.Diag</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\ScoutMind.FMReader\ScoutMind.FMReader.csproj" />
+  </ItemGroup>
+
+</Project>

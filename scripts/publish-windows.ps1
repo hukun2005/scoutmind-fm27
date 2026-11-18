@@ -8,7 +8,7 @@
       * ScoutMind.LiveReader.exe  —— 读取器（检测、版本闸门、probe、扫描）
       * ScoutMind.Agent.exe       —— 桌面代理（调度扫描、同步后端）
     两个 exe 放在同一目录，代理默认把同目录的 ScoutMind.LiveReader.exe 当作读取器。
-    随后把 compatibility.json 与 scanner.sample.json 复制到发布目录。
+    随后把 compatibility.json 与 scanner.sample.json 复制到发布目录（scanner 配置仅在需要外部扫描器时使用）。
 
 .PARAMETER Configuration
     生成配置，默认 Release。
@@ -136,7 +136,7 @@ Get-ChildItem -LiteralPath $publishRoot | Sort-Object Name | Format-Table Name, 
 Write-Host ''
 Write-Host '后续步骤：' -ForegroundColor Green
 Write-Host '  1. 运行发布目录中的 ScoutMind.LiveReader.exe status 检查检测与版本闸门结果。'
-Write-Host '  2. 把 scanner.sample.json 复制为 scanner.json，填写外部扫描器路径后再执行 probe / scan。'
+Write-Host '  2. 直接运行 ScoutMind.LiveReader.exe scan 即可：默认使用内置只读引擎（ScoutMind.FMReader），不需要外部扫描器。'
 Write-Host '  3. 只有 compatibility.json 中状态为 verified 的构建才允许读取；candidate 条目会被拒绝。'
 Write-Host '  4. 如需同步后端，在 ScoutMind.Agent.exe 同目录创建 agent.json 或设置 SCOUTMIND_API_TOKEN。'
 Write-Host '  5. 启动游戏后运行 ScoutMind.Agent.exe scan --sync，或使用 watch --interval-minutes 定时扫描。'

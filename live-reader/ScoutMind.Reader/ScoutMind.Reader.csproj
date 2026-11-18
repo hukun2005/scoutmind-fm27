@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ScoutMind.Contracts\ScoutMind.Contracts.csproj" />
+    <ProjectReference Include="..\ScoutMind.FMReader\ScoutMind.FMReader.csproj" />
   </ItemGroup>
 
   <ItemGroup>
