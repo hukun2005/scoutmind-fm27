@@ -15,6 +15,12 @@ LLM 只负责理解问题与组织解释，所有数字来自数据库和算法�
 > 已用真实导出（FMSuperScout 1.7.3，48,089 名球员）完成审查与导入验收，记录见
 > [docs/acceptance/REAL-RUN-2026-11-18.md](docs/acceptance/REAL-RUN-2026-11-18.md)。
 >
+> 读取器现在自带原生只读引擎（`live-reader/ScoutMind.FMReader`，内嵌 FMSuperScout 内核，MIT）：
+> 不再需要单独安装/启动 FMSuperScout，`ScoutMind.LiveReader.exe scan` 默认走内置引擎。
+> 版本闸门按构建号 + 插件版本放行；本机 27.1（build 26620374）目前是 `candidate`，会被拒绝扫描，
+> 见 [docs/PHASE-REPORT-native-reader.md](docs/PHASE-REPORT-native-reader.md) 与
+> [docs/FM27-VERSION-VERIFICATION.md](docs/FM27-VERSION-VERIFICATION.md)。
+>
 > 这份导出没有 `clubs` 数组、没有俱乐部 ID，也没有主执教俱乐部：ScoutMind 用独立的俱乐部解析层
 > （稳定 uid + 来源 + 可信度）、手动指定本队与阵容 CSV 导入来解决，见
 > [docs/CLUB_RESOLUTION.md](docs/CLUB_RESOLUTION.md)。
