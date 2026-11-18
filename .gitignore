@@ -43,3 +43,9 @@ Thumbs.db
 
 # Acceptance run logs (contain host names and timestamps)
 docs/acceptance/*.txt
+live-reader/**/bin/
+live-reader/**/obj/
+live-reader/tests/**/bin/
+live-reader/tests/**/obj/
+live-reader/tools/**/bin/
+live-reader/tools/**/obj/
