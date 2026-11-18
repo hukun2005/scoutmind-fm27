@@ -117,7 +117,8 @@ function Invoke-Validate {
         Write-Host $section.title
         foreach ($row in $section.rows) {
             $detail = if ($row.detail) { "  ($($row.detail))" } else { "" }
-            Write-Host ("    {0,-24} {1}{2}" -f $row.label, $row.value, $detail)
+            $value = if ($row.value -is [datetime]) { $row.value.ToString('s') } else { $row.value }
+            Write-Host ("    {0,-24} {1}{2}" -f $row.label, $value, $detail)
         }
         Write-Host ""
     }

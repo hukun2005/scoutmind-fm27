@@ -79,14 +79,14 @@ if ($categories) { Add-Check '交易类型体系' 'PASS' ("categories={0}" -f ($
 $candidates = Get-Json '/api/v1/transfers/candidates?status=all' 'candidates'
 if ($candidates) { Add-Check '候选事件' 'PASS' ("total={0}" -f $candidates.total) }
 
-# 6. AI 工具
-$conversation = $null
+# 6. AI 工具（只读：验收脚本不应创建会话）
+$conversations = $null
 try {
-    $conversation = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/v1/agent/conversations" -Headers $headers -ContentType 'application/json' -Body '{"title":"acceptance"}'
+    $conversations = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/conversations" -Headers $headers -TimeoutSec 30
 }
 catch { Add-Check 'AI 会话' 'FAIL' $_.Exception.Message }
-if ($conversation) {
-    Add-Check 'AI 会话' 'PASS' ("conversation={0}" -f $conversation.id)
+if ($conversations) {
+    Add-Check 'AI 会话' 'PASS' ("conversations={0}" -f $conversations.total)
 }
 
 $passed = ($checks | Where-Object { $_.Status -eq 'PASS' } | Measure-Object).Count
@@ -94,7 +94,14 @@ $warned = ($checks | Where-Object { $_.Status -eq 'WARN' } | Measure-Object).Cou
 $failed = ($checks | Where-Object { $_.Status -eq 'FAIL' } | Measure-Object).Count
 
 Write-Host ""
-$checks | Format-Table -AutoSize
+# 手动排版：避免 Format-Table 在管道捕获时变成格式对象。
+Write-Host ("{0,-16} {1,-5} {2}" -f '检查项', '结果', '详情')
+Write-Host ("-" * 70)
+foreach ($check in $checks) {
+    $colour = switch ($check.Status) { 'PASS' { 'Green' } 'WARN' { 'Yellow' } default { 'Red' } }
+    Write-Host ("{0,-16} {1,-5} {2}" -f $check.Name, $check.Status, $check.Detail) -ForegroundColor $colour
+}
+Write-Host ("-" * 70)
 Write-Host ("PASS {0} · WARN {1} · FAIL {2}" -f $passed, $warned, $failed)
 Write-Host "提示：WARN 多半意味着数据源没有这些字段（统计/伤病），不是代码缺陷；FAIL 才需要修。"
 
