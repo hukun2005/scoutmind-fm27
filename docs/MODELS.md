@@ -178,3 +178,14 @@ InvestmentScore = (ExpectedFutureValue − TotalCost) / TotalCost
 - **租借**：原属俱乐部与租借俱乐部同时记录；`has_option`/`has_obligation` 为 `NULL` 时界面显示「未知」。
 - **候选转会**：相邻两次快照俱乐部不同且都能解析时生成候选；`kind` 只有在已有租借记录指向目标俱乐部时才是
   `loan`，否则为 `unknown`。候选不进入任何统计，直到被确认。
+
+## 7. 阵容构成（composition）
+
+`squad_overview` 的 `composition` 描述"谁属于哪个梯队、谁在租借"，口径：
+
+- 数据来源是 `squad_assignments`（阵容 CSV / 手动），不是扫描报文——报文不提供梯队与租借；
+- 分类：`senior` / `reserve` / `youth` / `loaned_out` / `loaned_in` / `unknown`；
+- **没有依据的球员进 `unknown`**，不计入任何梯队，也不当作自由球员；
+- `available=false` 时 `missing` 说明缺少什么（例如"没有导入阵容名单"），界面显示为空状态而不是 0；
+- `gaps` 报告"本队有多少人不在名单里""多少人梯队无法确认"，用于提示数据不完整；
+- 每一条归属都带 `source` 与 `confidence`，来自按 ID 关联（1.0）或按字段打分（0.5–1.0）。

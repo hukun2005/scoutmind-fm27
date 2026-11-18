@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..ingestion.importer import ImportOutcome, ScanImporter
+from ..ingestion.squad_csv import csv_template, import_squad_csv
 from ..ingestion.protocol import ProtocolError, ScanPayload
 from ..models import Club, DataSource, FmSave, ImportJob, PlayerInstance, PlayerSnapshot, PlayerStatistic, Transfer
 from ..schemas import SaveCreate
@@ -167,6 +168,45 @@ async def import_transfers(
         raise ProtocolError(f"交易报文不符合协议：{exc}") from exc
     outcome = ScanImporter(db).import_payload(target.id, validated, raw)
     return _outcome_payload(outcome)
+
+
+@router.post("/imports/squad-csv", status_code=201)
+async def import_squad_csv_route(
+    request: Request,
+    save_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
+    """导入 FM27 阵容名单（CSV）。低置信度行只报告，不建立归属。"""
+    content_type = request.headers.get("content-type", "")
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        upload = form.get("file")
+        if upload is None or not hasattr(upload, "read"):
+            raise HTTPException(status_code=422, detail={"code": "missing_file", "message": "缺少 file 字段"})
+        raw = await upload.read()  # type: ignore[union-attr]
+    else:
+        raw = await request.body()
+    if not raw:
+        raise HTTPException(status_code=422, detail={"code": "empty_payload", "message": "CSV 内容为空"})
+    if len(raw) > settings.max_import_bytes:
+        raise HTTPException(status_code=413, detail={"code": "payload_too_large", "message": "文件超过大小限制"})
+    target = db.get(FmSave, save_id) if save_id else save
+    if target is None or target.user_id != user.id:
+        raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
+    try:
+        result = import_squad_csv(db, target.id, raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "invalid_squad_csv", "message": str(exc)}) from exc
+    db.commit()
+    return result.payload()
+
+
+@router.get("/imports/squad-csv/template")
+def squad_csv_template() -> dict[str, Any]:
+    """可直接填写并上传的阵容 CSV 模板。"""
+    return {"filename": "scoutmind-squad.csv", "content": csv_template()}
 
 
 @router.get("/imports")

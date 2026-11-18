@@ -26,6 +26,7 @@ from ..analytics.deals import (
     transfer_review,
 )
 from ..analytics.valuation import estimate_value
+from ..clubs import ClubResolver
 from ..db import get_db
 from ..models import Club, FmSave, PlayerInstance, PlayerValuation, Transfer, TransferCandidate
 from ..schemas import DealRequest
@@ -372,28 +373,17 @@ def _date_or_today(raw: object, fallback: date) -> date:
 @router.get("/clubs")
 def list_clubs(
     save_id: int | None = Query(default=None),
+    query: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
     db: Session = Depends(get_db),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
-    """Clubs of the save with their reputation and league."""
-    target_save = save_id or save.id
-    rows = list(db.scalars(select(Club).where(Club.fm_save_id == target_save).order_by(Club.name)))
-    return {
-        "items": [
-            {
-                "id": club.id,
-                "uid": club.uid,
-                "name": club.name,
-                "nation": club.nation,
-                "league": club.league,
-                "reputation": club.reputation,
-                "is_user_club": club.is_user_club,
-            }
-            for club in rows
-        ],
-        "total": len(rows),
-    }
-
+    """Clubs of the save with provenance: where each record came from and how much to trust it."""
+    target = save_id or save.id
+    items = ClubResolver(db, target).search(query=query, limit=limit)
+    # `club_id` 是既有前端使用的字段名，保留以兼容；`id` 供新代码使用。
+    shaped = [{**item, "club_id": item["id"]} for item in items]
+    return {"items": shaped, "total": len(shaped)}
 
 @router.get("/clubs/{club_id}/transfer-profile")
 def club_profile(club_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:

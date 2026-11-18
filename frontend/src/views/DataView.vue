@@ -9,6 +9,8 @@ import { getCompatibility, getOverview } from '../api/analytics'
 import { listImports, uploadScan } from '../api/imports'
 import { getFmscoutAdapter, importFmscoutDump, previewFmscoutDump } from '../api/fmscout'
 import { validateFmscoutDump } from '../api/status'
+import { fetchSquadCsvTemplate, uploadSquadCsv } from '../api/clubResolution'
+import type { SquadCsvResult, SquadCsvRow } from '../types/clubResolution'
 import { getSaveSummary } from '../api/saves'
 import CoverageBar from '../components/CoverageBar.vue'
 import DataTable from '../components/DataTable.vue'
@@ -344,6 +346,88 @@ async function loadFmscoutInfo(): Promise<void> {
 }
 
 void loadFmscoutInfo()
+// -- 阵容名单 CSV ---------------------------------------------------------------------------------------------
+
+const squadCsvUploading = ref(false)
+const squadCsvResult = ref<SquadCsvResult | null>(null)
+
+/** Upload a squad CSV; low-confidence rows are reported, never applied silently. */
+async function runSquadCsvImport(file: File): Promise<void> {
+  if (!session.activeSaveId) return
+  squadCsvUploading.value = true
+  try {
+    const result = await uploadSquadCsv(session.activeSaveId, file)
+    squadCsvResult.value = result
+    const assigned = result.counts.assigned ?? 0
+    const review = (result.counts.review ?? 0) + (result.counts.unmatched ?? 0)
+    ElMessage.success(`阵容名单：已关联 ${assigned} 人${review > 0 ? `，${review} 行需人工确认` : ''}`)
+  } catch (cause) {
+    ElMessage.error(cause instanceof Error ? cause.message : '阵容名单导入失败')
+  } finally {
+    squadCsvUploading.value = false
+  }
+}
+
+/** Download the CSV template so the operator can fill it in Excel. */
+async function downloadSquadCsvTemplate(): Promise<void> {
+  try {
+    const template = await fetchSquadCsvTemplate()
+    const blob = new Blob([template.content], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = template.filename
+    anchor.click()
+    URL.revokeObjectURL(url)
+  } catch (cause) {
+    ElMessage.error(cause instanceof Error ? cause.message : '模板下载失败')
+  }
+}
+
+const squadCsvInput = ref<HTMLInputElement | null>(null)
+
+/** Records imported through the FMSuperScout adapter, from the backend data-source counters. */
+const fmscoutImported = computed(() => {
+  const entry = session.dataSources.find((item) => item.source === 'fmsuperscout')
+  return entry ? entry.records : 0
+})
+
+const SQUAD_LABELS: Record<string, string> = {
+  senior: '一线队',
+  reserve: '预备队',
+  youth: '青年队',
+  unknown: '未知',
+}
+
+const LOAN_LABELS: Record<string, string> = {
+  none: '无',
+  loaned_in: '租入',
+  loaned_out: '外租',
+  unknown: '未知',
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  assigned: '已关联',
+  review: '待确认',
+  unmatched: '未匹配',
+  invalid: '无效行',
+}
+
+const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
+  { prop: 'name', label: '姓名', minWidth: 140 },
+  { prop: 'club', label: '俱乐部', minWidth: 140 },
+  { prop: 'squad_type', label: '阵容', width: 92, formatter: (row) => SQUAD_LABELS[row.squad_type] ?? row.squad_type },
+  { prop: 'loan_status', label: '租借', width: 84, formatter: (row) => LOAN_LABELS[row.loan_status] ?? row.loan_status },
+  { prop: 'status', label: '结果', width: 88, formatter: (row) => STATUS_LABELS[row.status] ?? row.status },
+  {
+    prop: 'confidence',
+    label: '置信度',
+    width: 84,
+    align: 'right',
+    formatter: (row) => (row.confidence === null ? '—' : row.confidence.toFixed(2)),
+  },
+  { prop: 'reason', label: '说明', minWidth: 200 },
+]
 </script>
 
 <template>
@@ -562,10 +646,14 @@ void loadFmscoutInfo()
 
         <ErrorState v-if="fmscoutError" :error="fmscoutError" compact title="FMSuperScout 处理失败" />
         <EmptyState
-          v-else-if="!fmscoutReport && !fmscoutBusy"
+          v-else-if="!fmscoutReport && !fmscoutBusy && !fmscoutImported"
           title="还没有导入过 FMSuperScout 数据"
           description="在 FMSuperScout 里按 F9 导出，然后选择该 dump 文件预览或导入"
         />
+        <div v-else-if="!fmscoutReport && fmscoutImported" class="sm-text-xs sm-text-soft">
+          已从 FMSuperScout 导入
+          {{ fmscoutImported }} 条记录（来自数据来源统计）；导入明细见下方「导入历史」。
+        </div>
 
         <div v-if="validation" class="fmscout__validation">
           <el-alert
@@ -665,6 +753,58 @@ void loadFmscoutInfo()
             dense
             :show-pagination="false"
             caption="转换后的样例球员（预览模式不写库）"
+          />
+        </template>
+      </div>
+    </SectionCard>
+
+    <SectionCard
+      title="阵容名单 CSV"
+      subtitle="FMSuperScout 不提供一线队/预备队/青年队与租借状态；导入名单后阵容分析才能分梯队"
+    >
+      <div class="squad-csv">
+        <div class="squad-csv__actions">
+          <input
+            ref="squadCsvInput"
+            type="file"
+            accept=".csv,text/csv"
+            class="squad-csv__file"
+            @change="(event: Event) => {
+              const input = event.target as HTMLInputElement
+              const file = input.files?.[0]
+              if (file) void runSquadCsvImport(file)
+              input.value = ''
+            }"
+          />
+          <el-button size="small" :loading="squadCsvUploading" @click="(squadCsvInput as HTMLInputElement | null)?.click()">
+            选择 CSV 并导入
+          </el-button>
+          <el-button size="small" text @click="downloadSquadCsvTemplate">下载模板</el-button>
+        </div>
+        <p class="squad-csv__hint">
+          列名可用中文或英文：姓名/Name、球员ID、俱乐部/Club、阵容/Squad、租借/Loan、出生日期、国籍。
+          有球员 ID 时按 ID 关联（置信度 1.0）；否则用姓名+生日+国籍+俱乐部打分，低于 0.8 只报告、不关联。
+        </p>
+
+        <template v-if="squadCsvResult">
+          <div class="squad-csv__counts">
+            <el-tag type="success" effect="plain">已关联 {{ squadCsvResult.counts.assigned ?? 0 }}</el-tag>
+            <el-tag type="warning" effect="plain">待确认 {{ squadCsvResult.counts.review ?? 0 }}</el-tag>
+            <el-tag type="info" effect="plain">未匹配 {{ squadCsvResult.counts.unmatched ?? 0 }}</el-tag>
+            <el-tag v-if="squadCsvResult.clubs_created > 0" type="info" effect="plain">
+              新建俱乐部 {{ squadCsvResult.clubs_created }}
+            </el-tag>
+          </div>
+          <ul v-if="squadCsvResult.warnings.length > 0" class="squad-csv__warnings">
+            <li v-for="warning in squadCsvResult.warnings" :key="warning">{{ warning }}</li>
+          </ul>
+          <DataTable
+            :columns="squadCsvColumns"
+            :rows="squadCsvResult.rows"
+            row-key="index"
+            dense
+            :show-pagination="false"
+            caption="每行匹配结果（待确认/未匹配的行不会写入归属）"
           />
         </template>
       </div>
@@ -1088,6 +1228,40 @@ ScoutMind.LiveReader.exe scan --out D:\scans\scan.json</pre>
   .cli-layout {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+.squad-csv {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.squad-csv__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.squad-csv__file {
+  display: none;
+}
+
+.squad-csv__hint {
+  margin: 0;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.squad-csv__counts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.squad-csv__warnings {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--el-color-warning);
+  font-size: 12px;
 }
 </style>
 
