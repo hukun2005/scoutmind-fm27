@@ -6,13 +6,13 @@
 ## P0-5 自研读取器验收
 
 ```powershell
-# 1. 发布读取器
-dotnet publish .\live-reader\ScoutMind.LiveReader -c Release -o .\live-reader\publish
+# 1. 发布读取器（自包含单文件，输出到 publish\win-x64）
+.\scripts\publish-windows.ps1
 
 # 2. 记录 status + probe（probe 不通过不会 scan）
 .\scripts\acceptance-live-reader.ps1
 
-# 3. 只有在 probe 通过后才尝试扫描
+# 3. 只有在 probe 通过后才尝试扫描（产物写到 exports\）
 .\scripts\acceptance-live-reader.ps1 -IncludeScan
 ```
 
@@ -141,8 +141,8 @@ cd ..
 ### 第 5 步：读取器 status / probe（P0-5）
 
 ```powershell
-dotnet publish .\live-reader\ScoutMind.LiveReader -c Release -o .\live-reader\publish
-.\scripts\acceptance-live-reader.ps1
+.\scripts\publish-windows.ps1          # 输出 publish\win-x64\ScoutMind.LiveReader.exe
+.\scripts\acceptance-live-reader.ps1  # 自动在该路径查找读取器
 ```
 
 - `probe` 通过（输出里有 `verified`/`supported`）才继续；脚本只有在这个前提下才会 `scan`。
