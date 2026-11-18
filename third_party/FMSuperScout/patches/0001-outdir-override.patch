@@ -1,0 +1,17 @@
+diff --git "a/.tmp-orig\\Dumper.cs" "b/src\\Dumper.cs"
+index b69df8e..9431a24 100644
+--- "a/.tmp-orig\\Dumper.cs"
++++ "b/src\\Dumper.cs"
+@@ -5,8 +5,11 @@ namespace FMSuperScout;
+ internal static class Dumper
+ {
+ 
++    // ScoutMind 本地修改：允许把 dump 写到调用方指定的目录，避免落到 FMSuperScout 自己的数据目录。
++    // 未设置环境变量时行为与上游完全一致。
+     private static readonly string OutDir =
+-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FMSuperScout");
++        Environment.GetEnvironmentVariable("SCOUTMIND_FMREADER_OUTDIR")
++        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FMSuperScout");
+ 
+     // Diagnose-data (histogram van alle voorkomende class-offsets, gezet tijdens de scan).
+     internal static Dictionary<int, long> AllOffHist = new();

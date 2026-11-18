@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>ScoutMind.FMReader</RootNamespace>
+    <AssemblyName>ScoutMind.FMReader</AssemblyName>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      上游 FMSuperScout 内核（MIT）。文件逐字保留在 third_party/ 下，只有一个已记录的改动
+      （Dumper 的输出目录可通过环境变量覆盖，见 patches/0001-outdir-override.patch）。
+      上游类型是 internal，因此必须在同一程序集内编译；包装层只做接口与协议转换。
+    -->
+    <Compile Include="../../third_party/FMSuperScout/src/Dumper.cs" Link="Vendored/Dumper.cs" />
+    <Compile Include="../../third_party/FMSuperScout/src/Fields.cs" Link="Vendored/Fields.cs" />
+    <Compile Include="../../third_party/FMSuperScout/src/Host.cs" Link="Vendored/Host.cs" />
+    <Compile Include="../../third_party/FMSuperScout/src/Json.cs" Link="Vendored/Json.cs" />
+    <Compile Include="../../third_party/FMSuperScout/src/MemScan.cs" Link="Vendored/MemScan.cs" />
+    <Compile Include="../../third_party/FMSuperScout/src/MemScan.Win.cs" Link="Vendored/MemScan.Win.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../ScoutMind.Contracts/ScoutMind.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Versioning/verified-versions.json" />
+    <EmbeddedResource Include="Integration/upstream-attributes.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ScoutMind.FMReader.Tests" />
+  </ItemGroup>
+
+</Project>
