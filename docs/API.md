@@ -270,3 +270,123 @@
 ```
 
 回答硬性要求：任何数字都来自工具结果；样本不足时必须给出 `insufficient_sample` 并拒绝精确估值；必须出现 `sample` 与 `risks` 两个 section。
+
+## 11. V2 智能模块接口
+
+所有 V2 接口沿用第 1 节约定：缺失值为 `null`，响应带 `algorithm_version`，未配置令牌时不做鉴权。
+
+### 11.1 阵容智能 `/squad/*`
+
+- `GET /squad/overview?save_id=&profile=&coverage=&depth=&age=&fit=&wage=&potential=`
+  返回六维评分、位置深度、年龄结构、工资结构、合同预警、短板排序与接班规划：
+```json
+{"save_id": 1, "club": {"id": 1, "name": "Northbridge United", "league": "Premier Division"},
+ "squad_size": 26, "score": 74.66,
+ "profile": {"key": "balanced", "name": "均衡评估", "weights": {"coverage": 0.25, "depth": 0.2, "age": 0.15, "fit": 0.15, "wage": 0.15, "potential": 0.1}, "overridden": false},
+ "components": [{"key": "coverage", "label": "位置覆盖（C）", "value": 100.0, "weight": 0.25,
+                 "evidence": ["10/10 个位置有人可用"], "missing": [], "available": true}],
+ "depth": [{"slot": "CB", "slot_name": "中后卫", "count": 4, "required": 4, "importance": 1.0,
+            "coverage": 1.0, "depth_quality": 0.72, "status": "一般",
+            "suggestion": "寻找替补：中后卫替补与主力差距过大", "players": [{"instance_id": 12, "name": "..."}]}],
+ "age_structure": {"average_age": 25.8, "median_age": 26.0, "buckets": [{"bucket": "21-24", "count": 3, "share": 0.12, "ideal_share": 0.3, "players": []}]},
+ "wage_structure": {"total": 1890897, "median": 52000, "top3_share": 0.18, "top_earners": []},
+ "contracts": {"today": "2027-03-01", "buckets": {"expired": [], "6m": [], "12m": [], "24m": [], "later": [], "unknown": []}, "at_risk_count": 6, "at_risk_names": []},
+ "weakness": [{"slot": "LW", "slot_name": "左边锋", "severity": 46.8, "count": 3, "required": 2, "status": "一般", "suggestion": "...", "evidence": ["..."]}],
+ "succession": [{"player": {...}, "internal_options": [], "ready_now": [], "external_profile": {"slot": "ST", "age_max": 23, "ca_floor": 120}, "verdict": "内部有培养对象", "evidence": []}],
+ "algorithm_version": "squad-score-1", "data_gaps": []}
+```
+  `components[].value` 为 `null` 表示该维度缺少输入，`missing` 说明原因，权重会在可用维度间重新分配。
+- `GET /squad/depth` — 只返回深度表（`items` / `squad_size` / `missing_position`）。
+- `GET /squad/contracts` — 合同分桶。
+- `GET /squad/succession` — 接班规划。
+- `GET /squad/profiles` — 权重模板列表（含 `default_weights`）。
+- `PUT /squad/profiles` — 新建或更新模板：`{"key", "name", "description", "weights": {"coverage": 0.3, ...}, "is_default"}`；
+  权重自动归一化。
+- `GET /squad/weights` — 展示一次请求会使用的权重，不修改任何状态。
+- `GET /squad/club` — 当前被视为「我的俱乐部」的球队；没有时返回 404 `user_club_missing`。
+
+### 11.2 智能球探引擎 `/recruitment/*`
+
+- `GET /recruitment/model` — 位置属性模板与六维权重（口径说明）。
+- `POST /recruitment/search` — `{"slot": "ST", "min_age": 18, "max_age": 23, "max_value": 30000000, "limit": 20}`；
+  返回 `items[]`（每条含 `player` / `score` / `dimensions[]` / `position_template` / `strengths` / `risks` / `cost_estimate`）
+  与 `data_gaps`。
+- `GET /recruitment/player/{instance_id}` — 单个球员的完整球探报告。
+- `POST /recruitment/compare` — `{"instance_ids": [11, 12]}`；返回 `shared_dimensions`，只比较所有球员都能评分的维度。
+- `GET /recruitment/hidden-value?slot=&limit=` — 隐藏价值命中与规则覆盖：
+```json
+{"items": [{"rule": "contract_expiring", "rule_label": "合同即将到期", "signal": 74.0, "player": {...}, "evidence": ["合同 6 个月后到期（2027-01-28）"]}],
+ "rules": {"evaluated": [{"key": "contract_expiring", "label": "合同即将到期"}], "unavailable": [{"key": "transfer_listed", "label": "被俱乐部挂牌", "missing_fields": ["transfer_listed"], "description": "..."}]}}
+```
+- `GET /recruitment/shortlists` / `GET /recruitment/shortlists/{id}` — 存储的候选名单。
+- `POST /recruitment/shortlists` — `{"name": "中锋引援", "slot": "ST", "budget": 30000000, "limit": 10}`；
+  返回生成结果与 `shortlist_id`。
+
+### 11.3 球员发展 `/development/*`
+
+- `GET /development/board?limit=&min_age=` — 至少两个快照的球员按成长速率排序。
+- `GET /development/player/{instance_id}`:
+```json
+{"player": {"instance_id": 12, "name": "...", "age": 18, "ca": 122, "pa": 165},
+ "points": [{"date": "2026-08-01", "age": 18, "ca": 110, "pa": 165, "ca_delta": null, "change_label": "初始记录"}],
+ "rates": {"overall_per_month": 2.0, "recent_per_month": 2.0, "classification": "fast", "formula": "GrowthRate = (CA_t − CA_t−1) / Δ月", "sample_size": 1, "intervals": []},
+ "advice": [{"action": "增加比赛时间", "reason": "...", "confidence": "medium", "evidence": ["..."]}],
+ "outlook": {"band": "on_track", "label": "大概率达到潜力区间", "probability": 0.96,
+             "projected_low": 130.0, "projected_high": 165.0, "projected_center": 139.0, "horizon_age": 24,
+             "rationale": "...这是等级与区间，不是精确 CA 预测"},
+ "data_gaps": [], "algorithm_version": "development-1"}
+```
+
+### 11.4 表现分析 `/performance/*`
+
+- `GET /performance/metrics` — 每个位置组跟踪的指标。
+- `GET /performance/board?slot=&min_minutes=&limit=` — 有统计的球员按产出百分位排序。
+- `GET /performance/player/{instance_id}` — 分位置产出、趋势与能力对比：
+```json
+{"season": {"period": "2026/27", "minutes_played": 1800, "goals": 8, "xg": 7.5},
+ "metrics": [{"key": "goals", "label": "进球", "total": 8, "per90": 1.164, "percentile": 0.93, "peer_sample": 22, "higher_is_better": true, "available": true}],
+ "trend": {"available": true, "windows": ["season"], "unavailable_windows": {"last5": "需要逐场统计，数据源未提供"}},
+ "ability_vs_output": {"available": true, "ability_percentile": 0.62, "output_percentile": 0.93, "gap": 0.31, "verdict": "表现优于属性预期"},
+ "data_gaps": []}
+```
+
+### 11.5 转会成本与复盘 `/transfers/*`
+
+- `GET /transfers/review?save_id=&club_id=` — 本队已完成交易的复盘（同类分位、能力与身价变化、结论、依据）。
+- `GET /transfers/categories` — 交易类型体系：`categories[]`（`label` / `count` / `known_spend` / `counts_in_stats` / `treatment`）。
+- `GET /transfers/{transfer_id}/cost?wage_period=week&contract_years=` — 单个交易的总成本模型。
+- `POST /transfers/deal-report` — `{"instance_id": 11, "fee": 30000000, "budget": 35000000}`；
+  返回 `cost`（含每个成本项 `status`）、`investment`、`rows[]`、`recommendation`、`data_gaps`。
+- `GET /transfers/investment?instance_id=&total_cost=` — 给定总成本的投资效率。
+
+### 11.6 AI 体育总监 `/agent/*`
+
+- 工具名固定为：`get_squad_overview`、`get_player_profile`、`search_players`、`evaluate_player`、`compare_players`、
+  `analyze_position_depth`、`find_transfer_targets`、`analyze_transfer_history`、`get_player_growth_history`、
+  `generate_recruitment_report`。
+- 回答新增两段：
+```json
+{"reliability": {"facts": ["阵容评分"], "computed": ["六个维度"], "inferences": ["推荐理由与风险"],
+                 "unavailable": ["数据源未提供伤病记录"], "rule": "数据库事实 / 模型计算结果 / AI 推断 / 无法获得的数据 四类必须分开呈现"},
+ "citations": [{"tool": "get_squad_overview", "arguments": {"save_id": 1}, "summary": "...", "warnings": []}]}
+```
+- `GET /agent/reports?save_id=&limit=` — 已保存的 AI 报告（含可靠性分类与引用）。
+
+## 12. 外部数据源适配
+
+- `GET /imports/fmscout/adapter` — 上游身份、许可证、可映射/缺失/忽略字段与属性映射表。
+- `POST /imports/fmscout/preview` — 上传 dump（multipart `file` 或原始 JSON），只转换并返回报告，不写库：
+```json
+{"report": {"players_total": 3, "players_skipped": 1, "players_converted": 2, "clubs_converted": 2,
+            "user_club": "Northbridge United", "attributes_mapped": 12, "attributes_ignored": ["Corners"],
+            "mapped_fields": ["id", "name", "ca", "pa", "attrs"],
+            "absent_fields": ["minutes_played", "appearances", "goals", "assists", "statistics", "transfers"],
+            "ignored_fields": [{"field": "professionalism", "reason": "隐藏性格属性，ScoutMind 未建模"}],
+            "coverage": {"ca": 1.0, "pa": 1.0, "market_value": 0.5},
+            "warnings": ["..."]},
+ "scan": {"scan_id": "fmscout-1a2b...", "game_date": "2027-03-01"},
+ "counts": {"clubs": 2, "players": 2},
+ "sample_players": [{"name": "Adam Wharton", "ca": 148, "pa": 165}]}
+```
+- `POST /imports/fmscout` — 转换并幂等导入，返回同一份 `report` 与 `import`（字段同 `/imports/scan`）。
+- `POST /imports/scan` 也会自动识别 dump：响应多一个 `adapted_by` 字段说明这次导入经过适配层转换。

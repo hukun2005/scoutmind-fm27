@@ -25,6 +25,16 @@ ScoutMind 的表结构由 Alembic 管理，升级步骤必须可重复执行且�
 - `minor` 升级：新增字段，后端忽略未知字段并记录 warning；
 - `major` 升级：后端拒绝旧报文，读取器与后端必须同步升级。
 
+## V2 升级（2026-11）
+
+- 新增迁移 `ba679f76cb1b`：`tactical_profiles`、`player_statistics`、`scouting_reports`、
+  `recruitment_shortlists`、`recruitment_shortlist_items`、`ai_reports`。只新增表与索引，不改写既有数据。
+- 协议 `1.0` 兼容扩展：`player.statistics[]`（赛季统计块）、`transfer_type=loan_with_option`、
+  `fee_components[].type=buy_option`、`player.age`（数据源直接给年龄时使用）、`source=fmsuperscout`。
+  旧报文不写这些字段时行为不变，缺失即标记为不可用。
+- 新增 FMSuperScout 适配层（`app/ingestion/adapters`），导入入口 `/imports/fmscout`，`/imports/scan` 同时支持自动识别。
+- 旧演示数据库可直接迁移；重新生成演示数据用 `python scripts/seed_demo.py --force`。
+
 ## 回滚
 
 ```powershell

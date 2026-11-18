@@ -39,6 +39,8 @@ X-ScoutMind-Token: <token>
 
 - 项目代码采用 MIT 许可证（见 `LICENSE`）。
 - 若复用 FMSuperScout 等上游代码，必须保留其版权与许可证文本，并在 `docs/` 中记录来源。
+- 当前实现对 FMSuperScout **只做数据交换**：只读其导出的 JSON，不复用代码；上游为 MIT，来源与字段依据记录在
+  `docs/FMSUPERSCOUT.md`。不写对方目录、不写游戏存档、不向游戏进程写入数据。
 - 代码许可证不等于游戏数据、商标、素材或游戏条款的授权；商业化前需单独审查，不宣称获得 SEGA / Sports Interactive 授权。
 
 ## 7. 依赖与供应链

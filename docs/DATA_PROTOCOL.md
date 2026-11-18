@@ -61,8 +61,31 @@
 }
 ```
 - `save_local_uid` 必填；`name` 必填；其余缺失写 `null`。
+- `age` 可选：数据源直接给出年龄时写入，导入时优先使用它，不再由 `birth_date` 反推。
 - 属性键使用 `player_attributes` 字典（英文小写下划线，如 `passing`/`off_the_ball`）；未知键记录 `warnings` 并忽略，不写入伪值。
 - 身价、工资为整数（游戏货币单位），不做汇率换算。
+
+#### 可选：赛季统计块
+
+读取器能读到比赛统计时，`player` 行可以带 `statistics` 数组（每个统计周期一项）。整块可省略，
+省略时表现分析会明确报告「没有统计」，不会用 0 代替：
+
+```json
+{
+  "save_local_uid": "770123",
+  "name": "Adam Wharton",
+  "statistics": [
+    {"period": "2026/27", "competition": "Premier League", "appearances": 31, "starts": 29,
+     "minutes_played": 2580, "goals": 4, "assists": 7, "shots": 38, "shots_on_target": 15, "xg": 5.2,
+     "key_passes": 42, "passes_attempted": 1580, "passes_completed": 1420, "dribbles": 36,
+     "tackles": 68, "interceptions": 51, "clearances": 24, "aerials_won": 33,
+     "saves": null, "conceded": null, "clean_sheets": null}
+  ]
+}
+```
+
+- `period` 必填（如 `2026/27`）；同一球员同一 `period` 只保留一行：新观测时间更晚时覆盖计数，否则跳过。
+- 所有指标可空；不适用的指标写 `null`（门将行不写射门，前锋行不写扑救）。
 
 ### transfer
 ```json
@@ -93,10 +116,13 @@
 ```
 
 枚举：
-- `transfer_type`: `permanent | loan | free | end_of_contract | clause_release | swap | youth_promotion | other`
+- `transfer_type`: `permanent | loan | loan_with_option | free | end_of_contract | clause_release | swap | youth_promotion | other`
 - `status`: `completed | pending | future | cancelled | failed | unknown`
-- `fee_components[].type`: `base_fee | installment | addon | signing_bonus | agent_fee | loan_fee | sell_on | buy_back | wage_contribution`
+- `fee_components[].type`: `base_fee | installment | addon | signing_bonus | agent_fee | loan_fee | sell_on | buy_back | buy_option | wage_contribution`
 - `fee_components[].status`: `paid | scheduled | triggered | untriggered | conditional_unknown | unknown`
+
+`loan_with_option` 表示租借附买断：租借费用写 `loan_fee`，买断条款写 `buy_option` 且 `status=untriggered`，
+触发前不计入任何已支付金额。
 
 只有 `status=completed` 且至少有一个金额来源的交易进入成交统计。`addons_potential` 与 `untriggered` 组件不计入已支付金额。
 
@@ -122,3 +148,15 @@
 ## 6. 版本策略
 
 `schema_version` 采用 `major.minor`；`major` 变化表示不兼容，后端拒绝并提示升级；`minor` 变化向后兼容，未知字段忽略并记录 warning。读取器与协议版本必须写入 `import_jobs`，便于追溯。
+
+## 6. 来源适配层（source = fmsuperscout）
+
+第三方读取器（FMSuperScout）的导出由适配层转换成本协议，转换后的报文与人工/读取器报文走同一条导入路径：
+
+- `source` 新增取值 `fmsuperscout`；
+- `scan.scan_id` = `fmscout-<dump 内容 sha256 前 16 位>`，同一份导出重复导入返回 `duplicate=true`；
+- `clubs[].uid` 由俱乐部名称派生（`fs-<slug>`），`clubs[].is_user_club` 由导出里的 `meta.myClub` 决定；
+- `coverage` 中 `transfers` 与 `statistics` 固定为 `false`：该导出不含转会与统计；
+- `warnings` 首条固定声明数据来自 FMSuperScout（MIT），其后是适配层报告的问题。
+
+字段映射、忽略规则与哨兵处理见 [FMSUPERSCOUT.md](FMSUPERSCOUT.md)。
