@@ -9,15 +9,31 @@
 #   .\scripts\acceptance-live-reader.ps1 -IncludeScan        # probe 通过后额外尝试 scan
 #   .\scripts\acceptance-live-reader.ps1 -Reader .\live-reader\publish\ScoutMind.LiveReader.exe
 param(
-    [string]$Reader = ".\live-reader\publish\ScoutMind.LiveReader.exe",
+    # 留空则按 publish\win-x64 → live-reader\publish → 仓库根目录 的顺序自动查找
+    [string]$Reader,
     [string]$OutDir = ".\docs\acceptance",
     [switch]$IncludeScan,
     [string]$Out = ".\exports\scan-acceptance.json"
 )
 $ErrorActionPreference = 'Stop'
 
-if (-not (Test-Path $Reader)) {
-    throw "找不到读取器：$Reader。先发布：dotnet publish .\live-reader\ScoutMind.LiveReader -c Release -o .\live-reader\publish"
+$repoRoot = Split-Path -Parent $PSScriptRoot
+if (-not $Reader) {
+    $candidates = @(
+        (Join-Path $repoRoot 'publish\win-x64\ScoutMind.LiveReader.exe'),
+        (Join-Path $repoRoot 'publish\ScoutMind.LiveReader.exe'),
+        (Join-Path $repoRoot 'live-reader\publish\ScoutMind.LiveReader.exe'),
+        (Join-Path $repoRoot 'ScoutMind.LiveReader.exe')
+    )
+    $Reader = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+if (-not $Reader -or -not (Test-Path $Reader)) {
+    throw @"
+找不到 ScoutMind.LiveReader.exe。先发布：
+  .\scripts\publish-windows.ps1                 （自包含单文件，输出到 publish\win-x64）
+或
+  dotnet publish .\live-reader\ScoutMind.Reader -c Release -o .\publish\win-x64
+"@
 }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -27,8 +43,10 @@ function Invoke-Step {
     param([string]$Name, [string[]]$Arguments)
     Write-Host "== $Name ==" -ForegroundColor Cyan
     $output = & $Reader @Arguments 2>&1 | Out-String
+    $code = $LASTEXITCODE
     Write-Host $output
-    return @{ name = $Name; arguments = $Arguments; output = $output }
+    Write-Host ("退出码：{0}" -f $code)
+    return @{ name = $Name; arguments = $Arguments; output = $output; exit = $code }
 }
 
 $results = @()
@@ -47,7 +65,7 @@ if ($IncludeScan) {
     }
     else {
         New-Item -ItemType Directory -Force -Path (Split-Path $Out) | Out-Null
-        $scan = Invoke-Step -Name 'scan' -Arguments @('scan', '--out', $Out)
+        $scan = Invoke-Step -Name 'scan' -Arguments @('scan', '--output', (Split-Path $Out -Parent))
         $results += $scan
         $scanState = if (Test-Path $Out) { "written:$Out" } else { 'no-output' }
         $scanOutput = $scan.output
@@ -66,7 +84,7 @@ $header = @(
 
 $body = $header
 foreach ($result in $results) {
-    $body += "--- $($result.name) $(($result.arguments -join ' ')) ---`n$($result.output)`n"
+    $body += "--- $($result.name) $(($result.arguments -join ' ')) (exit=$($result.exit)) ---`n$($result.output)`n"
 }
 if ($scanOutput) { $body += "--- scan summary ---`n$scanOutput`n" }
 

@@ -118,13 +118,18 @@ Invoke-Captured -File 'acceptance-e2e.txt' -Action {
 
 # ---------------------------------------------------------------- 3. P0-5 读取器
 Write-Section "3/4 读取器验收（P0-5）"
-$reader = Join-Path $root 'live-reader\publish\ScoutMind.LiveReader.exe'
+$readerCandidates = @(
+    (Join-Path $root 'publish\win-x64\ScoutMind.LiveReader.exe'),
+    (Join-Path $root 'publish\ScoutMind.LiveReader.exe'),
+    (Join-Path $root 'live-reader\publish\ScoutMind.LiveReader.exe')
+)
+$reader = $readerCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($SkipReader) {
     "已按参数跳过。" | Out-File (Join-Path $outDir 'acceptance-live-reader.txt') -Encoding utf8
     Write-Host "按参数跳过。"
 }
-elseif (-not (Test-Path $reader)) {
-    "读取器未发布：$reader`n发布命令：dotnet publish .\live-reader\ScoutMind.LiveReader -c Release -o .\live-reader\publish" |
+elseif (-not $reader) {
+    "读取器未发布（查找过：$($readerCandidates -join ' ; ')）`n发布命令：.\scripts\publish-windows.ps1" |
         Out-File (Join-Path $outDir 'acceptance-live-reader.txt') -Encoding utf8
     Write-Host "读取器未发布，已记录为 skipped。" -ForegroundColor Yellow
 }
