@@ -64,7 +64,11 @@ if ($overview) {
 # 4. 分析模块
 $squad = Get-Json "/api/v1/squad/overview$query" 'squad'
 if ($squad) {
-    Add-Check '阵容评分' $(if ($null -ne $squad.score) { 'PASS' } else { 'WARN' }) ("score={0} size={1}" -f $squad.score, $squad.squad_size)
+    # 没有本队（导出缺 meta.myClub）时不是故障，而是数据边界：阵容评分无从计算。
+    $reason = if ($null -ne $squad.score) { "score={0} size={1}" -f $squad.score, $squad.squad_size }
+              elseif (-not $squad.club) { "club=null：导出没有 meta.myClub，阵容模块无法确定本队" }
+              else { "score=null size={0}" -f $squad.squad_size }
+    Add-Check '阵容评分' $(if ($null -ne $squad.score) { 'PASS' } else { 'WARN' }) $reason
 }
 $board = Get-Json "/api/v1/performance/board?limit=5$($(if ($SaveId -gt 0) { "&save_id=$SaveId" }))" 'performance'
 if ($board) {

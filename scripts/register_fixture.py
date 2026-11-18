@@ -74,6 +74,12 @@ def main() -> int:
     parser.add_argument("--keep-manager", action="store_true", help="保留 meta.manager（默认删除）")
     parser.add_argument("--name", help="目标文件名，默认 real_sample_NN.json")
     parser.add_argument("--notes", default="", help="写进 manifest 的备注")
+    parser.add_argument(
+        "--max-players",
+        type=int,
+        default=0,
+        help="只保留前 N 名球员（优先保留有俱乐部的），用于把 90MB 的真实导出压成可提交的样本；0 表示不裁剪",
+    )
     args = parser.parse_args()
 
     source = Path(args.path) if args.path else latest_dump(Path(args.dump_dir))
@@ -89,6 +95,22 @@ def main() -> int:
         raise SystemExit("这不是 FMSuperScout 导出：缺少 meta 或 players")
 
     meta = document.get("meta") or {}
+    source_total = len(document.get("players") or [])
+    trimmed = 0
+    if args.max_players and source_total > args.max_players:
+        players = document.get("players") or []
+        # 优先保留有俱乐部的球员，再按 CA 从高到低补足：样本要能覆盖最"有信息量"的行。
+        with_club = [item for item in players if isinstance(item, dict) and item.get("club")]
+        rest = sorted(
+            (item for item in players if isinstance(item, dict) and not item.get("club")),
+            key=lambda item: (-(item.get("ca") or 0), -(item.get("pa") or 0)),
+        )
+        document["players"] = (with_club + rest)[: args.max_players]
+        trimmed = source_total - len(document["players"])
+    # 职员列表与测试无关，只留两条：既让"staff 被忽略"这条报告仍有依据，又不把 30MB 塞进仓库。
+    staff = document.get("staff")
+    if isinstance(staff, list) and len(staff) > 2:
+        document["staff"] = staff[:2]
     removed = [] if args.keep_manager else sanitize(document)
     sanitized = json.dumps(document, ensure_ascii=False, separators=(",", ":"))
     target = FIXTURE_DIR / (args.name or next_name())
@@ -96,6 +118,7 @@ def main() -> int:
     target.write_text(sanitized, encoding="utf-8")
 
     digest = hashlib.sha256(sanitized.encode("utf-8")).hexdigest()
+    source_digest = hashlib.sha256(raw).hexdigest()
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8")) if MANIFEST.exists() else {"samples": []}
     manifest.setdefault("samples", [])
     entry = {
@@ -104,6 +127,9 @@ def main() -> int:
         "plugin_version": meta.get("pluginVersion") or meta.get("gameVersion"),
         "generated": meta.get("generated"),
         "players": len(document.get("players") or []),
+        "source_players": source_total,
+        "trimmed_players": trimmed,
+        "source_sha256": source_digest,
         "sha256": digest,
         "sanitized": removed,
         "notes": args.notes or f"来自 {source.name}",
@@ -115,7 +141,7 @@ def main() -> int:
 
     print(f"来源      : {source}")
     print(f"样本文件  : {target.relative_to(Path.cwd()) if target.is_relative_to(Path.cwd()) else target}")
-    print(f"球员数    : {entry['players']}")
+    print(f"球员数    : {entry['players']}（源 {source_total} 名，裁剪 {trimmed}）")
     print(f"游戏/版本 : {entry['game']} / {entry['plugin_version']}")
     print(f"导出时间  : {entry['generated']}")
     print(f"SHA-256   : {digest}")

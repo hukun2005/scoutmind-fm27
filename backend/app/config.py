@@ -35,7 +35,8 @@ class Settings(BaseSettings):
     api_token: str | None = None
     cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:8000"
 
-    max_import_bytes: int = 64 * 1024 * 1024
+    # A real FMSuperScout dump is ~90-150 MB; the scan protocol itself is much smaller.
+    max_import_bytes: int = 256 * 1024 * 1024
     min_similar_sample: int = 5
     similar_limit: int = 20
 

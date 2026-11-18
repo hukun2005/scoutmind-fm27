@@ -1,4 +1,21 @@
 {
-  "samples": [],
+  "samples": [
+    {
+      "file": "real_sample_01.json",
+      "game": "FM27",
+      "plugin_version": "1.7.3",
+      "generated": "2026-11-18T21:49:54",
+      "players": 300,
+      "source_players": 48089,
+      "trimmed_players": 47789,
+      "source_sha256": "d3df91af04326665620eea8cacb056c53316f7afa601d0323b4dea673756f7fc",
+      "sha256": "5dc9263c65c0cd50cca2729d4edf47a9ab06e687d99c589715ed9a98d0a1fa55",
+      "sanitized": [
+        "manager",
+        "host"
+      ],
+      "notes": "真实 FM27 1.7.3 导出（27.1 游戏，扫描器按 27.0 解析）裁剪样本：300 名球员 + 2 条职员"
+    }
+  ],
   "notes": "把脱敏后的真实导出放到本目录并在此登记。示例见 README.md；为空时真实样本用例会跳过。"
 }
