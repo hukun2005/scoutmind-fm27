@@ -10,6 +10,7 @@
 export type DataSource =
   | 'fm27_live_reader'
   | 'fm_save_parser'
+  | 'fmsuperscout'
   | 'manual'
   | 'ocr'
   | 'external'

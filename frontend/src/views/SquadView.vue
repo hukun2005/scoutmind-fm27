@@ -37,6 +37,14 @@ const loading = ref(false)
 const error = ref<ApiError | null>(null)
 const weightDraft = ref<Record<string, number>>({})
 
+/** 没有本队时，各区块的空状态要说明真正原因，而不是把缺席归咎于字段。 */
+const noClubReason = computed<string | null>(() =>
+  overview.value && !overview.value.club ? '该存档没有标记为「我的俱乐部」的球队，无法计算该区块' : null,
+)
+const depthEmpty = computed(() => noClubReason.value ?? '数据源没有提供可识别的位置代码')
+const wageEmpty = computed(() => noClubReason.value ?? '数据源未提供工资字段')
+const successionEmpty = computed(() => noClubReason.value ?? '队内没有 29 岁以上且带 CA 的球员')
+
 /** Component order used everywhere on the page. */
 const COMPONENT_ORDER = ['coverage', 'depth', 'age', 'fit', 'wage', 'potential'] as const
 
@@ -308,7 +316,7 @@ onMounted(async () => {
           row-key="slot"
           expandable
           empty-title="没有位置数据"
-          empty-description="数据源没有提供可识别的位置代码"
+          :empty-description="depthEmpty"
         >
           <template #expand="{ row }">
             <DataTable :columns="memberColumns" :rows="row.players" row-key="instance_id" dense :show-pagination="false" />
@@ -367,7 +375,7 @@ onMounted(async () => {
               dense
               :show-pagination="false"
               empty-title="没有工资数据"
-              empty-description="数据源未提供工资字段"
+              :empty-description="wageEmpty"
             />
           </div>
         </SectionCard>
@@ -405,7 +413,7 @@ onMounted(async () => {
           :rows="overview.succession"
           :row-key="(row) => String(row.player.instance_id)"
           empty-title="没有需要规划接班的球员"
-          empty-description="队内没有 29 岁以上且带 CA 的球员"
+          :empty-description="successionEmpty"
         />
       </SectionCard>
     </template>

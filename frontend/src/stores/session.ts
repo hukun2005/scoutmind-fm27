@@ -75,10 +75,14 @@ export const useSessionStore = defineStore('session', () => {
   const agentLlm = computed(() => capabilities.value.agent_llm)
   const showDemoBanner = computed(() => (demoMode.value || syntheticSeen.value) && !demoDismissed.value)
 
-  /** True once a live reader or save parser import produced records. */
+  /** True once any real (non-synthetic) reader produced records. */
   const hasRealScanData = computed(() =>
     dataSources.value.some(
-      (entry) => (entry.source === 'fm27_live_reader' || entry.source === 'fm_save_parser') && entry.records > 0,
+      (entry) =>
+        (entry.source === 'fm27_live_reader' ||
+          entry.source === 'fm_save_parser' ||
+          entry.source === 'fmsuperscout') &&
+        entry.records > 0,
     ),
   )
 
