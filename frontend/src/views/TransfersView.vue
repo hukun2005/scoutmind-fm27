@@ -2,12 +2,15 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useRoute } from 'vue-router'
 import { asApiError, type ApiError } from '../api/client'
 import { getClubTransferProfile, listClubs } from '../api/clubs'
 import { getSimilarTransfers } from '../api/transfers'
 import { getTransactionSummary, getTransferReview, postDealReport } from '../api/deals'
+import { confirmTransferCandidate, dismissTransferCandidate, listTransferCandidates } from '../api/status'
 import type { DealReport, TransactionSummary, TransferReview } from '../types/transfers-deals'
+import type { CandidateRow } from '../types/status'
 import ChartCard from '../components/ChartCard.vue'
 import CoverageBar from '../components/CoverageBar.vue'
 import DataTable from '../components/DataTable.vue'
@@ -101,6 +104,10 @@ const taxonomyError = ref<ApiError | null>(null)
 const review = ref<TransferReview | null>(null)
 const reviewLoading = ref(false)
 const reviewError = ref<ApiError | null>(null)
+
+const candidates = ref<CandidateRow[]>([])
+const candidateBusy = ref(false)
+const candidateError = ref<ApiError | null>(null)
 
 /** Currency of the statistics sample; falls back to the documented default. */
 const currency = computed(() => transfers.stats?.currency ?? 'EUR')
@@ -370,18 +377,55 @@ async function runDealReport(): Promise<void> {
   }
 }
 
-/** Load the transaction taxonomy and the own-club review. */
+/** 确认一个快照对比发现的俱乐部变化：生成或关联一笔交易。 */
+async function confirmCandidate(row: CandidateRow): Promise<void> {
+  candidateBusy.value = true
+  candidateError.value = null
+  try {
+    const result = await confirmTransferCandidate(row.id, {})
+    ElMessage.success(`已确认：${row.player.name ?? '球员'} → ${displayText(row.to_club)}`)
+    candidates.value = candidates.value.filter((item) => item.id !== row.id)
+    await loadDealsOverview()
+    void result
+  } catch (caught) {
+    candidateError.value = asApiError(caught)
+    ElMessage.error(`确认失败：${candidateError.value.message}`)
+  } finally {
+    candidateBusy.value = false
+  }
+}
+
+/** 把候选标记为误报（租借回归、退役、数据错乱等）。 */
+async function dismissCandidate(row: CandidateRow): Promise<void> {
+  candidateBusy.value = true
+  candidateError.value = null
+  try {
+    await dismissTransferCandidate(row.id, '人工确认为误报')
+    candidates.value = candidates.value.filter((item) => item.id !== row.id)
+    ElMessage.success('已标记为误报')
+  } catch (caught) {
+    candidateError.value = asApiError(caught)
+    ElMessage.error(`标记失败：${candidateError.value.message}`)
+  } finally {
+    candidateBusy.value = false
+  }
+}
+
+/** Load the transaction taxonomy, the own-club review and the unconfirmed club-change candidates. */
 async function loadDealsOverview(): Promise<void> {
   reviewLoading.value = true
   reviewError.value = null
   taxonomyError.value = null
+  candidateError.value = null
   try {
-    const [summary, reviewed] = await Promise.all([
+    const [summary, reviewed, candidateList] = await Promise.all([
       getTransactionSummary(session.activeSaveId ?? undefined),
       getTransferReview(session.activeSaveId ?? undefined),
+      listTransferCandidates({ save_id: session.activeSaveId ?? undefined, status: 'candidate' }),
     ])
     taxonomy.value = summary
     review.value = reviewed
+    candidates.value = candidateList.items
   } catch (caught) {
     const apiError = asApiError(caught)
     reviewError.value = apiError
@@ -1065,6 +1109,37 @@ if (activeTab.value === 'deals') void loadDealsOverview()
           </SectionCard>
 
           <SectionCard
+            title="待确认的俱乐部变化"
+            subtitle="由两次快照的俱乐部差异发现；确认后才会生成交易记录，误报可直接标记"
+            flush
+          >
+            <ErrorState v-if="candidateError" :error="candidateError" title="候选事件加载失败" @retry="loadDealsOverview" />
+            <template v-else>
+              <div v-if="candidates.length > 0" class="candidate-list">
+                <div v-for="row in candidates" :key="row.id" class="candidate">
+                  <div class="candidate__main">
+                    <span class="candidate__name">{{ displayText(row.player.name) }}</span>
+                    <span class="sm-text-xs sm-text-2">
+                      {{ displayText(row.from_club) }} → {{ displayText(row.to_club) }}
+                      · {{ formatDate(row.detected_at) }}
+                      · 类型 {{ row.kind === 'loan' ? '租借' : '未知（未提供租借信息）' }}
+                    </span>
+                  </div>
+                  <div class="candidate__actions">
+                    <el-button size="small" type="primary" :loading="candidateBusy" @click="confirmCandidate(row)">确认</el-button>
+                    <el-button size="small" :loading="candidateBusy" @click="dismissCandidate(row)">误报</el-button>
+                  </div>
+                </div>
+              </div>
+              <EmptyState
+                v-else
+                title="没有待确认的变化"
+                description="两次快照之间没有发现球员换俱乐部；候选不会自动计入任何统计"
+              />
+            </template>
+          </SectionCard>
+
+          <SectionCard
             title="本队交易复盘"
             subtitle="成交价在同类样本中的分位、转会后的能力与身价变化，以及逐笔结论"
             flush
@@ -1148,6 +1223,42 @@ if (activeTab.value === 'deals') void loadDealsOverview()
   gap: var(--sm-space-3);
   padding: var(--sm-space-3) var(--sm-space-4);
   border-bottom: 1px solid var(--sm-border);
+}
+
+.candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+  padding: var(--sm-space-3) var(--sm-space-4);
+}
+
+.candidate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sm-space-3);
+  padding: var(--sm-space-2) var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: var(--sm-surface-2);
+}
+
+.candidate__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.candidate__name {
+  font-size: var(--sm-fs-sm);
+  font-weight: var(--sm-fw-medium);
+  color: var(--sm-text);
+}
+
+.candidate__actions {
+  display: flex;
+  gap: var(--sm-space-2);
 }
 
 .review-note {

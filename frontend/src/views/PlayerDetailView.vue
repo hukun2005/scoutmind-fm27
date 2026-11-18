@@ -8,6 +8,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { asApiError, type ApiError } from '../api/client'
 import { getPlayer, getPlayerDevelopment, getPlayerHistory } from '../api/players'
+import { getPlayerStatus } from '../api/status'
 import { evaluateRole, listRoles } from '../api/scouting'
 import { getSimilarTransfers, getValuation } from '../api/transfers'
 import {
@@ -39,6 +40,7 @@ import type {
 import type { RoleEvaluation, RoleTemplate } from '../types/scouting'
 import type { SimilarTransferItem, SimilarTransfersResponse } from '../types/transfers'
 import type { WatchlistItem } from '../types/watchlist'
+import type { PlayerStatus } from '../types/status'
 import type { TableColumn } from '../types/table'
 import { useSessionStore } from '../stores/session'
 import { buildAppearanceChart, buildGrowthChart } from '../utils/chart'
@@ -83,6 +85,10 @@ const historyError = ref<ApiError | null>(null)
 const development = ref<PlayerDevelopmentResponse | null>(null)
 const developmentLoading = ref(false)
 const developmentError = ref<ApiError | null>(null)
+
+const status = ref<PlayerStatus | null>(null)
+const statusLoading = ref(false)
+const statusError = ref<ApiError | null>(null)
 
 const valuation = ref<Valuation | null>(null)
 const valuationLoading = ref(false)
@@ -401,6 +407,35 @@ async function toggleWatch(next: boolean): Promise<void> {
   }
 }
 
+/** Placing, injury, loan and pending-move status (P0-2/P0-4). */
+async function loadStatus(id: number): Promise<void> {
+  statusLoading.value = true
+  statusError.value = null
+  try {
+    status.value = await getPlayerStatus(id)
+  } catch (caught) {
+    statusError.value = asApiError(caught)
+    status.value = null
+  } finally {
+    statusLoading.value = false
+  }
+}
+
+/** Render an arbitrary recorded change value; booleans become 是/否, null becomes 未知. */
+function changeValue(value: unknown): string {
+  if (value === null || value === undefined) return '未知'
+  if (typeof value === 'boolean') return value ? '是' : '否'
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'string') return displayText(value)
+  return '未知'
+}
+
+/** Render a three-valued flag: unknown is "未知", never "否". */
+function triState(value: boolean | null | undefined): string {
+  if (value === null || value === undefined) return '未知'
+  return value ? '是' : '否'
+}
+
 /** Reload every panel of this player. */
 function reloadAll(): void {
   const id = instanceId.value
@@ -408,6 +443,7 @@ function reloadAll(): void {
   void loadCore(id)
   void loadValuation(id)
   void loadSimilar(id)
+  void loadStatus(id)
   void loadWatchState()
   if (selectedRoleKey.value) void runEvaluation()
 }
@@ -574,7 +610,124 @@ void loadRoles()
             <EChart :option="growthOption" height="268px" aria-label="CA、PA 与身价的时间序列" />
           </ChartCard>
 
-          <SectionCard title="估值（相似成交）" subtitle="区间来自可比成交的分位数，样本不足时不给区间">
+          <SectionCard
+          title="状态与租借"
+          subtitle="挂牌、伤病、所有权与待生效转会；来源没有的字段标为未知，不做推断"
+        >
+          <ErrorState v-if="statusError" :error="statusError" compact title="状态加载失败" @retry="instanceId !== null && loadStatus(instanceId)" />
+          <LoadingBlock v-else-if="statusLoading && !status" :rows="3" label="正在加载状态" />
+          <EmptyState
+            v-else-if="!status || !status.current"
+            title="没有状态记录"
+            description="数据源未提供挂牌/伤病字段，或该球员还没有状态快照"
+          />
+          <template v-else>
+            <div class="status-grid">
+              <div class="status-block">
+                <p class="sm-label">挂牌</p>
+                <ul class="status-list">
+                  <li>
+                    <span>挂牌出售</span>
+                    <strong>{{ triState(status.current.flags.listed) }}</strong>
+                  </li>
+                  <li>
+                    <span>挂牌出租</span>
+                    <strong>{{ triState(status.current.flags.loan_listed) }}</strong>
+                  </li>
+                  <li>
+                    <span>非卖品</span>
+                    <strong>{{ triState(status.current.flags.not_for_sale) }}</strong>
+                  </li>
+                  <li>
+                    <span>已设置解约</span>
+                    <strong>{{ triState(status.current.flags.set_for_release) }}</strong>
+                  </li>
+                </ul>
+              </div>
+              <div class="status-block">
+                <p class="sm-label">伤病</p>
+                <ul class="status-list">
+                  <li>
+                    <span>当前受伤</span>
+                    <strong>{{ triState(status.current.injury.injured) }}</strong>
+                  </li>
+                  <li>
+                    <span>伤病倾向</span>
+                    <strong>{{ status.current.injury.proneness === null ? EMPTY : `${status.current.injury.proneness}/20` }}</strong>
+                  </li>
+                  <li>
+                    <span>开始日期</span>
+                    <strong>{{ formatDate(status.current.injury.start_date) }}</strong>
+                  </li>
+                  <li>
+                    <span>预计复出</span>
+                    <strong>{{ formatDate(status.current.injury.expected_return) }}</strong>
+                  </li>
+                </ul>
+              </div>
+              <div class="status-block">
+                <p class="sm-label">注册与所有权</p>
+                <ul class="status-list">
+                  <li>
+                    <span>原属俱乐部</span>
+                    <strong>{{ displayText(status.current.registration.parent_club) }}</strong>
+                  </li>
+                  <li>
+                    <span>当前效力</span>
+                    <strong>{{ displayText(status.current.registration.loan_club ?? summary.club) }}</strong>
+                  </li>
+                  <li>
+                    <span>梯队</span>
+                    <strong>{{ displayText(status.current.registration.team_type) }}</strong>
+                  </li>
+                  <li>
+                    <span>已达成转会</span>
+                    <strong>
+                      {{ status.current.agreed_transfer
+                        ? `${displayText(status.current.agreed_transfer.to_club)} · ${formatDate(status.current.agreed_transfer.date)}`
+                        : EMPTY }}
+                    </strong>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div v-if="status.loans.length > 0" class="status-loans">
+              <p class="sm-label">租借关系</p>
+              <ul class="status-list">
+                <li v-for="loan in status.loans" :key="loan.id">
+                  <span>{{ displayText(loan.parent_club) }} → {{ displayText(loan.loan_club) }}</span>
+                  <strong>
+                    买断条款 {{ triState(loan.has_option) }}
+                    · 强制买断 {{ triState(loan.has_obligation) }}
+                    · 结束 {{ formatDate(loan.end_date) }}
+                  </strong>
+                </li>
+              </ul>
+            </div>
+
+            <div v-if="status.changes.length > 0" class="status-changes">
+              <p class="sm-label">状态变化</p>
+              <ul class="status-list">
+                <li v-for="change in status.changes" :key="`${change.field}-${change.observed_at}`">
+                  <span>{{ change.label }}</span>
+                  <strong>{{ changeValue(change.from) }} → {{ changeValue(change.to) }} · {{ formatDate(change.observed_at) }}</strong>
+                </li>
+              </ul>
+            </div>
+
+            <div v-if="status.data_gaps.length > 0" class="status-gaps">
+              <p class="sm-label">数据缺口</p>
+              <ul class="status-list">
+                <li v-for="gap in status.data_gaps" :key="gap">
+                  <span>{{ gap }}</span>
+                </li>
+              </ul>
+            </div>
+          </template>
+        </SectionCard>
+
+        <SectionCard title="估值（相似成交）" subtitle="区间来自可比成交的分位数，样本不足时不给区间">
             <header class="sm-row sm-row--between valuation__head">
               <ConfidenceTag :confidence="valuation?.confidence ?? null" />
               <span class="sm-text-2xs sm-text-faint">
@@ -987,6 +1140,44 @@ void loadRoles()
 </template>
 
 <style scoped>
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sm-space-3);
+}
+
+.status-block {
+  padding: var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: var(--sm-surface-2);
+}
+
+.status-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+  margin: var(--sm-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--sm-fs-xs);
+  color: var(--sm-text-2);
+}
+
+.status-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sm-space-2);
+}
+
+.status-loans,
+.status-changes,
+.status-gaps {
+  margin-top: var(--sm-space-3);
+  padding-top: var(--sm-space-2);
+  border-top: 1px solid var(--sm-border);
+}
 .watch-toggle {
   display: inline-flex;
   align-items: center;

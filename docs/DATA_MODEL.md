@@ -65,3 +65,18 @@
 - `alembic/versions/a65960362a18_*.py`：V1 初始 schema。
 - `alembic/versions/ba679f76cb1b_*.py`：V2 新增六张表（本文件第 2 节），不修改既有表。
 - 迁移只新增表与索引，不改写既有数据；SQLite 下通过 `render_as_batch` 执行。
+
+## 4. P0-2/P0-4 新增表
+
+| 表 | 一行代表 | 关键规则 |
+| --- | --- | --- |
+| `player_availability` | 某个球员在某个观测时刻的挂牌/伤病/注册状态 | 与快照同频追加；全部字段三态（`NULL` = 数据源未提供）；`(instance, observed_at)` 唯一 |
+| `loan_records` | 一段租借关系 | 原属俱乐部与租借俱乐部都记录；`has_option`/`has_obligation` 缺失即 `NULL`；`(save, source_record_id)` 唯一 |
+| `transfer_candidates` | 一次快照对比发现的俱乐部变化 | 只是候选：`status=candidate`，确认后生成/关联交易，误报标记 `dismissed` |
+
+补充说明：
+
+- `player_snapshots` 新增 `height_cm`、`foot`、`world_reputation`：来源直接给出画像字段时落库，缺失保持 `NULL`。
+- `transfer_history` 的 `status` 增加 `agreed`（已达成未生效）与 `bid_rejected`（报价被拒绝）；`transfer_type` 增加
+  `loan_buyout`（租借买断）。`agreed`、`bid_rejected` 既不进价格统计也不计支出。
+- 迁移 `fd65d0d5f75d` 只新增表与列，不改写既有数据；SQLite 下仍以 batch 模式执行。

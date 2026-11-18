@@ -165,3 +165,16 @@ InvestmentScore = (ExpectedFutureValue − TotalCost) / TotalCost
 | 青训提拔 | 只记录工资成本 | 否 |
 | 未完成交易 | 不计入实际支出 | 否 |
 | 交易取消/失败 | 保留记录并标记状态 | 否 |
+
+## 6. 球员状态模型
+
+`algorithm_version = player-status-1`，实现于 `app/analytics/availability.py`。
+
+- **状态变化**：按 `observed_at` 排序 `player_availability`，相邻两行同一字段不同（且新值非空）即记一次变化。
+  只在数据源给出新值时认定变化，缺失不会「把状态清空」。
+- **首次发现/最后确认**：从最新一行向前回溯连续同值的观测，得到 `first_seen_at`；最新观测即 `last_confirmed_at`。
+- **伤病**：`injured`、`injury_start_date`、`expected_return_date` 各自独立三态；三者全空时输出数据缺口。
+  `injury_proneness` 只作为倾向，不参与「当前是否受伤」的任何判断。
+- **租借**：原属俱乐部与租借俱乐部同时记录；`has_option`/`has_obligation` 为 `NULL` 时界面显示「未知」。
+- **候选转会**：相邻两次快照俱乐部不同且都能解析时生成候选；`kind` 只有在已有租借记录指向目标俱乐部时才是
+  `loan`，否则为 `unknown`。候选不进入任何统计，直到被确认。

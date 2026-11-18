@@ -7,7 +7,7 @@ ScoutMind 读取 Football Manager 27 的可验证数据（游戏运行时快照�
 LLM 只负责理解问题与组织解释，所有数字来自数据库和算法。
 
 > **当前状态：V2 分析层完整、演示数据可跑，真实 FM27 读取尚未验证。**
-> 后端（70 个用例）、前端（类型检查 + 生产构建）、C# 读取器（46 个自检用例）、Desktop Agent（同步链路）均已通过验证；
+> 后端（93 个用例 / 1 个待真实样本跳过）、前端（类型检查 + 生产构建）、C# 读取器（46 个自检用例）、Desktop Agent（同步链路）均已通过验证；
 > 仓库自带一份明确标注的合成演示数据（`source=synthetic_fixture`），用于在没有真实扫描结果时验证界面和算法。
 >
 > 数据接入：除自研 C# 读取器外，已接入 [FMSuperScout](https://github.com/mavarobli/FMSuperScout) 的导出
@@ -89,13 +89,16 @@ npm run dev        # http://127.0.0.1:5173
 ScoutMind 用**独立适配层**读取这份导出：核心业务代码不认识对方格式，转换仍产出标准扫描报文，走同一条幂等导入路径。
 
 ```powershell
-# 1. 在游戏里按 F9 导出，然后先看字段映射（不写库）
+# 1. 在游戏里按 F9 导出，先跑真实数据审查（P0-1，不写库）
+.\scripts\import-fmscout.ps1 -Validate
+
+# 2. 需要字段级细节时再看映射报告（同样不写库）
 .\scripts\import-fmscout.ps1 -Preview
 
-# 2. 确认无误后导入（同一份导出重复导入返回 duplicate=true）
+# 3. 确认无误后导入（同一份导出重复导入返回 duplicate=true）
 .\scripts\import-fmscout.ps1
 
-# 3. 定时同步 / 实时监听（FMSuperScout 每次导出都会写新 dump）
+# 4. 定时同步 / 实时监听（FMSuperScout 每次导出都会写新 dump）
 .\scripts\import-fmscout.ps1 -Watch -IntervalSeconds 15
 ```
 
@@ -104,7 +107,10 @@ ScoutMind 用**独立适配层**读取这份导出：核心业务代码不认识
 适配报告会列出：映射了哪些字段、导出里根本没有的字段（出场时间、统计、转会、伤病、挂牌状态——相关功能保持
 「不可用」）、以及被忽略的隐藏属性和原因。字段映射与安全边界见 [docs/FMSUPERSCOUT.md](docs/FMSUPERSCOUT.md)。
 
-> 真实 FM27 导出尚未在本机核对：适配依据来自上游源码的字段定义，建议首次导入前先跑 `-Preview` 比对人数与字段。
+> 真实 FM27 导出尚未在本机核对：适配依据来自上游源码的字段定义。导入前先跑 `-Validate`（P0-1 审查报告），
+> 它会给出字段覆盖率、唯一 ID、未知字段、版本兼容与最终结论；`-Validate` / `-Preview` 都不写库。
+>
+> 验收：`.\scripts\acceptance-e2e.ps1` 输出 PASS/WARN/FAIL（演示数据为 9/1/0），清单见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)。
 
 ## 真实数据接入流程（自研读取器）
 
@@ -146,7 +152,7 @@ ScoutMind 用**独立适配层**读取这份导出：核心业务代码不认识
 ## 测试
 
 ```powershell
-# 后端（70 个用例：导入幂等、快照追加、赛季统计幂等、身份复用、费用口径、统计/相似/估值、FMSuperScout 适配、
+# 后端（93 个用例：导入幂等、快照追加、赛季统计幂等、身份复用、费用口径、统计/相似/估值、FMSuperScout 适配、状态与租借、候选择确认、
 #      阵容六维评分、球员六维评分、隐藏价值规则覆盖、成长速率、表现百分位、交易类型体系、AI 不编造、鉴权）
 cd backend
 python -m pytest
@@ -170,7 +176,8 @@ dotnet run --project live-reader/tests/ScoutMind.Reader.Tests -c Release
 | `docs/LIVE_READER.md` | C# 读取器、状态机、CLI、发布 |
 | `docs/VERSION_COMPATIBILITY.md` | 版本兼容清单与拒绝策略 |
 | `docs/TRANSFER_INTELLIGENCE.md` | 费用口径、统计、相似度、估值 |
-| `docs/FMSUPERSCOUT.md` | FMSuperScout 适配层：字段映射、三种导入方式、安全与许可证边界 |
+| `docs/FMSUPERSCOUT.md` | FMSuperScout 适配层：字段映射、状态/租借扩展、审查报告、三种导入方式、安全与许可证边界 |
+| `docs/ACCEPTANCE.md` | P0-5 读取器验收与 P0-6 端到端验收清单，含「需要用户提供什么」 |
 | `docs/MODELS.md` | 阵容/球员/发展/表现/成本模型的公式、权重与缺失数据处理 |
 | `docs/DATA_MODEL.md` | V2 规格表名与实现表的映射、新增表说明 |
 | `docs/SECURITY.md` | 本地鉴权、只读约束、数据与许可证边界 |

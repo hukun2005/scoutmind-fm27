@@ -160,3 +160,41 @@
 - `warnings` 首条固定声明数据来自 FMSuperScout（MIT），其后是适配层报告的问题。
 
 字段映射、忽略规则与哨兵处理见 [FMSUPERSCOUT.md](FMSUPERSCOUT.md)。
+
+## 7. P0-2 协议扩展（状态、租借、待生效转会）
+
+`player` 行新增可选块，全部缺省即视为未知：
+
+```json
+{
+  "save_local_uid": "9001",
+  "name": "Adam Wharton",
+  "height_cm": 182,
+  "foot": "right",
+  "world_reputation": 5200,
+  "availability": {
+    "listed": true, "loan_listed": false, "not_for_sale": false, "set_for_release": false,
+    "injury_proneness": 12, "injured": null,
+    "injury_start_date": null, "expected_return_date": null, "injury_note": null
+  },
+  "ownership": {
+    "parent_club_uid": "fs-northbridge-united", "loan_club_uid": "fs-kingsport-city",
+    "team_type": "senior", "loan_start_date": null, "loan_end_date": null,
+    "has_option": null, "has_obligation": null
+  },
+  "agreed_transfer": {"to_club_uid": "fs-kingsport-city", "transfer_date": "2027-07-01"}
+}
+```
+
+约束：
+
+- 挂牌四标志为三态布尔；`injured=false` 时不得带伤病日期（协议会拒绝）。
+- `injury_proneness` 是 0-20 的属性，不是当前伤病状态。
+- 租借关系必须同时给出 `parent_club_uid` 与 `loan_club_uid`，否则不落租借记录。
+- 买断条款缺失即 `null`，不允许用 `false` 冒充「无条款」。
+- `agreed_transfer` 只是「已达成未生效」，导入为 `status=agreed` 的交易，不计支出。
+
+交易枚举同步扩展：
+
+- `status`: `completed | pending | future | agreed | bid_rejected | cancelled | failed | unknown`
+- `transfer_type` 增加 `loan_buyout`（租借买断，计入成交统计）

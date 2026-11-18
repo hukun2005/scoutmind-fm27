@@ -8,6 +8,7 @@ import { asApiError, type ApiError } from '../api/client'
 import { getCompatibility, getOverview } from '../api/analytics'
 import { listImports, uploadScan } from '../api/imports'
 import { getFmscoutAdapter, importFmscoutDump, previewFmscoutDump } from '../api/fmscout'
+import { validateFmscoutDump } from '../api/status'
 import { getSaveSummary } from '../api/saves'
 import CoverageBar from '../components/CoverageBar.vue'
 import DataTable from '../components/DataTable.vue'
@@ -23,6 +24,7 @@ import type {
   FmscoutReport,
   FmscoutSamplePlayer,
 } from '../types/fmscout'
+import type { ValidationResponse } from '../types/status'
 import type { SaveSummary } from '../types/bootstrap'
 import type { TableColumn } from '../types/table'
 import { useSessionStore } from '../stores/session'
@@ -61,6 +63,7 @@ const uploadError = ref<ApiError | null>(null)
 // ---------- FMSuperScout 适配层 ----------
 
 const fmscoutInfo = ref<FmscoutAdapterInfo | null>(null)
+const validation = ref<ValidationResponse | null>(null)
 const fmscoutReport = ref<FmscoutReport | null>(null)
 const fmscoutImport = ref<FmscoutImportResponse['import'] | null>(null)
 const fmscoutPreviewPlayers = ref<FmscoutSamplePlayer[]>([])
@@ -278,6 +281,30 @@ async function runFmscoutImport(file: File): Promise<void> {
   } finally {
     fmscoutBusy.value = false
   }
+}
+
+/** 真实数据审查（P0-1）：只读检查，不写库。 */
+async function runFmscoutValidate(file: File): Promise<void> {
+  fmscoutBusy.value = true
+  fmscoutError.value = null
+  validation.value = null
+  try {
+    validation.value = await validateFmscoutDump(file)
+    const status = validation.value.verdict.status
+    if (status === 'blocked') ElMessage.error('审查发现阻塞项，先不要导入')
+    else if (status === 'review') ElMessage.warning('审查有需要复核的项，见下方报告')
+    else ElMessage.success('审查通过，可以导入')
+  } catch (caught) {
+    fmscoutError.value = asApiError(caught)
+    ElMessage.error(`审查失败：${fmscoutError.value.message}`)
+  } finally {
+    fmscoutBusy.value = false
+  }
+}
+
+/** See {@link runFmscoutValidate}. */
+function handleFmscoutValidate(options: UploadRequestOptions): Promise<void> {
+  return runFmscoutValidate(options.file)
 }
 
 /** Upload hooks for the two FMSuperScout actions. */
@@ -514,6 +541,15 @@ void loadFmscoutInfo()
           >
             <el-button size="small" type="primary" :loading="fmscoutBusy">转换并导入</el-button>
           </el-upload>
+          <el-upload
+            class="fmscout__uploader"
+            accept=".json,application/json"
+            :show-file-list="false"
+            :disabled="fmscoutBusy"
+            :http-request="handleFmscoutValidate"
+          >
+            <el-button size="small" :loading="fmscoutBusy">真实数据审查</el-button>
+          </el-upload>
           <span class="sm-text-2xs sm-text-faint">
             也可以直接把 dump 文件拖到上方「上传扫描数据」，后端会自动识别来源
           </span>
@@ -530,6 +566,34 @@ void loadFmscoutInfo()
           title="还没有导入过 FMSuperScout 数据"
           description="在 FMSuperScout 里按 F9 导出，然后选择该 dump 文件预览或导入"
         />
+
+        <div v-if="validation" class="fmscout__validation">
+          <el-alert
+            :type="validation.verdict.status === 'pass' ? 'success' : validation.verdict.status === 'review' ? 'warning' : 'error'"
+            :closable="false"
+            show-icon
+            :title="`审查结论：${validation.verdict.status} · ${validation.verdict.ready_to_import ? '可以导入' : '先处理阻塞项'}`"
+          >
+            <ul v-if="validation.verdict.blockers.length > 0" class="fmscout__list">
+              <li v-for="item in validation.verdict.blockers" :key="item">阻塞：{{ item }}</li>
+            </ul>
+            <ul v-if="validation.verdict.review.length > 0" class="fmscout__list">
+              <li v-for="item in validation.verdict.review" :key="item">复核：{{ item }}</li>
+            </ul>
+          </el-alert>
+          <div class="fmscout__sections">
+            <div v-for="section in validation.sections" :key="section.id" class="fmscout__section">
+              <p class="sm-label">{{ section.title }}</p>
+              <ul class="fmscout__list">
+                <li v-for="row in section.rows" :key="`${section.id}-${row.label}`">
+                  <span>{{ row.label }}</span>
+                  <strong class="sm-num">{{ row.value }}</strong>
+                  <span v-if="row.detail" class="sm-text-2xs sm-text-faint">{{ row.detail }}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
 
         <template v-if="fmscoutReport">
           <div class="fmscout__summary">
@@ -803,6 +867,32 @@ ScoutMind.LiveReader.exe scan --out D:\scans\scan.json</pre>
   font-size: var(--sm-fs-xs);
   line-height: 1.65;
   color: var(--sm-text-2);
+}
+
+.fmscout__validation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-3);
+}
+
+.fmscout__sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--sm-space-3);
+}
+
+.fmscout__section {
+  padding: var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: var(--sm-surface-2);
+}
+
+.fmscout__section .fmscout__list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sm-space-2);
 }
 
 .fmscout__ignored {

@@ -44,3 +44,9 @@ python -m alembic current          # 查看当前版本
 ```
 
 回滚不会恢复被删除的业务数据，只能恢复结构；数据恢复依赖第 1 步的备份。
+- 迁移 `fd65d0d5f75d`：新增 `player_availability`、`loan_records`、`transfer_candidates`，并给 `player_snapshots`
+  增加 `height_cm`、`foot`、`world_reputation`。只新增表与列。
+- 协议 `1.0` 再扩展：`player.availability` / `player.ownership` / `player.agreed_transfer` 三个可选块，
+  `status` 增加 `agreed`、`bid_rejected`，`transfer_type` 增加 `loan_buyout`。
+- 新增 `POST /imports/transfers`（历史交易独立通道）与 `GET /players/{id}/status`、`/transfers/candidates*`。
+- 演示数据重建：`python scripts/seed_demo.py --force`（现在包含挂牌、伤病倾向、一笔租借与一笔已达成未生效转会）。

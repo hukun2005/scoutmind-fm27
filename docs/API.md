@@ -390,3 +390,48 @@
 ```
 - `POST /imports/fmscout` — 转换并幂等导入，返回同一份 `report` 与 `import`（字段同 `/imports/scan`）。
 - `POST /imports/scan` 也会自动识别 dump：响应多一个 `adapted_by` 字段说明这次导入经过适配层转换。
+
+## 13. P0 阶段新增接口
+
+### 13.1 真实数据审查 `POST /imports/fmscout/validate`
+上传 dump，返回分节报告（不写库）：
+```json
+{"sections": [
+   {"id": "file", "title": "[1] File", "rows": [{"label": "JSON valid", "value": "PASS"},
+     {"label": "Dump version", "value": "FM27"}, {"label": "Scan id", "value": "fmscout-506ba1acbf8a8fad"}]},
+   {"id": "dataset", "title": "[2] Dataset", "rows": [{"label": "Total players", "value": 24}]},
+   {"id": "coverage", "title": "[3] Field coverage", "rows": [{"label": "CA / PA", "value": "100%"}]},
+   {"id": "identity", "title": "[4] Identity / 与现有数据的关系", "rows": [{"label": "将在存档中新建的球员", "value": 24}]},
+   {"id": "risks", "title": "[5] Risks", "rows": [{"label": "未知字段", "value": 0}]}],
+ "verdict": {"status": "review", "blockers": [], "review": ["导出没有当前伤病状态…"], "ready_to_import": true},
+ "report": {...适配报告...}, "counts": {"clubs": 3, "players": 24}}
+```
+`verdict.status`：`pass` 可直接导入；`review` 有需要人工判断的项；`blocked` 不要导入。
+
+### 13.2 球员状态 `GET /players/{instance_id}/status`
+```json
+{"instance_id": 12, "player_name": "Adam Wharton",
+ "current": {"observed_at": "...", "flags": {"listed": true, "loan_listed": false, "not_for_sale": false, "set_for_release": false},
+   "injury": {"proneness": 13, "injured": null, "start_date": null, "expected_return": null},
+   "registration": {"parent_club": null, "loan_club": null, "team_type": null}, "agreed_transfer": null},
+ "history": [{"observed_at": "...", "flags": {...}, "injured": null, "injury_proneness": 13,
+              "parent_club": null, "loan_club": null, "source": "fmsuperscout"}],
+ "changes": [{"field": "listed", "label": "挂牌出售", "from": false, "to": true, "observed_at": "..."}],
+ "first_seen": {"listed": {"value": true, "first_seen_at": "...", "last_confirmed_at": "..."}},
+ "loans": [{"id": 1, "parent_club": "A", "loan_club": "B", "has_option": null, "has_obligation": null, "status": "active"}],
+ "candidates": [{"id": 3, "to_club": "B", "kind": "unknown", "status": "candidate"}],
+ "data_gaps": ["数据源未提供当前伤病状态，不能据此判断球员是否受伤"],
+ "algorithm_version": "player-status-1"}
+```
+三态字段 `null` 表示来源没有提供，**不能读作否**；`has_option=null` 表示条款未知，不是「无条款」。
+
+### 13.3 候选转会
+- `GET /transfers/candidates?save_id=&status=candidate&limit=100` → `items[]`：`player`、`from_club`、`to_club`、
+  `kind`（`loan`/`unknown`）、`detected_at`、`status`、`evidence`（含「只能作为候选」规则）。
+- `POST /transfers/candidates/{id}/confirm`，body `{"transfer_date": "2027-07-01", "fee": 12000000}`（都可选）；
+  未给 `transfer_id` 时按候选信息创建一笔 `status=completed`、金额未知的交易，并返回 `transfer_id`。
+- `POST /transfers/candidates/{id}/dismiss`，body `{"reason": "租借回归"}`；已处理的候选再次确认返回 409。
+
+### 13.4 历史交易独立通道 `POST /imports/transfers`
+只导入 `transfers`（可带 `clubs`），允许 `players` 为空；缺少 `transfers` 返回 422 `no_transfers`。
+`scan_id` 可用报文自带值，否则按内容哈希生成，因此同一份历史重复导入返回 `duplicate=true`。

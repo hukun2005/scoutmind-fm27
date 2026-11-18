@@ -160,3 +160,36 @@ FMSuperScout 每次 F9 都会写新 dump；脚本轮询目录，发现新文件�
 - 幂等：`scan_id = fmscout-<dump 内容 sha256 前 16 位>`，同一份导出重复导入返回 `duplicate=true`。
 - 可追溯：原始 dump 与其它报文一样落盘（`backend/data/raw`），导入任务记录 `source=fmsuperscout`。
 - 许可证：FMSuperScout 为 MIT；ScoutMind 不复用其代码，仅依据其公开格式做数据交换，双方许可证互不传染。
+
+## 10. P0-2 扩展：状态、租借与待生效转会
+
+适配层现在把「球员状态」当作独立事实流，而不是往球员表里塞字段：
+
+| dump 字段 | 落库位置 | 说明 |
+| --- | --- | --- |
+| `listed` / `loanListed` / `notForSale` / `setForRelease` | `player_availability.*` | 三态：`null` = 数据源没说 |
+| `attrs.InjuryProneness` | `player_availability.injury_proneness` | 伤病倾向是属性，**不代表当前受伤**；不再混进角色评分 |
+| `height` / `foot` / `worldRep` | `player_snapshots.height_cm/foot/world_reputation` | 画像字段，不参与评分 |
+| `ownerClub` + 当前 `club` | `player_availability.parent_club_id/loan_club_id` + `loan_records` | 原属俱乐部与租借俱乐部同时保留 |
+| `ownerTeamType` / `teamType` | `player_availability.team_type` | senior/reserve/youth，无法识别则留空 |
+| `transferTo` / `transferDate` | `player_availability.agreed_*` + 一条 `status=agreed` 的交易 | 已达成未生效：不计支出、不进统计 |
+
+`parentClub` / `loanClub` 这两个规格建议字段上游**并未提供**，因此租借关系只能由 `ownerClub` 与当前俱乐部推导；
+推不出来就不写租借记录，并在报告里说明。
+
+买断条款（`has_option` / `has_obligation`）上游没有，落库为 `NULL`，界面显示「未知」——不是「无条款」。
+
+### 版本与未知字段
+
+- `meta.game` 不在 `FM26/FM27` 内 → 报告 `compatibility.supported=false` 并给出警告，导入仍会进行（风险需人工判断）；
+- 球员行出现适配层不认识的新字段 → `unknown_fields` 列表 + 警告，不静默丢弃、也不写库。
+
+### 真实数据审查（P0-1）
+
+```powershell
+.\scripts\import-fmscout.ps1 -Validate        # 输出 [1] File / [2] Dataset / [3] Field coverage / [4] Identity / [5] Risks
+```
+
+报告含：JSON 是否合法、版本、导出时间、scan_id、球员数、俱乐部数、唯一 ID 与重复 ID、幽灵记录数、字段覆盖率、
+与现有存档的重合度、未知字段、版本兼容结论，以及最终 `verdict`（`pass` / `review` / `blocked`）。
+`review` 常见原因是数据源没有伤病或工资字段——这是数据边界，不是代码错误。
