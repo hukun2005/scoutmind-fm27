@@ -110,7 +110,8 @@ ScoutMind 用**独立适配层**读取这份导出：核心业务代码不认识
 > 真实 FM27 导出尚未在本机核对：适配依据来自上游源码的字段定义。导入前先跑 `-Validate`（P0-1 审查报告），
 > 它会给出字段覆盖率、唯一 ID、未知字段、版本兼容与最终结论；`-Validate` / `-Preview` 都不写库。
 >
-> 验收：`.\scripts\acceptance-e2e.ps1` 输出 PASS/WARN/FAIL（演示数据为 9/1/0），清单见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)。
+> 验收：`.\scripts\p0-handoff.ps1` 一条命令收齐审查报告、E2E 与读取器记录（输出到 `exports\p0-report-*`），
+> 逐步操作见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)。
 
 ## 真实数据接入流程（自研读取器）
 

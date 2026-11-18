@@ -61,3 +61,115 @@ dotnet publish .\live-reader\ScoutMind.LiveReader -c Release -o .\live-reader\pu
    版本与 SHA-256）。这是 P0-1/P0-3 从「工具就绪」变成「已验证」的唯一前提。
 2. **P0-5 的 `status` / `probe` 输出**（或直接运行 `acceptance-live-reader.ps1`）。如果 Build 不兼容，我按输出补清单。
 3. **一次真实导入后的 E2E 记录**（`acceptance-e2e.ps1` 生成的 txt）。有 FAIL 就贴给我。
+
+## 一步步操作（推荐顺序）
+
+以下命令都在仓库根目录 `<repo-desktop>` 执行。任何一步的报错都可以原样贴给我。
+
+### 第 0 步：准备一次
+
+```powershell
+# 1) 确认后端能起来（另开一个窗口保持运行）
+.\scripts\run-backend.ps1
+# 没有这个脚本就手动：
+#   .\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
+
+# 2) 新窗口里确认健康
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
+```
+
+中文显示乱码（常见于 GBK 控制台）时先执行 `chcp 65001`。
+
+### 第 1 步：在 FMSuperScout 里导出一份真实数据
+
+1. 启动 FM27，进入你的存档。
+2. 启动 FMSuperScout，按 **F9**（或点 **New data**）。
+3. 导出文件默认在 `%LOCALAPPDATA%\FMSuperScout\dump*.json`。确认它在：
+
+```powershell
+Get-ChildItem "$env:LOCALAPPDATA\FMSuperScout\dump*.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 3 Name, Length, LastWriteTime
+```
+
+### 第 2 步：先审查，不写库（P0-1）
+
+```powershell
+.\scripts\import-fmscout.ps1 -Validate
+```
+
+会打印 5 节报告：`[1] File`（版本/时间/scan_id）、`[2] Dataset`（球员数/唯一 ID/重复 ID）、`[3] Field coverage`、
+`[4] Identity`、`[5] Risks`，最后一行是结论。判断方式：
+
+| 结论 | 含义 | 你要做的 |
+| --- | --- | --- |
+| `pass` | 字段齐全、无未知字段 | 直接进入第 4 步 |
+| `review` | 有需要人判断的项（多为没有伤病/工资字段） | 正常，继续；把报告发我一份 |
+| `blocked` | 有阻塞项（例如没有球员、ID 重复） | 先不要导入，把报告发我 |
+
+指定文件：`.\scripts\import-fmscout.ps1 -Validate -Path 'C:\...\dump.json'`
+
+### 第 3 步：把这份导出登记为回归样本（P0-3）
+
+```powershell
+.\backend\.venv\Scripts\python.exe scripts\register_fixture.py
+```
+
+脚本会：去掉 `meta` 里的主教练/主机名等个人字段 → 复制为 `backend/tests/fixtures/fmsuperscout/real_sample_01.json`
+→ 在 `manifest.json` 写入版本、导出时间、球员数、SHA-256、脱敏字段。
+
+然后跑真实样本回归：
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m pytest tests/test_fmscout_real_data.py -v
+cd ..
+```
+
+`test_real_sample_converts_cleanly` 应该从 `SKIPPED` 变成 `PASSED`。失败就是真实字段和映射不一致，把输出发我。
+
+### 第 4 步：导入并跑端到端（P0-6）
+
+```powershell
+# 导入（同一份重复导入会返回 duplicate=true，不会产生重复快照）
+.\scripts\import-fmscout.ps1
+
+# 端到端验收
+.\scripts\acceptance-e2e.ps1
+```
+
+结果里 `FAIL` 必须为 0；`WARN` 通常是数据源没有统计/伤病字段，属于数据边界。
+
+### 第 5 步：读取器 status / probe（P0-5）
+
+```powershell
+dotnet publish .\live-reader\ScoutMind.LiveReader -c Release -o .\live-reader\publish
+.\scripts\acceptance-live-reader.ps1
+```
+
+- `probe` 通过（输出里有 `verified`/`supported`）才继续；脚本只有在这个前提下才会 `scan`。
+- 你的构建是 `26620374` + 插件 `27.1.0+2505117`，当前**不在已验证清单**，所以预期结果是
+  `UnsupportedVersion` 并拒绝扫描 —— 这是正确行为，不是故障。把 `docs/acceptance/live-reader-*.txt` 发我，
+  我按实际 Build 决定补清单还是标注不支持。
+
+### 第 6 步：一条命令收齐三份结果（可选）
+
+```powershell
+.\scripts\p0-handoff.ps1                 # 自动找最新 dump
+.\scripts\p0-handoff.ps1 -Zip            # 顺手打包成 zip
+```
+
+输出目录 `exports\p0-report-<时间戳>\` 内含：
+
+| 文件 | 对应 | 是否发我 |
+| --- | --- | --- |
+| `fmscout-validate.txt` / `.json` | P0-1 审查报告 | **是** |
+| `acceptance-e2e.txt` | P0-6 端到端结果 | **是** |
+| `acceptance-live-reader.txt` | P0-5 status/probe 记录 | **是** |
+| `dump-raw.json` | 原始导出（含个人信息时不要外发） | 否，用第 3 步的脱敏样本代替 |
+
+### 我拿到之后会做什么
+
+- **审查报告**：核对字段覆盖率与人数；若与游戏内数量不符，改映射或让字段显式缺失。
+- **真实样本**：把它固化成回归样本，跑 8 条回归；有失败就按真实字段修适配器，并补测试。
+- **读取器记录**：若 Build 不兼容，把 `26620374` 写成明确的「暂不支持」记录；若 probe 通过，则完成 CA/PA、
+  属性、合同的抽样核对。
+- **E2E 结果**：按 FAIL 项逐个修；WARN 项写进文档的数据边界说明。
