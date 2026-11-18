@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from typing import Any
 
@@ -26,9 +27,9 @@ from ..analytics.deals import (
 )
 from ..analytics.valuation import estimate_value
 from ..db import get_db
-from ..models import Club, FmSave, PlayerInstance, PlayerValuation, Transfer
+from ..models import Club, FmSave, PlayerInstance, PlayerValuation, Transfer, TransferCandidate
 from ..schemas import DealRequest
-from ..utils import utcnow
+from ..utils import iso, utcnow
 from .deps import get_active_save
 
 router = APIRouter()
@@ -244,6 +245,128 @@ def transfer_investment(
 ) -> dict[str, Any]:
     """Investment score for a player at a given total cost."""
     return investment_score(db, instance_id, total_cost)
+
+
+@router.get("/transfers/candidates")
+def list_candidates(
+    save_id: int | None = Query(default=None),
+    status: str = Query(default="candidate"),
+    limit: int = Query(default=100, ge=1, le=200),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    """快照对比发现的俱乐部变化：在确认前只是候选事件，不进入任何统计。"""
+    target = save_id or save.id
+    query = select(TransferCandidate).where(TransferCandidate.fm_save_id == target)
+    if status != "all":
+        query = query.where(TransferCandidate.status == status)
+    rows = list(db.scalars(query.order_by(TransferCandidate.detected_at.desc()).limit(limit)))
+    return {
+        "items": [_candidate_payload(db, row) for row in rows],
+        "total": len(rows),
+        "note": "候选事件来自快照对比，只有确认后才会生成交易记录",
+    }
+
+
+@router.post("/transfers/candidates/{candidate_id}/confirm", status_code=201)
+def confirm_candidate(
+    candidate_id: int,
+    payload: dict[str, Any] | None = None,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """确认一个候选变化；可关联已有交易，否则按确认信息生成一笔无金额的已完成交易。"""
+    candidate = db.get(TransferCandidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail={"code": "candidate_not_found", "message": "候选事件不存在"})
+    if candidate.status != "candidate":
+        raise HTTPException(status_code=409, detail={"code": "candidate_not_open", "message": "该候选事件已处理"})
+    body = payload or {}
+    transfer_id = body.get("transfer_id")
+    if transfer_id is not None:
+        transfer = db.get(Transfer, int(transfer_id))
+        if transfer is None or transfer.fm_save_id != candidate.fm_save_id:
+            raise HTTPException(status_code=404, detail={"code": "transfer_not_found", "message": "交易不存在"})
+        candidate.confirmed_transfer_id = transfer.id
+    else:
+        instance = db.get(PlayerInstance, candidate.player_instance_id)
+        transfer = Transfer(
+            fm_save_id=candidate.fm_save_id,
+            source_record_id=f"candidate-{candidate.id}",
+            player_instance_id=candidate.player_instance_id,
+            player_name=instance.player.full_name if instance and instance.player else "未知球员",
+            from_club_id=candidate.from_club_id,
+            to_club_id=candidate.to_club_id,
+            from_club_name=_club_name(db, candidate.from_club_id),
+            to_club_name=_club_name(db, candidate.to_club_id),
+            transfer_type="loan" if candidate.kind == "loan" else "permanent",
+            status="completed",
+            transfer_date=_date_or_today(body.get("transfer_date"), candidate.detected_at.date()),
+            currency="EUR",
+            fee_paid=body.get("fee"),
+            source="manual",
+            confidence=0.6,
+        )
+        db.add(transfer)
+        db.flush()
+        candidate.confirmed_transfer_id = transfer.id
+    candidate.status = "confirmed"
+    db.commit()
+    return {"candidate": _candidate_payload(db, candidate), "transfer_id": candidate.confirmed_transfer_id}
+
+
+@router.post("/transfers/candidates/{candidate_id}/dismiss")
+def dismiss_candidate(
+    candidate_id: int,
+    payload: dict[str, Any] | None = None,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """把候选变化标记为误报（例如租借结束回归、退役或数据错乱）。"""
+    candidate = db.get(TransferCandidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail={"code": "candidate_not_found", "message": "候选事件不存在"})
+    candidate.status = "dismissed"
+    reason = (payload or {}).get("reason")
+    if reason:
+        evidence = json.loads(candidate.evidence_json or "{}")
+        evidence["dismiss_reason"] = str(reason)
+        candidate.evidence_json = json.dumps(evidence, ensure_ascii=False)
+    db.commit()
+    return {"candidate": _candidate_payload(db, candidate)}
+
+
+def _candidate_payload(db: Session, candidate: TransferCandidate) -> dict[str, Any]:
+    instance = db.get(PlayerInstance, candidate.player_instance_id)
+    return {
+        "id": candidate.id,
+        "player": {
+            "instance_id": candidate.player_instance_id,
+            "name": instance.player.full_name if instance and instance.player else None,
+        },
+        "from_club": _club_name(db, candidate.from_club_id),
+        "to_club": _club_name(db, candidate.to_club_id),
+        "kind": candidate.kind,
+        "status": candidate.status,
+        "detected_at": iso(candidate.detected_at),
+        "previous_observed_at": iso(candidate.previous_observed_at) if candidate.previous_observed_at else None,
+        "confirmed_transfer_id": candidate.confirmed_transfer_id,
+        "evidence": json.loads(candidate.evidence_json or "{}"),
+    }
+
+
+def _club_name(db: Session, club_id: int | None) -> str | None:
+    if club_id is None:
+        return None
+    club = db.get(Club, club_id)
+    return club.name if club else None
+
+
+def _date_or_today(raw: object, fallback: date) -> date:
+    if isinstance(raw, str):
+        try:
+            return date.fromisoformat(raw[:10])
+        except ValueError:
+            return fallback
+    return fallback
 
 
 @router.get("/clubs")

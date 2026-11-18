@@ -15,6 +15,7 @@ param(
     [string]$Token = $env:SCOUTMIND_API_TOKEN,
     [string]$BaseUrl = 'http://127.0.0.1:8000',
     [switch]$Preview,
+    [switch]$Validate,
     [switch]$Watch,
     [int]$IntervalSeconds = 30
 )
@@ -101,6 +102,37 @@ if ($Watch) {
 }
 
 $dump = Resolve-Dump -ExplicitPath $Path -Directory $DumpDir
+function Invoke-Validate {
+    <#
+      真实数据审查（P0-1）：打印 [1] File / [2] Dataset / [3] Field coverage / [4] Identity / [5] Risks。
+      不写库；用于在导入真实导出之前判断字段是否齐全、版本是否在已验证范围。
+    #>
+    param([System.IO.FileInfo]$File)
+    $uri = "$BaseUrl/api/v1/imports/fmscout/validate$(Get-Query)"
+    Write-Host "真实数据审查：$($File.FullName)"
+    Write-Host ("文件大小：{0:N0} bytes · SHA256：{1}" -f $File.Length, (Get-FileHash $File.FullName -Algorithm SHA256).Hash.ToLower())
+    Write-Host ""
+    $report = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -InFile $File.FullName -ContentType 'application/json'
+    foreach ($section in $report.sections) {
+        Write-Host $section.title
+        foreach ($row in $section.rows) {
+            $detail = if ($row.detail) { "  ($($row.detail))" } else { "" }
+            Write-Host ("    {0,-24} {1}{2}" -f $row.label, $row.value, $detail)
+        }
+        Write-Host ""
+    }
+    Write-Host ("结论：{0}" -f $report.verdict.status)
+    if ($report.verdict.blockers.Count -gt 0) { Write-Host ("  阻塞项：" + ($report.verdict.blockers -join '；')) }
+    if ($report.verdict.review.Count -gt 0) { Write-Host ("  需复核：" + ($report.verdict.review -join '；')) }
+    Write-Host ("可否导入：{0}" -f $(if ($report.verdict.ready_to_import) { '可以（建议先记录此报告）' } else { '不可以，先处理阻塞项' }))
+    return $report
+}
+
+if ($Validate) {
+    Invoke-Validate -File $dump | Out-Null
+    exit 0
+}
+
 if ($Preview) {
     Invoke-Preview -File $dump | ConvertTo-Json -Depth 6
 }

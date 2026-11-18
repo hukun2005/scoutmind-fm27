@@ -15,7 +15,7 @@ from ..ingestion.importer import ImportOutcome, ScanImporter
 from ..ingestion.protocol import ProtocolError, ScanPayload
 from ..models import Club, DataSource, FmSave, ImportJob, PlayerInstance, PlayerSnapshot, PlayerStatistic, Transfer
 from ..schemas import SaveCreate
-from ..utils import iso, utcnow
+from ..utils import iso, payload_checksum, utcnow
 from .deps import get_active_save, get_current_user
 from .routes_adapters import maybe_adapt
 
@@ -118,6 +118,55 @@ def save_summary(save_id: int, db: Session = Depends(get_db), user=Depends(get_c
         },
         "last_import": _job_payload(last) if last else None,
     }
+
+
+@router.post("/imports/transfers", status_code=201)
+async def import_transfers(
+    request: Request,
+    save_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
+    """历史交易独立通道：只导入交易（可带俱乐部），不要求球员快照。
+
+    FM 的转会历史是另一个数据源；它不应该被迫和球员扫描捆在一起，也不应该因为缺少球员数据而无法导入。
+    """
+    content_type = request.headers.get("content-type", "")
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        upload = form.get("file")
+        if upload is None or not hasattr(upload, "read"):
+            raise HTTPException(status_code=422, detail={"code": "missing_file", "message": "缺少 file 字段"})
+        raw = await upload.read()  # type: ignore[union-attr]
+    else:
+        raw = await request.body()
+    if not raw:
+        raise HTTPException(status_code=422, detail={"code": "empty_payload", "message": "交易报文为空"})
+    if len(raw) > settings.max_import_bytes:
+        raise HTTPException(status_code=413, detail={"code": "payload_too_large", "message": "报文超过大小限制"})
+    target = db.get(FmSave, save_id) if save_id else save
+    if target is None or target.user_id != user.id:
+        raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
+    try:
+        document = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProtocolError(f"交易报文不是有效 JSON：{exc}") from exc
+    if not isinstance(document, dict) or not document.get("transfers"):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "no_transfers", "message": "报文里没有 transfers 数组；球员扫描请走 /imports/scan"},
+        )
+    document.setdefault("scan", {"scan_id": f"transfers-{payload_checksum(raw)}"})
+    if isinstance(document["scan"], dict):
+        document["scan"].setdefault("observed_at", utcnow().isoformat())
+        document["scan"].setdefault("scan_id", f"transfers-{payload_checksum(raw)}")
+    try:
+        validated = ScanPayload.model_validate(document)
+    except ValueError as exc:
+        raise ProtocolError(f"交易报文不符合协议：{exc}") from exc
+    outcome = ScanImporter(db).import_payload(target.id, validated, raw)
+    return _outcome_payload(outcome)
 
 
 @router.get("/imports")

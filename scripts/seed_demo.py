@@ -202,6 +202,42 @@ def _new_player(rng: random.Random, index: int, position: str, club: dict, used_
         "wage": rng.randint(4_000, 120_000),
         "contract_end": date(2027 + rng.randint(0, 4), rng.randint(1, 12), 28).isoformat(),
         "value_base": rng.randint(800_000, 60_000_000),
+        # 状态字段：让挂牌/伤病/租借在演示数据里也有真实取值，界面与接口才有东西可展示。
+        "availability": {
+            "listed": rng.random() < 0.18,
+            "loan_listed": rng.random() < 0.05,
+            "not_for_sale": rng.random() < 0.12,
+            "set_for_release": rng.random() < 0.04,
+            "injury_proneness": rng.randint(4, 18),
+            "injured": rng.random() < 0.12,
+            "injury_start_date": None,
+            "expected_return_date": None,
+            "injury_note": None,
+        },
+        "ownership": None,
+        "agreed_transfer": None,
+    }
+
+
+def _availability_for(player: dict, scan_index: int) -> dict:
+    """Availability block for one scan; listing flips for some players so the timeline has real changes."""
+    base = dict(player.get("availability") or {})
+    if not base:
+        base = {"listed": False, "injury_proneness": 10, "injured": False}
+    listed = bool(base.get("listed"))
+    # 每一轮扫描让约 1/4 的球员改变挂牌状态，形成可观测的变化。
+    if scan_index == 1 and (int(player["uid"][1:]) % 4 == 0):  # 用 UID 的稳定模数，保证演示数据可复现
+        listed = not listed
+    return {
+        "listed": listed,
+        "loan_listed": base.get("loan_listed"),
+        "not_for_sale": base.get("not_for_sale"),
+        "set_for_release": base.get("set_for_release"),
+        "injury_proneness": base.get("injury_proneness"),
+        "injured": base.get("injured"),
+        "injury_start_date": None,
+        "expected_return_date": None,
+        "injury_note": None,
     }
 
 
@@ -218,7 +254,33 @@ def build_players(rng: random.Random, clubs: list[dict]) -> list[dict]:
         players.append(_new_player(rng, index, POSITIONS[index % len(POSITIONS)], clubs[1 + index % (len(clubs) - 1)],
                                    used_names))
         index += 1
+    _add_loan_and_pending_move(players, clubs)
     return players
+
+
+def _add_loan_and_pending_move(players: list[dict], clubs: list[dict]) -> None:
+    """Give the demo pool one real loan and one agreed-but-not-yet-registered move.
+
+    Both are deterministic: the loan keeps the owner club and the agreed move stays out of every spending total.
+    """
+    parent_uid = clubs[3]["uid"]
+    loan_club_uid = clubs[2]["uid"]
+    loaned = next((item for item in players if item["club_uid"] == parent_uid), None)
+    if loaned is not None:
+        loaned["ownership"] = {
+            "parent_club_uid": parent_uid,
+            "loan_club_uid": loan_club_uid,
+            "team_type": "senior",
+            "loan_start_date": None,
+            "loan_end_date": None,
+            "has_option": None,
+            "has_obligation": None,
+        }
+        loaned["club_uid"] = loan_club_uid
+    buyer_uid = clubs[1]["uid"]
+    pending = next((item for item in players if item["club_uid"] == buyer_uid), None)
+    if pending is not None:
+        pending["agreed_transfer"] = {"to_club_uid": clubs[0]["uid"], "transfer_date": "2027-07-01"}
 
 
 def build_statistics(rng: random.Random, player: dict, period_index: int) -> dict:
@@ -306,6 +368,10 @@ def build_scan(
                 "goals": scan_index * 2 + rng.randint(0, 3),
                 "assists": scan_index + rng.randint(0, 2),
                 "attributes": attributes,
+                # 挂牌状态随扫描推进偶尔变化，用来验证「状态变化」与「首次发现」。
+                "availability": _availability_for(player, scan_index),
+                "ownership": player.get("ownership"),
+                "agreed_transfer": player.get("agreed_transfer"),
                 "statistics": [build_statistics(rng, player, period_index) for period_index in (0, 1)],
             }
         )

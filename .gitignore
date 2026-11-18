@@ -40,3 +40,6 @@ scoutmind.config.json
 Thumbs.db
 .idea/
 .vscode/
+
+# Acceptance run logs (contain host names and timestamps)
+docs/acceptance/*.txt

@@ -10,7 +10,7 @@ import json
 from datetime import date, datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SOURCE_KINDS = (
     "fm27_live_reader",
@@ -27,6 +27,7 @@ TRANSFER_TYPES = (
     "permanent",
     "loan",
     "loan_with_option",
+    "loan_buyout",
     "free",
     "end_of_contract",
     "clause_release",
@@ -35,7 +36,24 @@ TRANSFER_TYPES = (
     "other",
 )
 
-TRANSFER_STATUSES = ("completed", "pending", "future", "cancelled", "failed", "unknown")
+#: ``agreed`` = deal agreed but not yet in force; ``bid_rejected`` = an offer that never became a transfer.
+#: Neither may enter price statistics or spending totals.
+TRANSFER_STATUSES = (
+    "completed",
+    "pending",
+    "future",
+    "agreed",
+    "bid_rejected",
+    "cancelled",
+    "failed",
+    "unknown",
+)
+
+#: Where a player's registration currently sits, as reported by a source that exposes loans.
+TEAM_TYPES = ("senior", "reserve", "youth", "unknown")
+
+#: Three-valued listing flags: absent (unknown), listed, not listed.
+AVAILABILITY_FLAGS = ("listed", "loan_listed", "not_for_sale", "set_for_release")
 
 FEE_COMPONENT_TYPES = (
     "base_fee",
@@ -155,6 +173,57 @@ class SeasonStatisticsRecord(BaseModel):
     clean_sheets: int | None = Field(default=None, ge=0)
 
 
+class AvailabilityRecord(BaseModel):
+    """Listing, injury and registration state of one player at one observation.
+
+    Every flag is three-valued: ``None`` says the source did not report it. A missing injury record never means
+    "fit", and ``injury_proneness`` is a player attribute that says nothing about the current injury.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    listed: bool | None = None
+    loan_listed: bool | None = None
+    not_for_sale: bool | None = None
+    set_for_release: bool | None = None
+    injury_proneness: int | None = Field(default=None, ge=0, le=20)
+    injured: bool | None = None
+    injury_start_date: date | None = None
+    expected_return_date: date | None = None
+    injury_note: str | None = Field(default=None, max_length=256)
+
+    @model_validator(mode="after")
+    def _injury_consistency(self) -> "AvailabilityRecord":
+        """Reject records that claim an injury date while also asserting the player is fit."""
+        if self.injured is False and (self.injury_start_date or self.expected_return_date):
+            raise ValueError("injured=false 不能同时带伤病日期")
+        return self
+
+
+class OwnershipRecord(BaseModel):
+    """Who owns the player and where he is registered. Loan clauses stay ``None`` unless a source states them."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    parent_club_uid: str | None = None
+    loan_club_uid: str | None = None
+    team_type: Literal["senior", "reserve", "youth", "unknown"] | None = None
+    loan_start_date: date | None = None
+    loan_end_date: date | None = None
+    has_option: bool | None = None
+    has_obligation: bool | None = None
+
+
+class AgreedTransferRecord(BaseModel):
+    """A deal that is agreed but not yet in force. Imported as a pending transfer, never as spending."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    to_club_uid: str | None = None
+    # Named ``transfer_date`` rather than ``date``: a field called ``date`` shadows the imported type.
+    transfer_date: date | None = None
+
+
 class PlayerRecord(BaseModel):
     """A player observation. Any field the scanner cannot read must be ``null``."""
 
@@ -180,6 +249,13 @@ class PlayerRecord(BaseModel):
     assists: int | None = Field(default=None, ge=0)
     attributes: dict[str, float] = Field(default_factory=dict)
     statistics: list[SeasonStatisticsRecord] = Field(default_factory=list)
+    # Profile facts. height_cm/foot/world_reputation are informational; none of them feed a score on their own.
+    height_cm: int | None = Field(default=None, ge=120, le=250)
+    foot: Literal["left", "right", "both"] | None = None
+    world_reputation: int | None = Field(default=None, ge=0)
+    availability: AvailabilityRecord | None = None
+    ownership: OwnershipRecord | None = None
+    agreed_transfer: AgreedTransferRecord | None = None
 
     @field_validator("name", "save_local_uid")
     @classmethod
@@ -232,7 +308,9 @@ class TransferRecord(BaseModel):
         "youth_promotion",
         "other",
     ] = "other"
-    status: Literal["completed", "pending", "future", "cancelled", "failed", "unknown"] = "unknown"
+    status: Literal[
+        "completed", "pending", "future", "agreed", "bid_rejected", "cancelled", "failed", "unknown"
+    ] = "unknown"
     transfer_date: date
     season: str | None = None
     from_club_uid: str | None = None

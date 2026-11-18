@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from sqlalchemy import delete, select
@@ -25,11 +25,14 @@ from ..models import (
     DataSource,
     ImportJob,
     ImportRow,
+    LoanRecord,
     PlayerAttributeValue,
+    PlayerAvailability,
     PlayerInstance,
     PlayerSnapshot,
     PlayerStatistic,
     Transfer,
+    TransferCandidate,
     TransferFeeComponent,
 )
 from ..utils import iso, payload_checksum, utcnow
@@ -71,6 +74,11 @@ class ImportOutcome:
     transfers_skipped: int = 0
     statistics_created: int = 0
     statistics_updated: int = 0
+    availability_created: int = 0
+    loans_created: int = 0
+    loans_updated: int = 0
+    pending_transfers_created: int = 0
+    candidates_created: int = 0
     rows_rejected: int = 0
     warnings: list[str] = field(default_factory=list)
     errors: list[dict[str, object]] = field(default_factory=list)
@@ -180,6 +188,8 @@ class ScanImporter:
         clubs = self._upsert_clubs(job.fm_save_id, payload, outcome)
         instance_by_record = self._upsert_players(job, payload, clubs, attribute_ids, outcome)
         self._upsert_transfers(job, payload, clubs, instance_by_record, outcome)
+        # A club change between two snapshots is only a candidate event; it must be confirmed before it counts.
+        self._detect_club_changes(job, payload, instance_by_record, outcome)
         outcome.coverage = self._coverage(payload, outcome)
         outcome.status = "failed" if outcome.rows_rejected and not outcome.snapshots_created else (
             "partial" if outcome.rows_rejected else "succeeded"
@@ -282,7 +292,7 @@ class ScanImporter:
             club = self._club_for(job.fm_save_id, record.club_uid, None, clubs)
             if club is not None:
                 instance.club_id = club.id
-            self._create_snapshot(job, payload, record, instance, club, attribute_ids, outcome)
+            self._create_snapshot(job, payload, record, instance, club, clubs, attribute_ids, outcome)
             self._upsert_statistics(job, payload, record, instance, outcome)
             if record.record_id:
                 instance_by_record[record.record_id] = instance.id
@@ -299,6 +309,7 @@ class ScanImporter:
         record: PlayerRecord,
         instance: PlayerInstance,
         club: Club | None,
+        clubs: dict[str, Club],
         attribute_ids: dict[str, int],
         outcome: ImportOutcome,
     ) -> None:
@@ -336,6 +347,9 @@ class ScanImporter:
             goals=record.goals,
             assists=record.assists,
             data_completeness=completeness,
+            height_cm=record.height_cm,
+            foot=record.foot,
+            world_reputation=record.world_reputation,
             source=payload.source,
             reader_version=payload.reader_version,
             game_build=payload.game.build,
@@ -351,6 +365,242 @@ class ScanImporter:
                 )
             )
         outcome.snapshots_created += 1
+        self._upsert_availability(job, payload, record, instance, clubs, outcome)
+        self._upsert_loan(job, payload, record, instance, clubs, outcome)
+        self._upsert_agreed_transfer(job, payload, record, instance, clubs, outcome)
+
+    def _upsert_availability(
+        self,
+        job: ImportJob,
+        payload: ScanPayload,
+        record: PlayerRecord,
+        instance: PlayerInstance,
+        clubs: dict[str, Club],
+        outcome: ImportOutcome,
+    ) -> None:
+        """Store the listing / injury / registration observation for this scan.
+
+        Absent fields stay NULL: a source without injury data must not look like "fit".
+        """
+        availability = record.availability
+        ownership = record.ownership
+        agreed = record.agreed_transfer
+        if availability is None and ownership is None and agreed is None:
+            return
+        observed_at = payload.scan.observed_at
+        exists = self.session.scalar(
+            select(PlayerAvailability.id).where(
+                PlayerAvailability.player_instance_id == instance.id,
+                PlayerAvailability.observed_at == observed_at,
+            )
+        )
+        if exists is not None:
+            return
+        parent = _club_by_name(clubs, ownership.parent_club_uid if ownership else None)
+        loan = _club_by_name(clubs, ownership.loan_club_uid if ownership else None)
+        target = _club_by_name(clubs, agreed.to_club_uid if agreed else None)
+        row = PlayerAvailability(
+            player_instance_id=instance.id,
+            import_job_id=job.id,
+            observed_at=observed_at,
+            game_date=payload.scan.game_date,
+            listed=availability.listed if availability else None,
+            loan_listed=availability.loan_listed if availability else None,
+            not_for_sale=availability.not_for_sale if availability else None,
+            set_for_release=availability.set_for_release if availability else None,
+            injury_proneness=availability.injury_proneness if availability else None,
+            injured=availability.injured if availability else None,
+            injury_start_date=availability.injury_start_date if availability else None,
+            expected_return_date=availability.expected_return_date if availability else None,
+            injury_note=availability.injury_note if availability else None,
+            parent_club_id=parent.id if parent else None,
+            loan_club_id=loan.id if loan else None,
+            team_type=ownership.team_type if ownership and ownership.team_type != "unknown" else None,
+            agreed_to_club_id=target.id if target else None,
+            agreed_transfer_date=agreed.transfer_date if agreed else None,
+            source=payload.source,
+            reader_version=payload.reader_version,
+            game_build=payload.game.build,
+        )
+        self.session.add(row)
+        outcome.availability_created += 1
+
+    def _upsert_loan(
+        self,
+        job: ImportJob,
+        payload: ScanPayload,
+        record: PlayerRecord,
+        instance: PlayerInstance,
+        clubs: dict[str, Club],
+        outcome: ImportOutcome,
+    ) -> None:
+        """Persist a loan relationship when the source states both clubs; otherwise record nothing."""
+        ownership = record.ownership
+        if ownership is None or not ownership.parent_club_uid or not ownership.loan_club_uid:
+            return
+        if ownership.parent_club_uid == ownership.loan_club_uid:
+            return
+        record_id = f"{instance.save_local_uid}:{ownership.parent_club_uid}:{ownership.loan_club_uid}"
+        existing = self.session.scalar(
+            select(LoanRecord).where(
+                LoanRecord.fm_save_id == job.fm_save_id,
+                LoanRecord.source_record_id == record_id,
+            )
+        )
+        parent = _club_by_name(clubs, ownership.parent_club_uid)
+        loan = _club_by_name(clubs, ownership.loan_club_uid)
+        values = {
+            "player_instance_id": instance.id,
+            "parent_club_id": parent.id if parent else None,
+            "loan_club_id": loan.id if loan else None,
+            "parent_club_name": parent.name if parent else ownership.parent_club_uid,
+            "loan_club_name": loan.name if loan else ownership.loan_club_uid,
+            "start_date": ownership.loan_start_date,
+            "end_date": ownership.loan_end_date,
+            "has_option": ownership.has_option,
+            "has_obligation": ownership.has_obligation,
+            "status": "active" if ownership.loan_end_date is None else "unknown",
+            "observed_at": payload.scan.observed_at,
+            "source": payload.source,
+            "reader_version": payload.reader_version,
+            "game_build": payload.game.build,
+            "import_job_id": job.id,
+        }
+        if existing is None:
+            self.session.add(
+                LoanRecord(fm_save_id=job.fm_save_id, source_record_id=record_id, **values)
+            )
+            outcome.loans_created += 1
+            return
+        # Re-observations refresh dates and clauses; a clause once reported is not silently erased.
+        for key in ("start_date", "end_date", "has_option", "has_obligation", "parent_club_id", "loan_club_id"):
+            value = values[key]
+            if value is not None:
+                setattr(existing, key, value)
+        existing.observed_at = payload.scan.observed_at
+        existing.import_job_id = job.id
+        outcome.loans_updated += 1
+
+    def _upsert_agreed_transfer(
+        self,
+        job: ImportJob,
+        payload: ScanPayload,
+        record: PlayerRecord,
+        instance: PlayerInstance,
+        clubs: dict[str, Club],
+        outcome: ImportOutcome,
+    ) -> None:
+        """An agreed-but-not-yet-registered deal becomes a ``status='agreed'`` transfer, never spending."""
+        agreed = record.agreed_transfer
+        if agreed is None or not agreed.to_club_uid:
+            return
+        record_id = f"agreed:{instance.save_local_uid}:{agreed.to_club_uid}"
+        existing = self.session.scalar(
+            select(Transfer.id).where(
+                Transfer.fm_save_id == job.fm_save_id,
+                Transfer.source_record_id == record_id,
+            )
+        )
+        if existing is not None:
+            return
+        target = _club_by_name(clubs, agreed.to_club_uid)
+        current = self.session.get(Club, instance.club_id) if instance.club_id else None
+        transfer_date = agreed.transfer_date or payload.scan.game_date or payload.scan.observed_at.date()
+        self.session.add(
+            Transfer(
+                fm_save_id=job.fm_save_id,
+                import_job_id=job.id,
+                source_record_id=record_id,
+                player_instance_id=instance.id,
+                player_name=record.name,
+                from_club_id=current.id if current else None,
+                to_club_id=target.id if target else None,
+                from_club_name=current.name if current else None,
+                to_club_name=target.name if target else agreed.to_club_uid,
+                transfer_type="permanent",
+                status="agreed",
+                transfer_date=transfer_date,
+                season=_season_label(transfer_date),
+                currency="EUR",
+                source=payload.source,
+                confidence=0.8,
+            )
+        )
+        outcome.pending_transfers_created += 1
+
+    def _detect_club_changes(
+        self,
+        job: ImportJob,
+        payload: ScanPayload,
+        instance_by_record: dict[str, int],
+        outcome: ImportOutcome,
+    ) -> None:
+        """Diff each player's last two snapshots and record club changes as unconfirmed candidates."""
+        instance_ids = list(instance_by_record.values())
+        if not instance_ids:
+            return
+        rows = self.session.execute(
+            select(
+                PlayerSnapshot.player_instance_id,
+                PlayerSnapshot.club_id,
+                PlayerSnapshot.observed_at,
+            )
+            .where(PlayerSnapshot.player_instance_id.in_(instance_ids))
+            .order_by(PlayerSnapshot.player_instance_id, PlayerSnapshot.observed_at)
+        ).all()
+        history: dict[int, list[tuple[int | None, object]]] = {}
+        for instance_id, club_id, observed_at in rows:
+            history.setdefault(instance_id, []).append((club_id, observed_at))
+        detected = payload.scan.observed_at
+        for instance_id, points in history.items():
+            if len(points) < 2:
+                continue
+            (previous_club, previous_at), (current_club, current_at) = points[-2], points[-1]
+            if current_at != detected or previous_club is None or current_club == previous_club:
+                continue  # first observation, or no change, or an older scan
+            exists = self.session.scalar(
+                select(TransferCandidate.id).where(
+                    TransferCandidate.fm_save_id == job.fm_save_id,
+                    TransferCandidate.player_instance_id == instance_id,
+                    TransferCandidate.to_club_id == current_club,
+                    TransferCandidate.detected_at == detected,
+                )
+            )
+            if exists is not None:
+                continue
+            self.session.add(
+                TransferCandidate(
+                    fm_save_id=job.fm_save_id,
+                    player_instance_id=instance_id,
+                    from_club_id=previous_club,
+                    to_club_id=current_club,
+                    kind=self._change_kind(instance_id, current_club),
+                    previous_observed_at=previous_at,  # type: ignore[arg-type]
+                    detected_at=detected,
+                    status="candidate",
+                    evidence_json=json.dumps(
+                        {
+                            "previous_club_id": previous_club,
+                            "current_club_id": current_club,
+                            "previous_observed_at": iso(previous_at),  # type: ignore[arg-type]
+                            "source": payload.source,
+                            "rule": "快照对比只能作为候选事件，必须确认后才计入统计",
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            )
+            outcome.candidates_created += 1
+
+    def _change_kind(self, instance_id: int, to_club_id: int) -> str:
+        """``loan`` only when a stored loan record names the destination club; otherwise ``unknown``."""
+        loan = self.session.scalar(
+            select(LoanRecord).where(
+                LoanRecord.player_instance_id == instance_id,
+                LoanRecord.loan_club_id == to_club_id,
+            )
+        )
+        return "loan" if loan is not None else "unknown"
 
     def _upsert_statistics(
         self,
@@ -555,6 +805,19 @@ def _load_json(text: str, fallback: object) -> object:
         return json.loads(text)
     except (TypeError, ValueError):
         return fallback
+
+
+def _season_label(moment: date) -> str:
+    """Season label such as ``2026/27`` from the date a move takes effect."""
+    start = moment.year if moment.month >= 7 else moment.year - 1
+    return f"{start}/{str(start + 1)[-2:]}"
+
+
+def _club_by_name(clubs: dict[str, Club], uid: str | None) -> Club | None:
+    """Resolve a club uid from the payload cache; unknown uids stay unresolved rather than guessed."""
+    if not uid:
+        return None
+    return clubs.get(uid)
 
 
 def _effective_fee(record: TransferRecord | FeeComponentRecord) -> float | None:

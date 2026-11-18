@@ -226,6 +226,10 @@ class PlayerSnapshot(TimestampMixin, Base):
     appearances: Mapped[int | None] = mapped_column(Integer)
     goals: Mapped[int | None] = mapped_column(Integer)
     assists: Mapped[int | None] = mapped_column(Integer)
+    # Profile facts some sources report directly. All nullable: absent stays unknown.
+    height_cm: Mapped[int | None] = mapped_column(Integer)
+    foot: Mapped[str | None] = mapped_column(String(8))
+    world_reputation: Mapped[int | None] = mapped_column(Integer)
     data_completeness: Mapped[float | None] = mapped_column(Float)
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     reader_version: Mapped[str | None] = mapped_column(String(32))
@@ -434,6 +438,105 @@ class TacticalProfile(TimestampMixin, Base):
     weight_wage: Mapped[float] = mapped_column(Float, default=0.15, nullable=False)
     weight_potential: Mapped[float] = mapped_column(Float, default=0.10, nullable=False)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class PlayerAvailability(TimestampMixin, Base):
+    """One observation of a player's availability: listing flags, injury and loan ownership.
+
+    Three-valued on purpose. ``None`` means the source did not report the field, ``True``/``False`` are observations.
+    Injury proneness is a player attribute and never implies the player is currently injured; a missing injury
+    record never means "fit".
+    """
+
+    __tablename__ = "player_availability"
+    __table_args__ = (
+        UniqueConstraint("player_instance_id", "observed_at", name="uq_availability_instance_time"),
+        Index("ix_availability_instance_time", "player_instance_id", "observed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), index=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    game_date: Mapped[date | None] = mapped_column(Date)
+    listed: Mapped[bool | None] = mapped_column(Boolean)
+    loan_listed: Mapped[bool | None] = mapped_column(Boolean)
+    not_for_sale: Mapped[bool | None] = mapped_column(Boolean)
+    set_for_release: Mapped[bool | None] = mapped_column(Boolean)
+    injury_proneness: Mapped[int | None] = mapped_column(Integer)
+    injured: Mapped[bool | None] = mapped_column(Boolean)
+    injury_start_date: Mapped[date | None] = mapped_column(Date)
+    expected_return_date: Mapped[date | None] = mapped_column(Date)
+    injury_note: Mapped[str | None] = mapped_column(String(256))
+    parent_club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"), index=True)
+    loan_club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"), index=True)
+    team_type: Mapped[str | None] = mapped_column(String(16))
+    agreed_to_club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"))
+    agreed_transfer_date: Mapped[date | None] = mapped_column(Date)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    reader_version: Mapped[str | None] = mapped_column(String(32))
+    game_build: Mapped[str | None] = mapped_column(String(64))
+
+
+class LoanRecord(TimestampMixin, Base):
+    """A loan relationship: who owns the player, who plays him, and whether a purchase clause exists.
+
+    Purchase option and obligation are three-valued: a source that does not expose the clause leaves them NULL and
+    callers must show "unknown", never "no clause".
+    """
+
+    __tablename__ = "loan_records"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", "source_record_id", name="uq_loan_save_record"),
+        Index("ix_loan_instance", "player_instance_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), index=True)
+    source_record_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    player_instance_id: Mapped[int | None] = mapped_column(ForeignKey("player_instances.id"), index=True)
+    parent_club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"), index=True)
+    loan_club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"), index=True)
+    parent_club_name: Mapped[str | None] = mapped_column(String(128))
+    loan_club_name: Mapped[str | None] = mapped_column(String(128))
+    start_date: Mapped[date | None] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date)
+    has_option: Mapped[bool | None] = mapped_column(Boolean)
+    has_obligation: Mapped[bool | None] = mapped_column(Boolean)
+    status: Mapped[str] = mapped_column(String(16), default="unknown", nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    reader_version: Mapped[str | None] = mapped_column(String(32))
+    game_build: Mapped[str | None] = mapped_column(String(64))
+
+
+class TransferCandidate(TimestampMixin, Base):
+    """A club change found by diffing two snapshots.
+
+    This is a candidate event, not a completed transfer. It must be confirmed (against a transfer channel) or
+    dismissed before it may influence any statistic.
+    """
+
+    __tablename__ = "transfer_candidates"
+    __table_args__ = (
+        UniqueConstraint(
+            "fm_save_id", "player_instance_id", "to_club_id", "detected_at", name="uq_candidate_change"
+        ),
+        Index("ix_candidate_save_status", "fm_save_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    from_club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"))
+    to_club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"))
+    kind: Mapped[str] = mapped_column(String(16), default="unknown", nullable=False)
+    previous_observed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    detected_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="candidate", nullable=False)
+    confirmed_transfer_id: Mapped[int | None] = mapped_column(ForeignKey("transfer_history.id"))
+    evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
 
 
 class PlayerStatistic(TimestampMixin, Base):

@@ -102,6 +102,13 @@ MAPPED_FIELDS = (
     "nat",
     "posArr / posNat",
     "attrs",
+    "height",
+    "foot",
+    "worldRep",
+    "listed / loanListed / notForSale / setForRelease",
+    "attrs.InjuryProneness",
+    "ownerClub / ownerTeamType / teamType",
+    "transferTo / transferDate",
 )
 
 #: Scan-protocol fields the dump has no source for, so every dependent feature reports them unavailable.
@@ -112,6 +119,9 @@ ABSENT_FIELDS = (
     "assists",
     "statistics",
     "transfers",
+    "current_injury",
+    "injury_history",
+    "loan_option",
 )
 
 #: Dump keys the adapter deliberately ignores, with the reason shown in the report.
@@ -127,19 +137,70 @@ IGNORED_FIELDS: dict[str, str] = {
     "professionalism": "隐藏性格属性，ScoutMind 未建模",
     "sportsmanship": "隐藏性格属性，ScoutMind 未建模",
     "temperament": "隐藏性格属性，ScoutMind 未建模",
-    "InjuryProneness": "伤倾字段，ScoutMind 的伤病风险仍标记为不可评估",
-    "height": "身体尺寸，当前模型未使用",
-    "foot": "惯用脚，当前模型未使用",
-    "listed": "挂牌状态，尚无对应的持久化字段",
-    "loanListed": "租借挂牌状态，尚无对应的持久化字段",
-    "notForSale": "非卖品标记，尚无对应的持久化字段",
-    "setForRelease": "解约标记，尚无对应的持久化字段",
-    "worldRep": "世界声望，ScoutMind 只使用俱乐部声誉",
-    "ownerClub": "所有权归属，当前模型未使用",
-    "ownerTeamType": "球队类型，当前模型未使用",
-    "teamType": "球队类型，当前模型未使用",
     "job": "职员岗位，不属于球员模型",
+    "jobId": "职员岗位 ID，不属于球员模型",
+    "jobPrefs": "职员偏好，不属于球员模型",
+    "prefJob": "职员偏好，不属于球员模型",
 }
+
+#: Every player key the adapter knows about, used to report genuinely new upstream fields instead of hiding them.
+KNOWN_PLAYER_FIELDS = frozenset(
+    {
+        "id",
+        "uid",
+        "name",
+        "birthYear",
+        "birthDoy",
+        "age",
+        "ca",
+        "pa",
+        "value",
+        "wage",
+        "expires",
+        "club",
+        "clubRep",
+        "div",
+        "nat",
+        "natId",
+        "pos",
+        "posArr",
+        "posNat",
+        "worldRep",
+        "attrs",
+        "staffAttrs",
+        "height",
+        "foot",
+        "gender",
+        "teamType",
+        "ownerTeamType",
+        "ownerClub",
+        "listed",
+        "loanListed",
+        "notForSale",
+        "setForRelease",
+        "transferDate",
+        "transferTo",
+        "job",
+        "jobId",
+        "jobPrefs",
+        "prefJob",
+        "adaptability",
+        "ambition",
+        "controversy",
+        "loyalty",
+        "pressure",
+        "professionalism",
+        "sportsmanship",
+        "temperament",
+        "state",
+        "v",
+    }
+)
+
+#: Game families this adapter was written against. A different ``meta.game`` is a compatibility risk, not an error.
+SUPPORTED_GAME_MAJORS = ("26", "27")
+#: The four listing flags the report groups under one row.
+AVAILABILITY_KEYS = ("listed", "loan_listed", "not_for_sale", "set_for_release")
 
 _SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
 
@@ -164,6 +225,8 @@ class AdapterReport:
     mapped_fields: list[str] = field(default_factory=list)
     absent_fields: list[str] = field(default_factory=list)
     ignored_fields: list[dict[str, str]] = field(default_factory=list)
+    unknown_fields: list[str] = field(default_factory=list)
+    compatibility: dict[str, object] = field(default_factory=dict)
     coverage: dict[str, float] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
@@ -186,6 +249,8 @@ class AdapterReport:
             "mapped_fields": self.mapped_fields,
             "absent_fields": self.absent_fields,
             "ignored_fields": self.ignored_fields,
+            "unknown_fields": self.unknown_fields,
+            "compatibility": self.compatibility,
             "coverage": self.coverage,
             "warnings": self.warnings,
         }
@@ -266,7 +331,24 @@ def convert_document(
     rows: list[dict[str, Any]] = []
     attribute_seen: dict[str, int] = {}
     ignored_attributes: set[str] = set()
-    numeric_presence = {"ca": 0, "pa": 0, "market_value": 0, "wage": 0, "contract_end": 0, "birth_date": 0, "age": 0}
+    numeric_presence = {
+        "ca": 0,
+        "pa": 0,
+        "market_value": 0,
+        "wage": 0,
+        "contract_end": 0,
+        "birth_date": 0,
+        "age": 0,
+        "height_cm": 0,
+        "foot": 0,
+        "world_reputation": 0,
+        "listed": 0,
+        "injury_proneness": 0,
+        "injured": 0,
+        "parent_club": 0,
+        "loan_club": 0,
+        "agreed_transfer": 0,
+    }
 
     for entry in players:
         if not isinstance(entry, dict):
@@ -279,20 +361,20 @@ def convert_document(
         club_name = _text(entry.get("club"))
         club_uid = _club_uid(club_name) if club_name else None
         if club_name and club_uid is not None:
-            club = clubs.setdefault(
-                club_uid,
-                {
-                    "uid": club_uid,
-                    "name": club_name,
-                    "nation": None,
-                    "league": _text(entry.get("div")),
-                    "reputation": _int(entry.get("clubRep"), sentinel_u16=True),
-                    "is_user_club": bool(user_club_name and club_name == user_club_name),
-                },
+            _ensure_club(
+                clubs,
+                club_name,
+                league=_text(entry.get("div")),
+                reputation=_int(entry.get("clubRep"), sentinel_u16=True),
+                user_club_name=user_club_name,
             )
-            if club["league"] is None:
-                club["league"] = _text(entry.get("div"))
-        row, present, ignored = _player_row(entry, club_uid)
+        ownership = _ownership(entry, club_name)
+        # A parent, loan or buying club may have no players in this dump; keep its name so the relationship is not lost.
+        for related_name in (_text(entry.get("ownerClub")), _text(entry.get("transferTo"))):
+            if related_name:
+                _ensure_club(clubs, related_name, league=None, reputation=None, user_club_name=user_club_name)
+        agreed = _agreed_transfer(entry)
+        row, present, ignored = _player_row(entry, club_uid, ownership=ownership, agreed=agreed)
         attribute_seen.update({key: attribute_seen.get(key, 0) + 1 for key in row.get("attributes", {})})
         ignored_attributes.update(ignored)
         for key, value in present.items():
@@ -311,6 +393,23 @@ def convert_document(
         for key, reason in IGNORED_FIELDS.items()
         if key in document or any(key in entry for entry in players if isinstance(entry, dict))
     ]
+
+    report.unknown_fields = sorted(
+        {
+            str(key)
+            for entry in players
+            if isinstance(entry, dict)
+            for key in entry
+            if str(key) not in KNOWN_PLAYER_FIELDS
+        }
+    )
+    report.compatibility = _compatibility(report.dump_game)
+    if report.unknown_fields:
+        report.warnings.append(
+            "上游新增了适配层不认识的字段：" + "、".join(report.unknown_fields) + "（已保留在报告中，未写入数据库）"
+        )
+    if not report.compatibility.get("supported", True):
+        report.warnings.append(str(report.compatibility.get("message")))
 
     total = max(report.players_converted, 1)
     report.coverage = {
@@ -370,15 +469,20 @@ def users_has_transfers(players: list[object]) -> bool:
 
 
 def _player_row(
-    entry: dict[str, object], club_uid: str | None
+    entry: dict[str, object],
+    club_uid: str | None,
+    *,
+    ownership: dict[str, Any],
+    agreed: dict[str, Any] | None,
 ) -> tuple[dict[str, Any], dict[str, bool], set[str]]:
     """Map one dump player row onto the scan protocol player record."""
     uid = _text(entry.get("id")) or _text(entry.get("uid"))
     name = _text(entry.get("name"))
     birth = _birth_date(entry)
     age = _int(entry.get("age"))
-    attributes, ignored = _attributes(entry.get("attrs"))
+    attributes, ignored, proneness = _attributes(entry.get("attrs"))
     position = _position(entry)
+    availability = _availability(entry, proneness)
     row: dict[str, Any] = {
         "record_id": uid,
         "save_local_uid": uid,
@@ -389,13 +493,19 @@ def _player_row(
         "nationality": _text(entry.get("nat")),
         "position": position,
         "club_uid": club_uid,
-        "ca": _int(entry.get("ca"), sentinel_u16=False),
-        "pa": _int(entry.get("pa"), sentinel_u16=False),
+        "ca": _positive(entry.get("ca")),
+        "pa": _positive(entry.get("pa")),
         "market_value": _int(entry.get("value"), sentinel_int=True),
         "wage": _int(entry.get("wage"), sentinel_int=True),
         "contract_end": _contract_end(entry.get("expires")),
+        "height_cm": _int(entry.get("height")),
+        "foot": _foot(entry.get("foot")),
+        "world_reputation": _int(entry.get("worldRep"), sentinel_u16=True),
         "attributes": attributes,
         "statistics": [],
+        "availability": availability,
+        "ownership": ownership or None,
+        "agreed_transfer": agreed,
     }
     present = {
         "ca": row["ca"] is not None,
@@ -405,18 +515,108 @@ def _player_row(
         "contract_end": row["contract_end"] is not None,
         "birth_date": row["birth_date"] is not None,
         "age": row["age"] is not None,
+        "height_cm": row["height_cm"] is not None,
+        "foot": row["foot"] is not None,
+        "world_reputation": row["world_reputation"] is not None,
+        "listed": (availability or {}).get("listed") is not None,
+        "injury_proneness": (availability or {}).get("injury_proneness") is not None,
+        "injured": (availability or {}).get("injured") is not None,
+        "parent_club": bool(ownership.get("parent_club_uid")),
+        "loan_club": bool(ownership.get("loan_club_uid")),
+        "agreed_transfer": bool(agreed and agreed.get("to_club_uid")),
     }
     return row, present, ignored
 
 
-def _attributes(raw: object) -> tuple[dict[str, float], set[str]]:
-    """Rename a dump attribute dict; unknown upstream keys are collected for the report."""
+def _availability(entry: dict[str, object], injury_proneness: int | None) -> dict[str, Any]:
+    """Listing flags and injury fields. Upstream reports the flag trio and the proneness; injury status is absent."""
+    availability: dict[str, Any] = {
+        "listed": _flag(entry.get("listed")),
+        "loan_listed": _flag(entry.get("loanListed")),
+        "not_for_sale": _flag(entry.get("notForSale")),
+        "set_for_release": _flag(entry.get("setForRelease")),
+        "injury_proneness": injury_proneness,
+        # Upstream does not expose the current injury, its dates or a history: stay unknown, never "fit".
+        "injured": None,
+        "injury_start_date": None,
+        "expected_return_date": None,
+        "injury_note": None,
+    }
+    if all(value is None for value in availability.values()):
+        return {}
+    return availability
+
+
+def _ownership(entry: dict[str, object], club_name: str | None) -> dict[str, Any]:
+    """Owner and loan clubs, when the dump names them. Absent keys stay absent instead of being guessed."""
+    owner = _text(entry.get("ownerClub"))
+    team_type = _normalise_team_type(_text(entry.get("ownerTeamType")) or _text(entry.get("teamType")))
+    if not owner:
+        return {}
+    ownership: dict[str, Any] = {
+        "parent_club_uid": _club_uid(owner),
+        "team_type": team_type,
+        # Loan clauses are not in the dump; leave them None so callers show "unknown".
+        "loan_start_date": None,
+        "loan_end_date": None,
+        "has_option": None,
+        "has_obligation": None,
+    }
+    if club_name and club_name != owner:
+        ownership["loan_club_uid"] = _club_uid(club_name)
+    return ownership
+
+
+def _agreed_transfer(entry: dict[str, object]) -> dict[str, Any] | None:
+    """A future move the dump already knows about, stored as an agreed transfer rather than spending."""
+    target = _text(entry.get("transferTo"))
+    if not target:
+        return None
+    return {"to_club_uid": _club_uid(target), "transfer_date": _contract_end(entry.get("transferDate"))}
+
+
+def _ensure_club(
+    clubs: dict[str, dict[str, Any]],
+    name: str,
+    *,
+    league: str | None,
+    reputation: int | None,
+    user_club_name: str | None,
+) -> None:
+    """Register a club mentioned by a player row, a loan or an agreed transfer."""
+    uid = _club_uid(name)
+    club = clubs.setdefault(
+        uid,
+        {
+            "uid": uid,
+            "name": name,
+            "nation": None,
+            "league": league,
+            "reputation": reputation,
+            "is_user_club": bool(user_club_name and name == user_club_name),
+        },
+    )
+    if club["league"] is None:
+        club["league"] = league
+    if club["reputation"] is None:
+        club["reputation"] = reputation
+
+def _attributes(raw: object) -> tuple[dict[str, float], set[str], int | None]:
+    """Rename a dump attribute dict; unknown upstream keys are collected for the report.
+
+    ``InjuryProneness`` is pulled out of the attribute set: it is a proneness rating for availability, not a scored
+    football attribute, so it must not leak into role scores.
+    """
     if not isinstance(raw, dict):
-        return {}, set()
+        return {}, set(), None
     attributes: dict[str, float] = {}
     ignored: set[str] = set()
+    proneness: int | None = None
     for key, value in raw.items():
         name = str(key)
+        if name == "InjuryProneness":
+            proneness = _int(value)
+            continue
         mapped = ATTRIBUTE_MAP.get(name)
         number = _number(value)
         if mapped is None:
@@ -425,7 +625,40 @@ def _attributes(raw: object) -> tuple[dict[str, float], set[str]]:
         if number is None:
             continue
         attributes[mapped] = number
-    return attributes, ignored
+    return attributes, ignored, proneness
+
+
+def _flag(value: object) -> bool | None:
+    """Three-valued listing flag: only a real boolean is an observation."""
+    if isinstance(value, bool):
+        return value
+    return None
+
+
+def _foot(value: object) -> str | None:
+    """Normalise the dump's foot label onto the protocol enum; anything else stays unknown."""
+    text = (_text(value) or "").lower()
+    if text.startswith("l"):
+        return "left"
+    if text.startswith("r"):
+        return "right"
+    if text.startswith("b") or text.startswith("e"):  # both / either
+        return "both"
+    return None
+
+
+def _normalise_team_type(value: str | None) -> str | None:
+    """Map upstream's squad-type label onto senior/reserve/youth; unknown values are dropped."""
+    if not value:
+        return None
+    text = value.strip().lower()
+    if text in {"senior", "first", "firstteam", "first team"}:
+        return "senior"
+    if text in {"reserve", "reserves", "b", "second"}:
+        return "reserve"
+    if text in {"youth", "u18", "u19", "u21", "academy"}:
+        return "youth"
+    return None
 
 
 def _position(entry: dict[str, object]) -> str | None:
@@ -474,6 +707,33 @@ def _is_ghost(entry: dict[str, object]) -> bool:
     return isinstance(reputation, int) and reputation == SENTINEL_U16
 
 
+def _compatibility(game: str | None) -> dict[str, object]:
+    """Detect a game family the adapter was not written against.
+
+    A mismatch is a compatibility *risk*, not a hard failure: the dump is still converted, but the report says which
+    game it came from and which ones were validated, and callers can refuse to trust the result.
+    """
+    supported = ", ".join(f"FM{major}" for major in SUPPORTED_GAME_MAJORS)
+    if not game:
+        return {
+            "game": None,
+            "supported": False,
+            "known_majors": list(SUPPORTED_GAME_MAJORS),
+            "message": f"导出里没有 meta.game，无法判断版本；适配层按 {supported} 编写，请人工核对",
+        }
+    major = "".join(ch for ch in str(game) if ch.isdigit())[:2]
+    supported_dump = major in SUPPORTED_GAME_MAJORS
+    return {
+        "game": game,
+        "major": major or None,
+        "supported": supported_dump,
+        "known_majors": list(SUPPORTED_GAME_MAJORS),
+        "message": None
+        if supported_dump
+        else f"导出标注的版本 {game} 不在已验证的 {supported} 内；字段可能已变化，请先看字段覆盖与未知字段",
+    }
+
+
 def _club_uid(name: str) -> str:
     """Stable club identifier derived from the club name the dump reports."""
     slug = _SLUG_PATTERN.sub("-", name.strip().lower()).strip("-")
@@ -481,6 +741,7 @@ def _club_uid(name: str) -> str:
 
 
 def _field_used(name: str, rows: list[dict[str, Any]], clubs: dict[str, dict[str, Any]]) -> bool:
+    """Whether a mapped field actually carried data in this dump (drives the report, not the conversion)."""
     if name == "club":
         return bool(clubs)
     if name == "div":
@@ -489,6 +750,23 @@ def _field_used(name: str, rows: list[dict[str, Any]], clubs: dict[str, dict[str
         return bool(rows)
     if name == "attrs":
         return any(row.get("attributes") for row in rows)
+    if name == "attrs.InjuryProneness":
+        return any((row.get("availability") or {}).get("injury_proneness") is not None for row in rows)
+    if name.startswith("listed"):
+        return any(
+            any((row.get("availability") or {}).get(key) is not None for key in AVAILABILITY_KEYS)
+            for row in rows
+        )
+    if name.startswith("ownerClub"):
+        return any((row.get("ownership") or {}).get("parent_club_uid") for row in rows)
+    if name.startswith("transferTo"):
+        return any(row.get("agreed_transfer") for row in rows)
+    if name == "height":
+        return any(row.get("height_cm") is not None for row in rows)
+    if name == "foot":
+        return any(row.get("foot") is not None for row in rows)
+    if name == "worldRep":
+        return any(row.get("world_reputation") is not None for row in rows)
     if name == "expires":
         return any(row.get("contract_end") for row in rows)
     return any(row.get(name) is not None for row in rows)
@@ -499,6 +777,14 @@ def _absent_override(name: str, players: list[object]) -> bool:
     if name == "transfers":
         return users_has_transfers(players)
     return False
+
+
+def _positive(value: object) -> int | None:
+    """An ability rating below 1 is not an observation in FM; treat it as unknown rather than as 0."""
+    number = _int(value)
+    if number is None or number <= 0:
+        return None
+    return number
 
 
 def _int(value: object, *, sentinel_u16: bool = False, sentinel_int: bool = False) -> int | None:

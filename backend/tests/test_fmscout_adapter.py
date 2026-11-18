@@ -168,8 +168,11 @@ def test_report_lists_absent_and_ignored_fields() -> None:
 
     assert "minutes_played" in payload["absent_fields"]
     assert "transfers" in payload["absent_fields"]
+    assert "current_injury" in payload["absent_fields"]
     ignored = {row["field"] for row in payload["ignored_fields"]}  # type: ignore[union-attr]
-    assert {"staff", "professionalism", "height", "foot"} <= ignored
+    assert {"staff", "professionalism"} <= ignored
+    # Fields that used to be ignored are now mapped: they must not be listed as dropped any more.
+    assert not {"height", "foot", "listed", "worldRep"} & ignored
     assert payload["coverage"]["ca"] == 1.0
     assert any("不含转会" in warning for warning in payload["warnings"])
     assert payload["scan_id"]

@@ -51,6 +51,11 @@ TRANSACTION_CATEGORIES: dict[str, dict[str, object]] = {
         "treatment": "租借费用与买断条款分开记录，买断金额在触发前不进统计",
         "counts_in_stats": False,
     },
+    "loan_buyout": {
+        "label": "租借买断",
+        "treatment": "租借期结束按买断条款转为正式转会，计入成交价格统计",
+        "counts_in_stats": True,
+    },
     "free": {
         "label": "自由转会",
         "treatment": "转会费记为零，保留工资与签字费等实际成本",
@@ -86,6 +91,16 @@ TRANSACTION_CATEGORIES: dict[str, dict[str, object]] = {
         "treatment": "保留记录，标记失败状态，不进入任何统计",
         "counts_in_stats": False,
     },
+    "agreed": {
+        "label": "已达成未生效",
+        "treatment": "双方已达成协议但尚未注册，不计入支出与成交价格统计",
+        "counts_in_stats": False,
+    },
+    "bid_rejected": {
+        "label": "报价被拒绝",
+        "treatment": "只作为谈判记录，不产生任何成本与成交口径",
+        "counts_in_stats": False,
+    },
 }
 
 
@@ -93,10 +108,16 @@ def category_of(transfer: Transfer) -> str:
     """Accounting category of one stored transfer."""
     if transfer.status in {"pending", "future", "unknown"}:
         return "pending"
+    if transfer.status == "agreed":
+        return "agreed"
+    if transfer.status == "bid_rejected":
+        return "bid_rejected"
     if transfer.status == "cancelled":
         return "cancelled"
     if transfer.status == "failed":
         return "failed"
+    if transfer.transfer_type == "loan_buyout":
+        return "loan_buyout"
     if transfer.transfer_type == "loan_with_option":
         return "loan_with_option"
     if transfer.transfer_type == "loan":

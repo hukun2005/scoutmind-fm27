@@ -10,6 +10,7 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -17,7 +18,7 @@ from ..db import get_db
 from ..ingestion.adapters import fmscout
 from ..ingestion.importer import ScanImporter
 from ..ingestion.protocol import ProtocolError, ScanPayload
-from ..models import FmSave
+from ..models import FmSave, PlayerInstance
 from .deps import get_active_save, get_current_user
 
 router = APIRouter()
@@ -65,6 +66,158 @@ async def preview(request: Request) -> dict[str, Any]:
         "sample_players": payload["players"][:PREVIEW_PLAYERS],
         "sample_clubs": payload["clubs"][:PREVIEW_PLAYERS],
     }
+
+
+@router.post("/imports/fmscout/validate")
+async def validate_dump(
+    request: Request,
+    save_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
+    """真实数据审查：按 P0-1 的报告格式逐项核对一份真实导出，不写库。"""
+    raw = await _read_upload(request)
+    try:
+        payload, report = fmscout.convert_dump(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "not_fmscout_dump", "message": str(exc)}) from exc
+
+    players = payload["players"]
+    ids = [row["save_local_uid"] for row in players]
+    duplicates = sorted({uid for uid in ids if ids.count(uid) > 1})
+    coverage = report.payload()["coverage"]
+    known_counts = _existing_instances(db, save_id or save.id, ids)
+    sections = [
+        {
+            "id": "file",
+            "title": "[1] File",
+            "rows": [
+                {"label": "JSON valid", "value": "PASS"},
+                {
+                    "label": "Dump version",
+                    "value": report.dump_game or "unknown",
+                    "detail": "适配层按 FM26/FM27 编写" if report.dump_game else "导出里没有 meta.game",
+                },
+                {"label": "Generated time", "value": report.dump_generated or "unknown"},
+                {"label": "Scan id", "value": report.scan_id},
+                {"label": "Game date", "value": payload["scan"]["game_date"] or "unknown"},
+            ],
+        },
+        {
+            "id": "dataset",
+            "title": "[2] Dataset",
+            "rows": [
+                {"label": "Total players", "value": report.players_total},
+                {"label": "Clubs", "value": report.clubs_converted},
+                {"label": "Unique player IDs", "value": len(set(ids))},
+                {"label": "Duplicate IDs", "value": len(duplicates), "detail": ", ".join(duplicates[:5])},
+                {"label": "Skipped ghost rows", "value": report.players_skipped},
+                {"label": "Converted players", "value": report.players_converted},
+            ],
+        },
+        {
+            "id": "coverage",
+            "title": "[3] Field coverage",
+            "rows": [
+                {"label": _coverage_label(key), "value": _percent(value)} for key, value in coverage.items()
+            ],
+        },
+        {
+            "id": "identity",
+            "title": "[4] Identity / 与现有数据的关系",
+            "rows": [
+                {"label": "已在存档中的球员", "value": known_counts["existing"]},
+                {"label": "将新建的球员", "value": known_counts["new"]},
+                {"label": "缺少稳定 ID 的行", "value": known_counts["no_id"]},
+            ],
+        },
+        {
+            "id": "risks",
+            "title": "[5] Risks",
+            "rows": [
+                {"label": "未知字段", "value": len(report.unknown_fields), "detail": ", ".join(report.unknown_fields[:8])},
+                {"label": "版本兼容", "value": "PASS" if report.compatibility.get("supported") else "RISK"},
+                {"label": "忽略字段数", "value": len(report.ignored_fields)},
+                {"label": "导出缺少的数据", "value": ", ".join(report.absent_fields)},
+            ],
+        },
+    ]
+    verdict = _verdict(report, duplicates, coverage)
+    return {
+        "sections": sections,
+        "verdict": verdict,
+        "report": report.payload(),
+        "counts": {"clubs": len(payload["clubs"]), "players": len(players)},
+    }
+
+
+def _coverage_label(key: str) -> str:
+    return {
+        "ca": "CA / PA",
+        "pa": "PA",
+        "market_value": "Value",
+        "wage": "Wage",
+        "contract_end": "Contract",
+        "birth_date": "Birth date",
+        "age": "Age",
+        "height_cm": "Height",
+        "foot": "Foot",
+        "world_reputation": "World reputation",
+        "listed": "Transfer status",
+        "injury_proneness": "Injury proneness",
+        "injured": "Current injury",
+        "parent_club": "Ownership / parent club",
+        "loan_club": "Loan status",
+        "agreed_transfer": "Agreed transfer",
+    }.get(key, key)
+
+
+def _percent(value: object) -> str:
+    number = float(value) if isinstance(value, (int, float)) else 0.0
+    return f"{round(number * 100)}%"
+
+
+def _existing_instances(db: Session, save_id: int, ids: list[str]) -> dict[str, int]:
+    """How many rows already exist for this save; lets the operator spot a wrong save before importing."""
+    if not ids:
+        return {"existing": 0, "new": 0, "no_id": 0}
+    unique = list(dict.fromkeys(uid for uid in ids if uid))
+    existing = db.scalar(
+        select(func.count())
+        .select_from(PlayerInstance)
+        .where(
+            PlayerInstance.fm_save_id == save_id,
+            PlayerInstance.save_local_uid.in_(unique),
+        )
+    )
+    return {
+        "existing": int(existing or 0),
+        "new": len(unique) - int(existing or 0),
+        "no_id": sum(1 for uid in ids if not uid),
+    }
+
+
+def _verdict(report: fmscout.AdapterReport, duplicates: list[str], coverage: dict[str, float]) -> dict[str, object]:
+    """Human-readable conclusion: what blocks the import, what merely needs review."""
+    blockers: list[str] = []
+    review: list[str] = []
+    if not report.players_converted:
+        blockers.append("没有任何球员被转换，检查 meta/players 结构")
+    if duplicates:
+        blockers.append(f"存在 {len(duplicates)} 个重复球员 ID，导入会按后一行为准")
+    if not report.compatibility.get("supported"):
+        review.append("版本不在已验证范围，字段可能已变化")
+    if report.unknown_fields:
+        review.append("上游出现适配层不认识的字段")
+    if coverage.get("ca", 0) < 0.9:
+        review.append("CA 覆盖率低于 90%，评分与估值会大量缺失")
+    if coverage.get("wage", 0) < 0.5:
+        review.append("工资覆盖率低于 50%，成本模型只能用假设值")
+    if coverage.get("injured", 0) == 0:
+        review.append("导出没有当前伤病状态，伤病相关结论只能标记为不可评估")
+    status = "blocked" if blockers else ("review" if review else "pass")
+    return {"status": status, "blockers": blockers, "review": review, "ready_to_import": not blockers}
 
 
 @router.post("/imports/fmscout", status_code=201)

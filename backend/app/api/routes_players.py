@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..analytics.availability import player_status as player_availability_status
 from ..analytics.players import PlayerFilter, development, history, list_players, player_profile
 from ..db import get_db
 from ..models import FmSave, Watchlist
@@ -83,6 +84,15 @@ def player_history(
 ) -> dict[str, Any]:
     """Snapshot timeline for growth charts."""
     return history(db, instance_id, from_date, to_date)
+
+
+@router.get("/players/{instance_id}/status")
+def player_status_route(instance_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """挂牌、伤病、租借与待生效转会的时间线；缺失项以 data_gaps 说明，不做推断。"""
+    try:
+        return player_availability_status(db, instance_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail={"code": "player_not_found", "message": str(exc)}) from exc
 
 
 @router.get("/players/{instance_id}/development")
