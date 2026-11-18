@@ -14,6 +14,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .api import (
     routes_adapters,
     routes_agent,
+    routes_clubs,
     routes_core,
     routes_development,
     routes_ops,
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     for router in (
         routes_core.router,
         routes_adapters.router,
+        routes_clubs.router,
         routes_players.router,
         routes_scouting.router,
         routes_squad.router,
