@@ -80,3 +80,32 @@
 - `transfer_history` 的 `status` 增加 `agreed`（已达成未生效）与 `bid_rejected`（报价被拒绝）；`transfer_type` 增加
   `loan_buyout`（租借买断）。`agreed`、`bid_rejected` 既不进价格统计也不计支出。
 - 迁移 `fd65d0d5f75d` 只新增表与列，不改写既有数据；SQLite 下仍以 batch 模式执行。
+
+## 5. 俱乐部解析相关表（2026-11 新增）
+
+`clubs` 增列：
+
+| 列 | 含义 |
+| --- | --- |
+| `normalized_name` | 归一化名称（去大小写/重音/标点），用于合并"只有名字"和"带 ID"的记录 |
+| `source` | `payload_clubs` / `player_club_field` / `squad_csv` / `manual` |
+| `confidence` | 渠道固定可信度（1.0 / 0.6 / 0.9 / 1.0） |
+| `external_ids_json` | 上游 ID（如 FMSuperScout 的 uid），用于后续升级匹配 |
+
+`fm_saves` 增列：
+
+| 列 | 含义 |
+| --- | --- |
+| `user_club_id` | 主执教俱乐部。**故意不加外键**：与 `clubs.fm_save_id` 形成环，SQLite 无法建表；归属由解析器校验 |
+| `user_club_source` | `manual` / `payload`，记录本队是怎么定下来的 |
+
+新表 `squad_assignments`（阵容归属，来自 CSV 或手动）：
+
+| 列 | 含义 |
+| --- | --- |
+| `fm_save_id` / `player_instance_id` | 归属对象；`UNIQUE(fm_save_id, player_instance_id, source)` 保证重复导入幂等 |
+| `club_id` / `club_name_raw` | 解析到的俱乐部与 CSV 原文 |
+| `squad_type` | `senior` / `reserve` / `youth` / `unknown` |
+| `loan_status` | `none` / `loaned_out` / `loaned_in` / `unknown` |
+| `source` / `confidence` | 来源与匹配置信度 |
+| `observed_at` / `raw_json` | 观测时间与原始行，便于回溯 |

@@ -187,3 +187,25 @@ cd ..
 
 WARN 的两项分别是：阵容评分（导出没有 `meta.myClub`）、表现分析（导出没有统计字段）。这两项要等数据源补齐，
 不是代码缺陷。
+
+## 2026-11-18 俱乐部解析修复（Club Resolver / 阵容 CSV）
+
+真实数据：FMSuperScout 1.7.3 导出，48,089 名球员，其中仅 103 人有俱乐部、`meta.myClub` 为空。
+
+| 验收项 | 结果 |
+| --- | --- |
+| 字段核对 | `docs/FMSCOUT_FIELD_COVERAGE.md`：无 `clubs` 数组、无 `clubId`、无 `parentClub/loanClub`、`teamType` 语义未验证 |
+| 自动派生俱乐部 | 从球员行生成 `name:<slug>` 稳定 uid；重复导入 0 重复 |
+| 本队识别 | 导出无本队 → 界面显示"尚未指定"，手动选择后标记"你手动指定" |
+| 阵容评分 | 真实存档 17 人，68.6 分，六个维度均可计算 |
+| 阵容 CSV | 按球员 ID 关联 17 人（1.0），低置信度 0 行 |
+| 阵容构成 | 一线队 10 · 预备队 4 · 青年队 1 · 外租 1 · 租入 1 · 未知 0 |
+| 自动化测试 | `tests/test_club_resolution.py` 15 个用例，覆盖任务列出的 9 个场景 |
+
+命令：
+
+```powershell
+.\backend\.venv\Scripts\python.exe scripts\fmscout_field_report.py     # 字段覆盖报告
+.\backend\.venv\Scripts\python.exe scripts\backfill_club_provenance.py  # 旧俱乐部补来源
+.\backend\.venv\Scripts\python.exe scripts\repair_club_table.py --check # 检查 clubs 表主键
+```

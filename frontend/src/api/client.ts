@@ -234,6 +234,11 @@ export async function apiPost<T>(url: string, body?: unknown, config?: AxiosRequ
  * @param url Path relative to `/api/v1`.
  * @param body JSON body.
  */
+export async function apiPut<T>(url: string, body: unknown): Promise<T> {
+  const response = await http.put<T>(url, body)
+  return response.data
+}
+
 export async function apiPatch<T>(url: string, body: unknown): Promise<T> {
   const response = await http.patch<T>(url, body)
   return response.data

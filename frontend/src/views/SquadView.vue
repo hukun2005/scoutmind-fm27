@@ -27,6 +27,8 @@ import type {
 import type { TableColumn } from '../types/table'
 import { EMPTY, displayText, formatDecimal, formatInt, formatMoney, formatPercent } from '../utils/format'
 import { positionLabel } from '../utils/labels'
+import { getUserClub, searchClubs, setUserClub } from '../api/clubResolution'
+import type { ClubOption, SquadComposition } from '../types/clubResolution'
 
 const session = useSessionStore()
 
@@ -36,6 +38,67 @@ const selectedProfile = ref('')
 const loading = ref(false)
 const error = ref<ApiError | null>(null)
 const weightDraft = ref<Record<string, number>>({})
+
+// -- 主执教俱乐部 ---------------------------------------------------------------------------------------------
+
+const clubSearching = ref(false)
+const clubOptions = ref<ClubOption[]>([])
+const selectingClub = ref(false)
+const userClub = ref<{ id: number; name: string; league: string | null; nation: string | null } | null>(null)
+const userClubMeta = ref<{
+  source_label: string | null
+  confidence: number | null
+  assignment_source: string | null
+}>({ source_label: null, confidence: null, assignment_source: null })
+
+/** 阵容构成：来自阵容 CSV 的归属，缺数据时明确说"未导入"而不是把所有人当一线队。 */
+const composition = computed<SquadComposition | null>(() => overview.value?.composition ?? null)
+
+/** Search clubs for the picker; empty query returns the first page. */
+async function searchClubOptions(query: string): Promise<void> {
+  if (!session.activeSaveId) return
+  clubSearching.value = true
+  try {
+    const result = await searchClubs(query || undefined, 30)
+    clubOptions.value = result.items
+  } catch {
+    clubOptions.value = []
+  } finally {
+    clubSearching.value = false
+  }
+}
+
+/** Point the save at the chosen club; players are not moved. */
+async function applyUserClub(clubId: number): Promise<void> {
+  if (!session.activeSaveId) return
+  selectingClub.value = true
+  try {
+    await setUserClub(session.activeSaveId, clubId)
+    ElMessage.success('已设为我的俱乐部；球员所属俱乐部不会被修改')
+    await loadUserClub()
+    await load()
+  } catch (cause) {
+    ElMessage.error(cause instanceof Error ? cause.message : '设置失败')
+  } finally {
+    selectingClub.value = false
+  }
+}
+
+/** Load the current managed club and its provenance. */
+async function loadUserClub(): Promise<void> {
+  if (!session.activeSaveId) return
+  try {
+    const result = await getUserClub(session.activeSaveId)
+    userClub.value = result.club
+    userClubMeta.value = {
+      source_label: result.source_label,
+      confidence: result.confidence,
+      assignment_source: result.assignment_source ?? null,
+    }
+  } catch {
+    userClub.value = null
+  }
+}
 
 /** 没有本队时，各区块的空状态要说明真正原因，而不是把缺席归咎于字段。 */
 const noClubReason = computed<string | null>(() =>
@@ -204,6 +267,19 @@ function componentTone(component: SquadComponent): 'default' | 'accent' | 'warn'
 }
 
 /** Contract entry rows reused by the contract bucket tables. */
+/** Human labels for the composition buckets. */
+function compositionLabel(key: string): string {
+  const labels: Record<string, string> = {
+    senior: '一线队',
+    reserve: '预备队',
+    youth: '青年队',
+    loaned_out: '外租',
+    loaned_in: '租入',
+    unknown: '未知',
+  }
+  return labels[key] ?? key
+}
+
 function contractRows(entries: ContractEntry[]): ContractEntry[] {
   return [...entries].sort((a, b) => (a.contract_end ?? '9999').localeCompare(b.contract_end ?? '9999'))
 }
@@ -212,6 +288,8 @@ watch(() => session.activeSaveId, () => void load())
 
 onMounted(async () => {
   await loadProfiles()
+  await loadUserClub()
+  await searchClubOptions('')
   await load()
 })
 </script>
@@ -254,6 +332,82 @@ onMounted(async () => {
           :tone="overview.contracts.at_risk_count > 0 ? 'warn' : 'default'"
         />
       </section>
+
+      <SectionCard title="主执教俱乐部" subtitle="阵容分析以它作为「本队」；手动指定不会改变任何球员的所属俱乐部">
+        <div class="squad__club">
+          <div class="squad__club-current">
+            <div class="squad__club-name">
+              {{ userClub ? userClub.name : '尚未指定' }}
+              <el-tag v-if="userClubMeta.source_label" size="small" type="info" effect="plain">
+                来源：{{ userClubMeta.source_label }}
+              </el-tag>
+              <el-tag
+                v-if="userClubMeta.confidence !== null"
+                size="small"
+                :type="userClubMeta.confidence >= 0.9 ? 'success' : 'warning'"
+                effect="plain"
+              >
+                记录可信度 {{ formatDecimal(userClubMeta.confidence, 1) }}
+              </el-tag>
+              <el-tag v-if="userClubMeta.assignment_source" size="small" effect="plain">
+                {{ userClubMeta.assignment_source === 'manual' ? '你手动指定' : '报文声明' }}
+              </el-tag>
+            </div>
+            <p class="squad__club-hint">
+              {{ userClub
+                ? `${userClub.league ?? '联赛未知'} · ${userClub.nation ?? '国家未知'}`
+                : '数据源没有提供主执教俱乐部，需要你手动选择；在此之前阵容分析无法进行' }}
+            </p>
+          </div>
+          <el-select
+            class="squad__club-select"
+            filterable
+            remote
+            clearable
+            :remote-method="searchClubOptions"
+            :loading="clubSearching"
+            placeholder="搜索俱乐部名称"
+            size="small"
+            @change="(value: number) => value && applyUserClub(value)"
+          >
+            <el-option
+              v-for="item in clubOptions"
+              :key="item.id"
+              :value="item.id"
+              :label="`${item.name}（${item.players} 人）`"
+            >
+              <span>{{ item.name }}</span>
+              <span class="squad__club-option">
+                {{ item.players }} 人 · {{ item.source_label ?? '来源未知' }}
+                <template v-if="item.confidence !== null"> · 可信度 {{ formatDecimal(item.confidence, 1) }}</template>
+              </span>
+            </el-option>
+          </el-select>
+          <el-button size="small" :loading="selectingClub" @click="searchClubOptions('')">刷新列表</el-button>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="阵容构成" subtitle="一线队 / 预备队 / 青年队 / 外租 / 租入；没有名单依据的球员标为未知，不当成自由球员">
+        <template v-if="composition && composition.available">
+          <div class="squad__composition">
+            <div v-for="(count, key) in composition.counts" :key="key" class="squad__composition-item">
+              <span class="squad__composition-count">{{ count }}</span>
+              <span class="squad__composition-label">{{ compositionLabel(String(key)) }}</span>
+            </div>
+          </div>
+          <ul v-if="composition.gaps && composition.gaps.length" class="squad__gaps">
+            <li v-for="gap in composition.gaps" :key="gap">{{ gap }}</li>
+          </ul>
+        </template>
+        <EmptyState
+          v-else
+          title="没有阵容名单"
+          :description="
+            (composition?.missing ?? []).join('；') ||
+            '数据源不提供一线队/预备队/青年队与租借状态，请到数据中心导入阵容 CSV'
+          "
+        />
+      </SectionCard>
 
       <SectionCard title="六个维度" subtitle="权重可在下方调整后重算；缺数据的维度会重新分配权重">
         <div class="sm-grid sm-grid--3 squad__components">
@@ -579,5 +733,72 @@ onMounted(async () => {
 
 .squad__contracts :deep(.el-collapse-item__header) {
   font-size: var(--sm-fs-sm);
+}
+.squad__club {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.squad__club-current {
+  flex: 1 1 260px;
+  min-width: 220px;
+}
+
+.squad__club-name {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 600;
+}
+
+.squad__club-hint {
+  margin: 4px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.squad__club-select {
+  flex: 0 1 320px;
+}
+
+.squad__club-option {
+  float: right;
+  margin-left: 12px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.squad__composition {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.squad__composition-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 84px;
+  padding: 10px 14px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+}
+
+.squad__composition-count {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.squad__composition-label {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.squad__gaps {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 </style>

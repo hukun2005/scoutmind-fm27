@@ -1,3 +1,5 @@
+import type { SquadComposition } from './clubResolution'
+
 /** Types for Squad Intelligence (`/squad/*`): six-component squad score, depth and planning. */
 
 /** One component of the squad score. `value === null` means the save cannot support it. */
@@ -155,6 +157,8 @@ export interface SquadOverview {
   contracts: ContractMonitoring
   weakness: WeaknessRow[]
   succession: SuccessionRow[]
+  /** 阵容构成（一线队/预备队/青年队/外租/租入/未知），来自阵容名单。 */
+  composition: SquadComposition
   algorithm_version: string
   data_gaps?: string[]
   computed_at?: string

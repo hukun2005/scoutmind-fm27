@@ -435,3 +435,35 @@
 ### 13.4 历史交易独立通道 `POST /imports/transfers`
 只导入 `transfers`（可带 `clubs`），允许 `players` 为空；缺少 `transfers` 返回 422 `no_transfers`。
 `scan_id` 可用报文自带值，否则按内容哈希生成，因此同一份历史重复导入返回 `duplicate=true`。
+
+## 14. 俱乐部解析与阵容名单（2026-11 新增）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/clubs/search` | 搜索俱乐部；返回 `source` / `source_label` / `confidence` / `players` |
+| `GET` | `/clubs` | 同上的完整列表（保留 `club_id` 兼容字段） |
+| `GET` | `/saves/{save_id}/user-club` | 当前本队、记录来源与指定方式（`assignment_source`） |
+| `PUT` | `/saves/{save_id}/user-club` | 指定本队，body `{"club_id": 17}`；不移动球员 |
+| `DELETE` | `/saves/{save_id}/user-club` | 清除本队 |
+| `POST` | `/imports/squad-csv?save_id=` | 导入阵容名单（multipart `file` 或裸 CSV），返回逐行结果 |
+| `GET` | `/imports/squad-csv/template` | 可填写的 CSV 模板 |
+
+`POST /imports/squad-csv` 响应：
+
+```json
+{
+  "counts": {"assigned": 17, "review": 0, "unmatched": 0, "invalid": 0},
+  "total": 17,
+  "clubs_created": 0,
+  "assignments_written": 17,
+  "duplicate": false,
+  "warnings": [],
+  "detected_columns": {"name": "姓名", "player_id": "球员ID"},
+  "rows": [
+    {"index": 1, "name": "...", "status": "assigned", "confidence": 1.0, "matched_by": ["player_id"], "reason": null}
+  ]
+}
+```
+
+`GET /squad/overview` 增加 `composition`：`available`、`counts`/`buckets`（`senior`/`reserve`/`youth`/`loaned_out`/`loaned_in`/`unknown`）、`gaps`。
+`GET /players` 的每一行增加 `save_local_uid`，用于填写阵容 CSV。
