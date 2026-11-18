@@ -6,6 +6,7 @@ import type { FeeComponentStatus, FeeComponentType, TransferStatus, TransferType
 export const SOURCE_LABELS: Record<string, string> = {
   fm27_live_reader: '实时读取器',
   fm_save_parser: '存档解析',
+  fmsuperscout: 'FMSuperScout',
   manual: '手工录入',
   ocr: 'OCR 识别',
   external: '外部数据',

@@ -103,7 +103,7 @@ const tone = computed(() => {
 }
 
 .coverage__fill--mid {
-  background: #c08a2e;
+  background: var(--sm-warn);
 }
 
 .coverage__fill--low {

@@ -2,9 +2,12 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { asApiError, type ApiError } from '../api/client'
 import { getClubTransferProfile, listClubs } from '../api/clubs'
 import { getSimilarTransfers } from '../api/transfers'
+import { getTransactionSummary, getTransferReview, postDealReport } from '../api/deals'
+import type { DealReport, TransactionSummary, TransferReview } from '../types/transfers-deals'
 import ChartCard from '../components/ChartCard.vue'
 import CoverageBar from '../components/CoverageBar.vue'
 import DataTable from '../components/DataTable.vue'
@@ -50,12 +53,17 @@ import {
   transferTypeLabel,
 } from '../utils/labels'
 
-type TransferTab = 'list' | 'similar' | 'clubs'
+type TransferTab = 'list' | 'similar' | 'clubs' | 'deals'
 
 const session = useSessionStore()
 const transfers = useTransfersStore()
 
-const activeTab = ref<TransferTab>('list')
+const route = useRoute()
+
+/** Tabs are deep-linkable (/transfers?tab=deals) so a report can be shared as a URL. */
+const TAB_KEYS: TransferTab[] = ['list', 'similar', 'clubs', 'deals']
+const initialTab = typeof route.query.tab === 'string' && TAB_KEYS.includes(route.query.tab as TransferTab) ? (route.query.tab as TransferTab) : 'list'
+const activeTab = ref<TransferTab>(initialTab)
 
 const clubs = ref<Club[]>([])
 const clubsLoading = ref(false)
@@ -75,6 +83,24 @@ const clubProfileId = ref<number | undefined>(undefined)
 const clubProfile = ref<ClubTransferProfile | null>(null)
 const clubProfileLoading = ref(false)
 const clubProfileError = ref<ApiError | null>(null)
+
+// ---------- V2: deal model, taxonomy and club review ----------
+
+const dealForm = reactive<{ instanceId: number | undefined; feeWan: number | undefined; budgetWan: number | undefined }>({
+  instanceId: undefined,
+  feeWan: undefined,
+  budgetWan: undefined,
+})
+const dealReport = ref<DealReport | null>(null)
+const dealLoading = ref(false)
+const dealError = ref<ApiError | null>(null)
+const dealSearched = ref(false)
+
+const taxonomy = ref<TransactionSummary | null>(null)
+const taxonomyError = ref<ApiError | null>(null)
+const review = ref<TransferReview | null>(null)
+const reviewLoading = ref(false)
+const reviewError = ref<ApiError | null>(null)
 
 /** Currency of the statistics sample; falls back to the documented default. */
 const currency = computed(() => transfers.stats?.currency ?? 'EUR')
@@ -163,6 +189,55 @@ const clubTransferColumns: TableColumn<Transfer>[] = [
   { prop: 'transfer_type', label: '类型', width: 96, formatter: (row) => transferTypeLabel(row.transfer_type) },
   { prop: 'effective_fee', label: '费用', width: 122, align: 'right' },
   { prop: 'status', label: '状态', width: 84, formatter: (row) => transferStatusLabel(row.status) },
+]
+
+const taxonomyColumns: TableColumn<TransactionSummary['categories'][number]>[] = [
+  { prop: 'label', label: '类型', width: 132 },
+  { prop: 'count', label: '笔数', width: 76, align: 'right' },
+  { prop: 'known_amount', label: '已支付金额', width: 128, align: 'right', formatter: (row) => formatMoney(row.known_amount) },
+  { prop: 'known_spend', label: '计入统计', width: 118, align: 'right', formatter: (row) => formatMoney(row.known_spend) },
+  {
+    prop: 'counts_in_stats',
+    label: '进入价格统计',
+    width: 112,
+    align: 'center',
+    formatter: (row) => (row.counts_in_stats ? '是' : '否'),
+  },
+  { prop: 'treatment', label: '处理方式', minWidth: 320 },
+]
+
+/** Stat header items for the club review summary. */
+const reviewStats = computed(() => {
+  const summary = review.value?.summary
+  if (!summary) return []
+  return [
+    { label: '交易笔数', value: formatInt(summary.deals) },
+    { label: '已升值', value: formatInt(summary.profitable), hint: `带身价对比 ${formatInt(summary.with_value_delta)} 笔` },
+    { label: '身价变化中位数', value: formatMoney(summary.median_value_delta) },
+    { label: '年龄段', value: formatInt(summary.by_age_band.length) },
+  ]
+})
+
+const reviewColumns: TableColumn<TransferReview['items'][number]>[] = [  { prop: 'player', label: '球员', minWidth: 150, formatter: (row) => row.player.name },
+  { prop: 'direction', label: '方向', width: 72, align: 'center', formatter: (row) => (row.direction === 'in' ? '买入' : '卖出') },
+  { prop: 'transfer_date', label: '日期', width: 104, formatter: (row) => formatDate(row.transfer_date) },
+  { prop: 'fee', label: '成交价', width: 118, align: 'right', formatter: (row) => formatMoney(row.fee) },
+  {
+    prop: 'percentile',
+    label: '同类分位',
+    width: 96,
+    align: 'right',
+    formatter: (row) => (row.fee_percentile === null ? EMPTY : formatPercent(row.fee_percentile, 0)),
+  },
+  {
+    prop: 'value_delta',
+    label: '身价变化',
+    width: 118,
+    align: 'right',
+    formatter: (row) => formatMoney(row.value_delta_since),
+  },
+  { prop: 'verdict', label: '结论', width: 140 },
+  { prop: 'evidence', label: '依据', minWidth: 280, formatter: (row) => row.evidence.join('；') },
 ]
 
 const similarWeights = computed(() =>
@@ -274,11 +349,58 @@ async function loadClubProfile(): Promise<void> {
   }
 }
 
+/** Run the deal decision report for one player. */
+async function runDealReport(): Promise<void> {
+  if (dealForm.instanceId === undefined) return
+  dealLoading.value = true
+  dealError.value = null
+  dealSearched.value = true
+  try {
+    dealReport.value = await postDealReport({
+      instance_id: dealForm.instanceId,
+      save_id: session.activeSaveId ?? undefined,
+      fee: dealForm.feeWan === undefined ? undefined : Math.round(dealForm.feeWan * 10_000),
+      budget: dealForm.budgetWan === undefined ? undefined : Math.round(dealForm.budgetWan * 10_000),
+    })
+  } catch (caught) {
+    dealError.value = asApiError(caught)
+    dealReport.value = null
+  } finally {
+    dealLoading.value = false
+  }
+}
+
+/** Load the transaction taxonomy and the own-club review. */
+async function loadDealsOverview(): Promise<void> {
+  reviewLoading.value = true
+  reviewError.value = null
+  taxonomyError.value = null
+  try {
+    const [summary, reviewed] = await Promise.all([
+      getTransactionSummary(session.activeSaveId ?? undefined),
+      getTransferReview(session.activeSaveId ?? undefined),
+    ])
+    taxonomy.value = summary
+    review.value = reviewed
+  } catch (caught) {
+    const apiError = asApiError(caught)
+    reviewError.value = apiError
+    taxonomyError.value = apiError
+    taxonomy.value = null
+    review.value = null
+  } finally {
+    reviewLoading.value = false
+  }
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'deals' && review.value === null && !reviewLoading.value) void loadDealsOverview()
+})
+
 /** Status tab helper for the status select. */
 function setStatus(value: string): void {
   transfers.setStatus(value as TransferStatus | 'all')
 }
-
 /** Transfer-type select options, in enum order. */
 const transferTypeOptions = Object.entries(TRANSFER_TYPE_LABELS).map(([value, label]) => ({ value, label }))
 
@@ -312,6 +434,8 @@ onBeforeUnmount(() => {
 })
 
 void loadClubs()
+// A deep link straight into the deals tab still needs its own data; the tab watcher only fires on change.
+if (activeTab.value === 'deals') void loadDealsOverview()
 </script>
 
 <template>
@@ -824,6 +948,146 @@ void loadClubs()
           </template>
         </div>
       </el-tab-pane>
+      <el-tab-pane label="交易决策与复盘" name="deals">
+        <div class="sm-stack">
+          <SectionCard
+            title="交易决策报告"
+            subtitle="总成本 = 转会费 + 签字费 + 经纪人费用 + 合同期内工资 + 奖金；每个成本项都标注是存档观测值还是模型假设"
+            dense
+          >
+            <div class="filter-grid">
+              <label class="filter-field">
+                <span class="sm-label">球员实例 ID</span>
+                <el-input-number
+                  v-model="dealForm.instanceId"
+                  :min="1"
+                  size="small"
+                  controls-position="right"
+                  placeholder="必填"
+                />
+              </label>
+              <label class="filter-field">
+                <span class="sm-label">报价（万 €）</span>
+                <el-input-number v-model="dealForm.feeWan" :min="0" :step="500" size="small" controls-position="right" />
+              </label>
+              <label class="filter-field">
+                <span class="sm-label">预算（万 €）</span>
+                <el-input-number v-model="dealForm.budgetWan" :min="0" :step="500" size="small" controls-position="right" />
+              </label>
+              <div class="filter-actions">
+                <el-button size="small" type="primary" :loading="dealLoading" :disabled="dealForm.instanceId === undefined" @click="runDealReport">
+                  生成报告
+                </el-button>
+              </div>
+            </div>
+
+            <ErrorState v-if="dealError" :error="dealError" title="决策报告生成失败" @retry="runDealReport" />
+            <template v-else-if="dealReport">
+              <div class="deal-grid">
+                <div class="deal-block">
+                  <p class="sm-label">总成本模型（{{ dealReport.cost.label }}）</p>
+                  <ul class="deal-list">
+                    <li v-for="component in dealReport.cost.components" :key="component.key">
+                      <span>{{ component.label }}</span>
+                      <span class="sm-num">{{ formatMoney(component.amount) }}</span>
+                      <el-tag size="small" :type="component.status === 'observed' ? 'success' : component.status === 'assumed' ? 'warning' : 'info'">
+                        {{ component.status }}
+                      </el-tag>
+                    </li>
+                  </ul>
+                  <p class="sm-text-2xs sm-text-faint">
+                    已知成本合计 {{ formatMoney(dealReport.cost.total_known) }}
+                    <template v-if="dealReport.cost.missing_components.length > 0">
+                      · 缺少 {{ dealReport.cost.missing_components.join('、') }}
+                    </template>
+                  </p>
+                </div>
+                <div class="deal-block">
+                  <p class="sm-label">决策要素</p>
+                  <ul class="deal-list">
+                    <li v-for="row in dealReport.rows" :key="row.key">
+                      <span>{{ row.label }}</span>
+                      <strong>{{ row.value }}</strong>
+                    </li>
+                  </ul>
+                </div>
+                <div class="deal-block">
+                  <p class="sm-label">投资效率</p>
+                  <p class="deal-verdict">{{ dealReport.recommendation.verdict }}</p>
+                  <ul class="deal-list">
+                    <li v-for="reason in dealReport.recommendation.reasons" :key="reason" class="sm-text-xs sm-text-2">
+                      {{ reason }}
+                    </li>
+                  </ul>
+                  <p v-if="dealReport.investment.available" class="sm-text-2xs sm-text-faint">
+                    投资效率 {{ formatDecimal(dealReport.investment.score, 2) }} · 未来价值
+                    {{ formatMoney(dealReport.investment.expected_future_value) }}
+                  </p>
+                  <p v-else class="sm-text-2xs sm-text-faint">{{ dealReport.investment.reason }}</p>
+                </div>
+              </div>
+              <el-alert
+                v-if="dealReport.data_gaps.length > 0"
+                class="deal-gaps"
+                type="warning"
+                :closable="false"
+                show-icon
+                title="数据缺口"
+              >
+                <ul class="deal-list">
+                  <li v-for="gap in dealReport.data_gaps" :key="gap" class="sm-text-xs">{{ gap }}</li>
+                </ul>
+              </el-alert>
+            </template>
+            <EmptyState
+              v-else-if="dealSearched && !dealLoading"
+              title="没有生成报告"
+              description="确认球员实例 ID 存在后重试"
+            />
+          </SectionCard>
+
+          <SectionCard
+            title="交易类型体系"
+            subtitle="正式转会、租借、租借附买断、自由转会、分期、附加条款、未完成与取消各自的口径；只有正式转会进入价格统计"
+            flush
+          >
+            <ErrorState v-if="taxonomyError" :error="taxonomyError" title="交易类型加载失败" @retry="loadDealsOverview" />
+            <DataTable
+              v-else
+              :columns="taxonomyColumns"
+              :rows="taxonomy?.categories ?? []"
+              row-key="key"
+              dense
+              :show-pagination="false"
+              empty-title="没有交易记录"
+              empty-description="导入带 transfers 的扫描报文后可查看"
+            />
+          </SectionCard>
+
+          <SectionCard
+            title="本队交易复盘"
+            subtitle="成交价在同类样本中的分位、转会后的能力与身价变化，以及逐笔结论"
+            flush
+          >
+            <ErrorState v-if="reviewError" :error="reviewError" title="复盘加载失败" @retry="loadDealsOverview" />
+            <template v-else>
+              <div v-if="review?.summary" class="review-summary">
+                <StatHeader :items="reviewStats" />
+              </div>
+              <DataTable
+                :columns="reviewColumns"
+                :rows="review?.items ?? []"
+                row-key="transfer_id"
+                dense
+                :show-pagination="false"
+                empty-title="没有可复盘的交易"
+                empty-description="本队还没有已完成的交易记录"
+              />
+              <p v-if="review?.note" class="sm-text-2xs sm-text-faint review-note">{{ review.note }}</p>
+            </template>
+          </SectionCard>
+        </div>
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -831,6 +1095,64 @@ void loadClubs()
 <style scoped>
 .tabs :deep(.el-tabs__header) {
   margin-bottom: var(--sm-space-3);
+}
+
+.deal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--sm-space-4);
+  margin-top: var(--sm-space-3);
+}
+
+.deal-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+  padding: var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: var(--sm-surface-2);
+}
+
+.deal-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  font-size: var(--sm-fs-xs);
+  color: var(--sm-text-2);
+}
+
+.deal-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sm-space-2);
+}
+
+.deal-verdict {
+  font-size: var(--sm-fs-md);
+  font-weight: var(--sm-fw-semibold);
+  color: var(--sm-text);
+}
+
+.deal-gaps {
+  margin-top: var(--sm-space-3);
+}
+
+.review-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--sm-space-3);
+  padding: var(--sm-space-3) var(--sm-space-4);
+  border-bottom: 1px solid var(--sm-border);
+}
+
+.review-note {
+  padding: var(--sm-space-2) var(--sm-space-4);
+  border-top: 1px solid var(--sm-border);
 }
 
 .filter-grid {

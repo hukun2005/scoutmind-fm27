@@ -37,6 +37,8 @@ def player_row(
     club_uid: str | None = "C1",
     contract_end: str | None = "2029-06-30",
     attributes: dict[str, float] | None = None,
+    statistics: list[dict] | None = None,
+    wage: int = 40_000,
 ) -> dict:
     """One player row for a scan."""
     birth = date(2026 - age, 5, 1)
@@ -52,14 +54,59 @@ def player_row(
         "ca": ca,
         "pa": pa,
         "market_value": value,
-        "wage": 40_000,
+        "wage": wage,
         "contract_end": contract_end,
         "minutes_played": 1200,
         "appearances": 20,
         "goals": 3,
         "assists": 4,
         "attributes": attributes or {},
+        "statistics": statistics or [],
     }
+
+
+def season_stats(
+    period: str = "2026/27",
+    minutes: int = 1800,
+    appearances: int = 22,
+    goals: int = 8,
+    assists: int = 4,
+    shots: int = 40,
+    shots_on_target: int = 18,
+    xg: float = 7.5,
+    key_passes: int = 24,
+    tackles: int = 30,
+    interceptions: int = 20,
+    clearances: int = 10,
+    aerials_won: int = 12,
+    saves: int | None = None,
+    conceded: int | None = None,
+    clean_sheets: int | None = None,
+) -> dict:
+    """One season statistics block for a scan player row."""
+    block: dict = {
+        "period": period,
+        "competition": "Premier Division",
+        "appearances": appearances,
+        "minutes_played": minutes,
+        "goals": goals,
+        "assists": assists,
+        "shots": shots,
+        "shots_on_target": shots_on_target,
+        "xg": xg,
+        "key_passes": key_passes,
+        "tackles": tackles,
+        "interceptions": interceptions,
+        "clearances": clearances,
+        "aerials_won": aerials_won,
+    }
+    if saves is not None:
+        block["saves"] = saves
+    if conceded is not None:
+        block["conceded"] = conceded
+    if clean_sheets is not None:
+        block["clean_sheets"] = clean_sheets
+    return block
 
 
 def transfer_row(

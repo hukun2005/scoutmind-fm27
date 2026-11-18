@@ -17,9 +17,17 @@ from ..analytics.transfers import (
     similar_transfers,
     transfer_price_stats,
 )
+from ..analytics.deals import (
+    deal_cost,
+    decision_report,
+    investment_score,
+    transaction_summary,
+    transfer_review,
+)
 from ..analytics.valuation import estimate_value
 from ..db import get_db
-from ..models import Club, FmSave, PlayerValuation
+from ..models import Club, FmSave, PlayerInstance, PlayerValuation, Transfer
+from ..schemas import DealRequest
 from ..utils import utcnow
 from .deps import get_active_save
 
@@ -176,6 +184,68 @@ def transfers_valuation(instance_id: int = Query(...), db: Session = Depends(get
     return result
 
 
+@router.get("/transfers/review")
+def transfers_review(
+    save_id: int | None = Query(default=None),
+    club_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    """Review the managed club's completed deals: price percentile, later value and CA change."""
+    return transfer_review(db, save_id or save.id, club_id)
+
+
+@router.get("/transfers/categories")
+def transfers_categories(
+    save_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    """Transaction taxonomy with counts and the rules that keep a category out of price statistics."""
+    return transaction_summary(db, save_id or save.id)
+
+
+@router.get("/transfers/{transfer_id}/cost")
+def transfer_cost(
+    transfer_id: int,
+    wage_period: str = Query(default="week", pattern="^(week|month|year)$"),
+    contract_years: float | None = Query(default=None, gt=0, le=20),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Total cost model for one recorded transfer."""
+    transfer = db.get(Transfer, transfer_id)
+    if transfer is None:
+        raise HTTPException(status_code=404, detail={"code": "transfer_not_found", "message": "交易不存在"})
+    return deal_cost(db, transfer, wage_period=wage_period, contract_years=contract_years)
+
+
+@router.post("/transfers/deal-report")
+def deal_report(body: DealRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Decision report for a prospective signing: fit, cost, wage, age, resale and recommendation."""
+    try:
+        return decision_report(
+            db,
+            body.save_id or _save_of_instance(db, body.instance_id),
+            body.instance_id,
+            fee=body.fee,
+            budget=body.budget,
+            wage_period=body.wage_period,
+            contract_years=body.contract_years,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail={"code": "player_not_found", "message": str(exc)}) from exc
+
+
+@router.get("/transfers/investment")
+def transfer_investment(
+    instance_id: int = Query(...),
+    total_cost: float | None = Query(default=None, ge=0),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Investment score for a player at a given total cost."""
+    return investment_score(db, instance_id, total_cost)
+
+
 @router.get("/clubs")
 def list_clubs(
     save_id: int | None = Query(default=None),
@@ -209,5 +279,13 @@ def club_profile(club_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
         return club_transfer_profile(db, club_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail={"code": "club_not_found", "message": str(exc)}) from exc
+
+
+def _save_of_instance(db: Session, instance_id: int) -> int:
+    """Save that owns a player instance, so a deal report can default its scope."""
+    instance = db.get(PlayerInstance, instance_id)
+    if instance is None:
+        raise HTTPException(status_code=404, detail={"code": "player_not_found", "message": "球员不存在"})
+    return instance.fm_save_id
 
 

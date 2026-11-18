@@ -576,13 +576,13 @@ void loadClubs()
 }
 
 .chip--good {
-  border-color: rgba(23, 119, 79, 0.3);
+  border-color: rgba(53, 201, 138, 0.35);
   background: var(--sm-success-weak);
   color: var(--sm-success);
 }
 
 .chip--weak {
-  border-color: rgba(179, 52, 42, 0.3);
+  border-color: rgba(240, 106, 99, 0.35);
   background: var(--sm-danger-weak);
   color: var(--sm-danger);
 }

@@ -26,13 +26,37 @@ const routes: RouteRecordRaw[] = [
     path: '/watchlist',
     name: 'watchlist',
     component: () => import('../views/WatchlistView.vue'),
-    meta: { title: '成长追踪' },
+    meta: { title: '关注名单' },
+  },
+  {
+    path: '/squad',
+    name: 'squad',
+    component: () => import('../views/SquadView.vue'),
+    meta: { title: '阵容智能' },
   },
   {
     path: '/scouting',
     name: 'scouting',
     component: () => import('../views/ScoutingView.vue'),
-    meta: { title: '智能球探' },
+    meta: { title: '角色球探' },
+  },
+  {
+    path: '/recruitment',
+    name: 'recruitment',
+    component: () => import('../views/RecruitmentView.vue'),
+    meta: { title: '智能球探引擎' },
+  },
+  {
+    path: '/development',
+    name: 'development',
+    component: () => import('../views/DevelopmentView.vue'),
+    meta: { title: '球员发展' },
+  },
+  {
+    path: '/performance',
+    name: 'performance',
+    component: () => import('../views/PerformanceView.vue'),
+    meta: { title: '比赛表现分析' },
   },
   {
     path: '/transfers',
@@ -44,7 +68,7 @@ const routes: RouteRecordRaw[] = [
     path: '/agent',
     name: 'agent',
     component: () => import('../views/AgentView.vue'),
-    meta: { title: 'AI 决策中心' },
+    meta: { title: 'AI 体育总监' },
   },
   {
     path: '/data',

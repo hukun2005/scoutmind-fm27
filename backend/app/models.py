@@ -412,6 +412,139 @@ class PlayerScore(TimestampMixin, Base):
     components_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
 
 
+class TacticalProfile(TimestampMixin, Base):
+    """A named squad-score weight profile.
+
+    The six components (coverage, depth, age, tactical fit, wage health, potential) are the same formula for every
+    profile; only their weights differ, so two profiles never change what a dimension measures.
+    """
+
+    __tablename__ = "tactical_profiles"
+    __table_args__ = (UniqueConstraint("fm_save_id", "key", name="uq_tactical_profile_save_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    key: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(256))
+    weight_coverage: Mapped[float] = mapped_column(Float, default=0.25, nullable=False)
+    weight_depth: Mapped[float] = mapped_column(Float, default=0.20, nullable=False)
+    weight_age: Mapped[float] = mapped_column(Float, default=0.15, nullable=False)
+    weight_fit: Mapped[float] = mapped_column(Float, default=0.15, nullable=False)
+    weight_wage: Mapped[float] = mapped_column(Float, default=0.15, nullable=False)
+    weight_potential: Mapped[float] = mapped_column(Float, default=0.10, nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class PlayerStatistic(TimestampMixin, Base):
+    """Season or match aggregate performance of one player instance.
+
+    Every column is nullable: a scanner that does not expose expected goals must leave ``xg`` NULL rather than 0,
+    so performance screens can tell "zero" from "not read".
+    """
+
+    __tablename__ = "player_statistics"
+    __table_args__ = (
+        UniqueConstraint("player_instance_id", "scope", "period", name="uq_player_stat_period"),
+        Index("ix_player_stat_instance_scope", "player_instance_id", "scope"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), index=True)
+    scope: Mapped[str] = mapped_column(String(16), default="season", nullable=False)
+    period: Mapped[str] = mapped_column(String(32), nullable=False)
+    competition: Mapped[str | None] = mapped_column(String(128))
+    observed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    appearances: Mapped[int | None] = mapped_column(Integer)
+    starts: Mapped[int | None] = mapped_column(Integer)
+    minutes_played: Mapped[int | None] = mapped_column(Integer)
+    goals: Mapped[int | None] = mapped_column(Integer)
+    assists: Mapped[int | None] = mapped_column(Integer)
+    shots: Mapped[int | None] = mapped_column(Integer)
+    shots_on_target: Mapped[int | None] = mapped_column(Integer)
+    xg: Mapped[float | None] = mapped_column(Float)
+    key_passes: Mapped[int | None] = mapped_column(Integer)
+    passes_attempted: Mapped[int | None] = mapped_column(Integer)
+    passes_completed: Mapped[int | None] = mapped_column(Integer)
+    dribbles: Mapped[int | None] = mapped_column(Integer)
+    tackles: Mapped[int | None] = mapped_column(Integer)
+    interceptions: Mapped[int | None] = mapped_column(Integer)
+    clearances: Mapped[int | None] = mapped_column(Integer)
+    aerials_won: Mapped[int | None] = mapped_column(Integer)
+    saves: Mapped[int | None] = mapped_column(Integer)
+    conceded: Mapped[int | None] = mapped_column(Integer)
+    clean_sheets: Mapped[int | None] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    reader_version: Mapped[str | None] = mapped_column(String(32))
+
+
+class ScoutingReport(TimestampMixin, Base):
+    """A generated report. ``payload_json`` is the whole answer so it can be replayed without recomputation."""
+
+    __tablename__ = "scouting_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    player_instance_id: Mapped[int | None] = mapped_column(ForeignKey("player_instances.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    method: Mapped[str] = mapped_column(String(64), nullable=False)
+    algorithm_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    reliability_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class RecruitmentShortlist(TimestampMixin, Base):
+    """One generated shortlist for a position or role, with the criteria that produced it."""
+
+    __tablename__ = "recruitment_shortlists"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    position_code: Mapped[str | None] = mapped_column(String(16))
+    role_key: Mapped[str | None] = mapped_column(String(64))
+    budget: Mapped[int | None] = mapped_column(Integer)
+    criteria_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    items: Mapped[list[RecruitmentShortlistItem]] = relationship(
+        back_populates="shortlist", cascade="all, delete-orphan"
+    )
+
+
+class RecruitmentShortlistItem(TimestampMixin, Base):
+    """A ranked candidate inside one shortlist with the score breakdown that produced the rank."""
+
+    __tablename__ = "recruitment_shortlist_items"
+    __table_args__ = (UniqueConstraint("shortlist_id", "player_instance_id", name="uq_shortlist_instance"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    shortlist_id: Mapped[int] = mapped_column(
+        ForeignKey("recruitment_shortlists.id"), nullable=False, index=True
+    )
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    score: Mapped[float | None] = mapped_column(Float)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+    shortlist: Mapped[RecruitmentShortlist] = relationship(back_populates="items")
+
+
+class AiReport(TimestampMixin, Base):
+    """One persisted AI Sporting Director answer with its citations and reliability split."""
+
+    __tablename__ = "ai_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    conversation_id: Mapped[int | None] = mapped_column(ForeignKey("agent_conversations.id"), index=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    reliability_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    citations_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    tool_calls_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+
+
 class ReaderCompatibility(TimestampMixin, Base):
     """Known-good FM27 build / plugin combinations for the external reader."""
 

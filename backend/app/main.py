@@ -11,7 +11,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .api import routes_agent, routes_core, routes_ops, routes_players, routes_scouting, routes_transfers
+from .api import (
+    routes_adapters,
+    routes_agent,
+    routes_core,
+    routes_development,
+    routes_ops,
+    routes_performance,
+    routes_players,
+    routes_recruitment,
+    routes_scouting,
+    routes_squad,
+    routes_transfers,
+)
 from .api.deps import require_token
 from .config import settings
 from .db import SessionLocal, alembic_managed, get_db, schema_ready
@@ -41,8 +53,13 @@ def create_app() -> FastAPI:
     )
     for router in (
         routes_core.router,
+        routes_adapters.router,
         routes_players.router,
         routes_scouting.router,
+        routes_squad.router,
+        routes_recruitment.router,
+        routes_development.router,
+        routes_performance.router,
         routes_transfers.router,
         routes_agent.router,
         routes_ops.router,
@@ -128,6 +145,11 @@ def _seed_reference_rows() -> None:
                     AlgorithmVersion(key="similar_transfers", version="1", description="加权距离相似交易"),
                     AlgorithmVersion(key="valuation", version="1", description="可比成交估值区间"),
                     AlgorithmVersion(key="role_score", version="1", description="战术角色评分"),
+                    AlgorithmVersion(key="squad_score", version="1", description="阵容六维评分（C/D/A/T/W/P）"),
+                    AlgorithmVersion(key="player_score", version="1", description="球员六维评分（A/P/T/F/V/R）"),
+                    AlgorithmVersion(key="development", version="1", description="成长速率与潜力区间"),
+                    AlgorithmVersion(key="performance", version="1", description="分位置表现百分位"),
+                    AlgorithmVersion(key="deal_model", version="1", description="转会总成本与投资效率"),
                 ]
             )
         if session.query(ReaderCompatibility).count() == 0:

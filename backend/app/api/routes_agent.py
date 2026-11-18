@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..agents import service as agent_service
 from ..db import get_db
-from ..models import AgentConversation, AgentMessage, FmSave
+from ..models import AgentConversation, AgentMessage, AiReport, FmSave
 from ..schemas import AskRequest, ConversationCreate
 from ..utils import iso
 from .deps import get_active_save, get_current_user
@@ -136,6 +136,17 @@ def ask(
         tool_calls_json=json.dumps([call.payload() for call in calls], ensure_ascii=False, default=str),
     )
     db.add(assistant)
+    db.add(
+        AiReport(
+            fm_save_id=body.save_id or save.id,
+            conversation_id=conversation.id,
+            question=body.question,
+            answer=str(answer.get("conclusion", "")),
+            reliability_json=json.dumps(answer.get("reliability") or {}, ensure_ascii=False, default=str),
+            citations_json=json.dumps(answer.get("citations") or [], ensure_ascii=False, default=str),
+            tool_calls_json=json.dumps([call.payload() for call in calls], ensure_ascii=False, default=str),
+        )
+    )
     if conversation.title == "新的分析":
         conversation.title = body.question[:40]
     db.commit()
@@ -144,4 +155,38 @@ def ask(
         "mode": answer.get("mode"),
         "answer": answer,
         "tool_calls": [call.payload() for call in calls],
+    }
+
+
+@router.get("/agent/reports")
+def reports(
+    save_id: int | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    """Stored AI reports with their reliability split and citations."""
+    target = save_id or save.id
+    rows = list(
+        db.scalars(
+            select(AiReport)
+            .where(AiReport.fm_save_id == target)
+            .order_by(AiReport.created_at.desc())
+            .limit(limit)
+        )
+    )
+    return {
+        "items": [
+            {
+                "id": row.id,
+                "question": row.question,
+                "answer": row.answer,
+                "conversation_id": row.conversation_id,
+                "reliability": json.loads(row.reliability_json or "{}"),
+                "citations": json.loads(row.citations_json or "[]"),
+                "created_at": iso(row.created_at),
+            }
+            for row in rows
+        ],
+        "total": len(rows),
     }

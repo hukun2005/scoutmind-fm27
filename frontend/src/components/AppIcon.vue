@@ -13,6 +13,9 @@ type IconName =
   | 'players'
   | 'watchlist'
   | 'scouting'
+  | 'squad'
+  | 'development'
+  | 'performance'
   | 'transfers'
   | 'agent'
   | 'data'
@@ -42,6 +45,19 @@ const ICON_PATHS: Record<IconName, string[]> = {
     'M18.2 20a5.6 5.6 0 0 0-3-4.9',
   ],
   watchlist: ['M6.5 3.5h11v17l-5.5-4-5.5 4z'],
+  squad: [
+    'M8.6 3.4h6.8v3.2H8.6z',
+    'M4.6 6.6h14.8v13.8H4.6z',
+    'M9.2 12.4v3.6',
+    'M14.8 12.4v3.6',
+  ],
+  development: ['M4 18.6h16', 'M6.2 15.4l3.4-3.6 3 2.4 4.6-6', 'M17.2 8.2h2.6v2.6'],
+  performance: [
+    'M4 20V9.4',
+    'M9.4 20V4.6',
+    'M14.8 20v-7.2',
+    'M20.2 20v-4.4',
+  ],
   scouting: [
     'M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17Z',
     'M12 16.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z',

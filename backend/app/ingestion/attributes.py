@@ -105,6 +105,77 @@ def position_group(position: str | None) -> str | None:
     return POSITION_GROUPS.get(position.strip().upper())
 
 
+# Squad slots are the ten places a squad is planned around. They are wider than scanner position codes so that, for
+# example, a left wing-back and a left back both count towards coverage of ``LB``.
+SQUAD_SLOTS: tuple[str, ...] = ("GK", "CB", "LB", "RB", "DM", "CM", "AM", "LW", "RW", "ST")
+
+SLOT_NAMES_ZH: dict[str, str] = {
+    "GK": "门将",
+    "CB": "中后卫",
+    "LB": "左后卫",
+    "RB": "右后卫",
+    "DM": "后腰",
+    "CM": "中前卫",
+    "AM": "前腰",
+    "LW": "左边锋",
+    "RW": "右边锋",
+    "ST": "中锋",
+}
+
+POSITION_TO_SLOT: dict[str, str] = {
+    "GK": "GK",
+    "DC": "CB",
+    "DL": "LB",
+    "WBL": "LB",
+    "DR": "RB",
+    "WBR": "RB",
+    "DM": "DM",
+    "MC": "CM",
+    "ML": "LW",
+    "MR": "RW",
+    "AMC": "AM",
+    "AML": "LW",
+    "AMR": "RW",
+    "ST": "ST",
+    "STC": "ST",
+}
+
+# Minimum number of players a competitive squad needs in each slot; used by the coverage and depth components.
+SLOT_REQUIREMENT: dict[str, int] = {
+    "GK": 2,
+    "CB": 4,
+    "LB": 2,
+    "RB": 2,
+    "DM": 2,
+    "CM": 3,
+    "AM": 1,
+    "LW": 2,
+    "RW": 2,
+    "ST": 2,
+}
+
+# How much a hole in the slot hurts the overall squad score.
+SLOT_IMPORTANCE: dict[str, float] = {
+    "GK": 1.0,
+    "CB": 1.0,
+    "LB": 0.8,
+    "RB": 0.8,
+    "DM": 0.8,
+    "CM": 1.0,
+    "AM": 0.7,
+    "LW": 0.7,
+    "RW": 0.7,
+    "ST": 1.0,
+}
+
+
+def slot_of(position: str | None) -> str | None:
+    """Map a scanner position code to a squad slot, returning ``None`` for unknown codes."""
+    if not position:
+        return None
+    return POSITION_TO_SLOT.get(position.strip().upper())
+
+
 def ensure_attributes(session: Session) -> dict[str, int]:
     """Idempotently seed the attribute dictionary and return key -> id."""
     existing = {row.key: row.id for row in session.scalars(select(PlayerAttribute))}

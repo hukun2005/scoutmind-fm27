@@ -52,7 +52,7 @@ withDefaults(
 }
 
 .kpi--warn {
-  border-left-color: #c08a2e;
+  border-left-color: var(--sm-warn);
 }
 
 .kpi--danger {

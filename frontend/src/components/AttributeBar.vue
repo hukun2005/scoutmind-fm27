@@ -98,7 +98,7 @@ const band = computed(() => {
 }
 
 .attr-bar--average .attr-bar__segment--on {
-  background: #c08a2e;
+  background: var(--sm-warn);
 }
 
 .attr-bar--weak .attr-bar__segment--on {

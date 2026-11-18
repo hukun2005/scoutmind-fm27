@@ -103,12 +103,16 @@ const importsColumns: TableColumn<ImportJob>[] = [
 ]
 
 const quickLinks = [
+  { to: '/squad', title: '阵容智能', description: '六维阵容评分、位置深度、短板与接班规划' },
+  { to: '/recruitment', title: '智能球探引擎', description: '位置模板 + 六维评分 + 隐藏价值 + 候选名单' },
+  { to: '/transfers', title: '转会情报', description: '成交分位、总成本模型、投资效率与复盘' },
+  { to: '/development', title: '球员发展', description: '成长速率、发展建议与潜力区间' },
+  { to: '/performance', title: '表现分析', description: '分位置每 90 分钟产出与同位置百分位' },
+  { to: '/agent', title: 'AI 体育总监', description: '自然语言提问，回答带可靠性分类与工具引用' },
   { to: '/players', title: '球员中心', description: '按位置、年龄、CA/PA 与身价筛选全部球员实例' },
-  { to: '/scouting', title: '智能球探', description: '选择角色模板，按加权评分排序候选人' },
-  { to: '/transfers', title: '转会情报', description: '成交样本分位数、费用构成与相似成交' },
-  { to: '/agent', title: 'AI 决策中心', description: '带工具证据和样本说明的结构化回答' },
-  { to: '/watchlist', title: '成长追踪', description: '关注名单、标签与规则生成的提醒' },
-  { to: '/data', title: '数据与诊断', description: '扫描导入、覆盖度与客户端兼容性' },
+  { to: '/scouting', title: '角色球探', description: '选择战术角色模板，按加权评分排序候选人' },
+  { to: '/watchlist', title: '关注名单', description: '关注球员、标签与规则生成的提醒' },
+  { to: '/data', title: '数据中心', description: '扫描导入、覆盖度与客户端兼容性' },
 ]
 
 /** Load overview, recent imports and fee statistics for the active save. */

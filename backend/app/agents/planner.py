@@ -23,6 +23,24 @@ POSITION_WORDS: tuple[tuple[str, str], ...] = (
     ("中锋", "FW"),
 )
 
+#: Slot words the recruitment engine can filter on; a slot is more precise than a position group.
+SLOT_WORDS: tuple[tuple[str, str], ...] = (
+    ("门将", "GK"),
+    ("中后卫", "CB"),
+    ("中卫", "CB"),
+    ("左后卫", "LB"),
+    ("右后卫", "RB"),
+    ("后腰", "DM"),
+    ("中前卫", "CM"),
+    ("中场", "CM"),
+    ("前腰", "AM"),
+    ("左边锋", "LW"),
+    ("右边锋", "RW"),
+    ("边锋", "LW"),
+    ("中锋", "ST"),
+    ("前锋", "ST"),
+)
+
 
 @dataclass
 class Intent:
@@ -31,6 +49,7 @@ class Intent:
     kind: str
     question: str
     position_group: str | None = None
+    slot: str | None = None
     min_age: int | None = None
     max_age: int | None = None
     min_ca: int | None = None
@@ -52,11 +71,12 @@ def parse(question: str, instance_id: int | None = None, club_id: int | None = N
     lowered = text.lower()
     intent = Intent(kind=_kind(lowered), question=text, instance_id=instance_id, club_id=club_id)
     intent.position_group = _position_group(text)
+    intent.slot = _slot(text)
     intent.min_age, intent.max_age = _ages(text)
     intent.min_ca = _number(lowered, r"ca\s*[:：]?\s*(\d{2,3})")
     intent.min_pa = _number(lowered, r"pa\s*[:：]?\s*(\d{2,3})")
     intent.budget = _money(lowered)
-    intent.mentions_own_club = any(word in text for word in ("我队", "我的球员", "自家", "本队"))
+    intent.mentions_own_club = any(word in text for word in ("我队", "我的球员", "自家", "本队", "我的球队"))
     intent.installments = _number(lowered, r"分\s*(\d)\s*期") or 3
     if intent.kind == "deal":
         intent.transfer_id = _number(lowered, r"交易\s*#?(\d+)")
@@ -66,6 +86,8 @@ def parse(question: str, instance_id: int | None = None, club_id: int | None = N
 def _kind(lowered: str) -> str:
     if any(word in lowered for word in ("俱乐部画像", "哪些俱乐部", "买卖风格", "低价买入", "高价卖出", "转会画像")):
         return "club_profile"
+    if any(word in lowered for word in ("转会策略", "历史转会", "过去三个赛季", "转会记录", "历次转会", "我的交易")):
+        return "transfer_history"
     if any(word in lowered for word in ("复盘", "这笔交易", "成交复盘", "我这笔")):
         return "deal"
     if any(
@@ -77,6 +99,31 @@ def _kind(lowered: str) -> str:
         return "price_stats"
     if any(word in lowered for word in ("相似", "类似", "可比")):
         return "similar"
+    if any(word in lowered for word in ("比较", "对比", "谁更强", "哪个更好")):
+        return "compare"
+    if any(word in lowered for word in ("成长", "发展轨迹", "发展停滞", "潜力预测", "培养", "该不该留下", "外租")):
+        return "growth"
+    if any(word in lowered for word in ("位置深度", "哪个位置最", "哪个位置需要", "人员不足", "缺人", "短板", "补强哪里")):
+        return "depth"
+    if any(
+        word in lowered
+        for word in (
+            "阵容",
+            "结构",
+            "年龄结构",
+            "工资结构",
+            "合同到期",
+            "阵容评分",
+            "最大的问题",
+            "最大的短板",
+            "球队现状",
+            "阵容体检",
+            "阵容诊断",
+        )
+    ):
+        return "squad"
+    if any(word in lowered for word in ("帮我找", "找一个", "寻找", "推荐", "引援", "签下", "买谁", "候选", "适合")):
+        return "recruitment"
     return "scout"
 
 
@@ -84,6 +131,13 @@ def _position_group(text: str) -> str | None:
     for word, group in POSITION_WORDS:
         if word in text:
             return group
+    return None
+
+
+def _slot(text: str) -> str | None:
+    for word, slot in SLOT_WORDS:
+        if word in text:
+            return slot
     return None
 
 
@@ -107,7 +161,7 @@ def _number(lowered: str, pattern: str) -> int | None:
 
 
 def _money(lowered: str) -> float | None:
-    match = re.search(r"预算[是为]?\s*([\d.]+)\s*(亿|万)?", lowered)
+    match = re.search(r"预算[^0-9]{0,6}?([\d.]+)\s*(亿|万)?", lowered)
     if not match:
         return None
     amount = float(match.group(1))

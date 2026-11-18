@@ -46,12 +46,12 @@ withDefaults(
 }
 
 .empty-state--error {
-  border-color: rgba(179, 52, 42, 0.4);
+  border-color: rgba(240, 106, 99, 0.45);
   background: var(--sm-danger-weak);
 }
 
 .empty-state--insufficient {
-  border-color: rgba(154, 95, 18, 0.4);
+  border-color: rgba(230, 169, 60, 0.45);
   background: var(--sm-warn-weak);
 }
 
@@ -67,7 +67,7 @@ withDefaults(
 }
 
 .empty-state--insufficient .empty-state__marker {
-  background: #c08a2e;
+  background: var(--sm-warn);
 }
 
 .empty-state__body {

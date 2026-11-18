@@ -28,17 +28,25 @@ from app.ingestion.protocol import ScanPayload  # noqa: E402
 from app.models import (  # noqa: E402
     AgentConversation,
     AgentMessage,
+    AiReport,
     Alert,
     Club,
     DataSource,
     FmSave,
+    IdentityMatch,
     ImportJob,
     ImportRow,
     PlayerAttributeValue,
+    Player,
     PlayerInstance,
     PlayerScore,
     PlayerSnapshot,
+    PlayerStatistic,
     PlayerValuation,
+    RecruitmentShortlist,
+    RecruitmentShortlistItem,
+    ScoutingReport,
+    TacticalProfile,
     Transfer,
     TransferFeeComponent,
     User,
@@ -62,7 +70,19 @@ def _purge_save(session, save_id: int) -> None:
     if transfer_ids:
         session.execute(delete(TransferFeeComponent).where(TransferFeeComponent.transfer_id.in_(transfer_ids)))
     session.execute(delete(Transfer).where(Transfer.fm_save_id == save_id))
-    if snapshot_ids:
+    shortlist_ids = list(
+        session.scalars(select(RecruitmentShortlist.id).where(RecruitmentShortlist.fm_save_id == save_id))
+    )
+    if shortlist_ids:
+        session.execute(
+            delete(RecruitmentShortlistItem).where(RecruitmentShortlistItem.shortlist_id.in_(shortlist_ids))
+        )
+        session.execute(delete(RecruitmentShortlist).where(RecruitmentShortlist.id.in_(shortlist_ids)))
+    session.execute(delete(ScoutingReport).where(ScoutingReport.fm_save_id == save_id))
+    session.execute(delete(AiReport).where(AiReport.fm_save_id == save_id))
+    session.execute(delete(TacticalProfile).where(TacticalProfile.fm_save_id == save_id))
+    if instance_ids:
+        session.execute(delete(PlayerStatistic).where(PlayerStatistic.player_instance_id.in_(instance_ids)))
         session.execute(delete(PlayerAttributeValue).where(PlayerAttributeValue.player_snapshot_id.in_(snapshot_ids)))
     if instance_ids:
         session.execute(delete(PlayerSnapshot).where(PlayerSnapshot.player_instance_id.in_(instance_ids)))
@@ -87,10 +107,15 @@ def _purge_save(session, save_id: int) -> None:
         session.execute(delete(AgentConversation).where(AgentConversation.id.in_(conversation_ids)))
     session.execute(delete(DataSource).where(DataSource.fm_save_id == save_id))
     session.execute(delete(Club).where(Club.fm_save_id == save_id))
-    if instance_ids:
-        from app.models import Player
-
-        session.execute(delete(Player).where(Player.id.not_in(select(PlayerInstance.player_id))))
+    session.execute(delete(IdentityMatch).where(IdentityMatch.fm_save_id == save_id))
+    session.commit()
+    # Identity rows are only meaningful through an instance; drop the ones this save left behind.
+    session.execute(
+        delete(Player).where(
+            Player.id.not_in(select(PlayerInstance.player_id)),
+            Player.id.not_in(select(IdentityMatch.player_id)),
+        )
+    )
     session.commit()
 
 SOURCES = ("Northbridge United", "Kingsport City", "Ravensfield FC", "Ashcombe Rovers", "Port Vale Athletic",
@@ -106,6 +131,23 @@ LAST_NAMES = ("Almeida", "Bennett", "Costa", "Doyle", "Eriksen", "Fischer", "Gom
               "Ueda", "Vargas", "Walsh", "Xavier", "Young", "Zielinski", "Bakker", "Dahl", "Ferreira", "Garcia")
 
 POSITIONS = ("GK", "DC", "DL", "DR", "DM", "MC", "AMC", "AML", "AMR", "ST")
+
+#: The managed club gets a deliberately complete squad so the squad screen has every slot populated.
+USER_SQUAD_PLAN: tuple[tuple[str, int], ...] = (
+    ("GK", 3),
+    ("DC", 4),
+    ("DL", 2),
+    ("DR", 2),
+    ("DM", 2),
+    ("MC", 3),
+    ("AMC", 2),
+    ("AML", 3),
+    ("AMR", 2),
+    ("ST", 3),
+)
+
+#: Season labels used by the generated statistics blocks, oldest first.
+SEASON_PERIODS = ("2025/26", "2026/27")
 
 ATTRIBUTE_POOL = {
     "GK": ("reflexes", "handling", "one_on_ones", "aerial_reach", "command_of_area", "communication", "kicking",
@@ -125,43 +167,105 @@ CLUB_PROFILES = {
 }
 
 
+def _group_of(position: str) -> str:
+    if position == "GK":
+        return "GK"
+    if position in {"DC", "DL", "DR"}:
+        return "DF"
+    if position in {"DM", "MC", "AMC"}:
+        return "MF"
+    return "FW"
+
+
+def _new_player(rng: random.Random, index: int, position: str, club: dict, used_names: set[str]) -> dict:
+    """One synthetic player with a stable UID, attribute set and value band."""
+    while True:
+        name = f"{rng.choice(FIRST_NAMES)} {rng.choice(LAST_NAMES)}"
+        if name not in used_names:
+            used_names.add(name)
+            break
+    birth_year = rng.randint(1993, 2010)
+    pa = rng.randint(110, 195)
+    age_2026 = 2026 - birth_year
+    ca = max(min(pa - rng.randint(0, 25), 190), 85) if age_2026 < 24 else rng.randint(110, 160)
+    return {
+        "uid": f"P{1000 + index}",
+        "name": name,
+        "position": position,
+        "birth_date": date(birth_year, rng.randint(1, 12), rng.randint(1, 28)).isoformat(),
+        "nationality": rng.choice(("England", "Spain", "Brazil", "France", "Germany", "Italy", "Portugal",
+                                  "Netherlands", "Argentina", "Japan")),
+        "club_uid": club["uid"],
+        "ca": ca,
+        "pa": pa,
+        "attributes": {key: rng.randint(8, 18) for key in ATTRIBUTE_POOL[_group_of(position)]},
+        "wage": rng.randint(4_000, 120_000),
+        "contract_end": date(2027 + rng.randint(0, 4), rng.randint(1, 12), 28).isoformat(),
+        "value_base": rng.randint(800_000, 60_000_000),
+    }
+
+
 def build_players(rng: random.Random, clubs: list[dict]) -> list[dict]:
     """Create a stable player pool; later scans reuse the same UIDs."""
     players: list[dict] = []
     used_names: set[str] = set()
-    for index in range(72):
-        position = POSITIONS[index % len(POSITIONS)]
-        while True:
-            name = f"{rng.choice(FIRST_NAMES)} {rng.choice(LAST_NAMES)}"
-            if name not in used_names:
-                used_names.add(name)
-                break
-        birth_year = rng.randint(1993, 2010)
-        birth_date = date(birth_year, rng.randint(1, 12), rng.randint(1, 28))
-        pa = rng.randint(110, 195)
-        age_2026 = 2026 - birth_year
-        ca = max(min(pa - rng.randint(0, 25), 190), 85) if age_2026 < 24 else rng.randint(110, 160)
-        group = {"GK": "GK", "DC": "DF", "DL": "DF", "DR": "DF"}.get(position, "MF" if position in {"DM", "MC", "AMC"} else "FW")
-        attributes = {key: rng.randint(8, 18) for key in ATTRIBUTE_POOL[group]}
-        club = clubs[index % len(clubs)]
-        players.append(
-            {
-                "uid": f"P{1000 + index}",
-                "name": name,
-                "position": position,
-                "birth_date": birth_date.isoformat(),
-                "nationality": rng.choice(("England", "Spain", "Brazil", "France", "Germany", "Italy", "Portugal",
-                                          "Netherlands", "Argentina", "Japan")),
-                "club_uid": club["uid"],
-                "ca": ca,
-                "pa": pa,
-                "attributes": attributes,
-                "wage": rng.randint(4_000, 120_000),
-                "contract_end": date(2027 + rng.randint(0, 4), rng.randint(1, 12), 28).isoformat(),
-                "value_base": rng.randint(800_000, 60_000_000),
-            }
-        )
+    index = 0
+    for position, count in USER_SQUAD_PLAN:
+        for _ in range(count):
+            players.append(_new_player(rng, index, position, clubs[0], used_names))
+            index += 1
+    for _ in range(66):
+        players.append(_new_player(rng, index, POSITIONS[index % len(POSITIONS)], clubs[1 + index % (len(clubs) - 1)],
+                                   used_names))
+        index += 1
     return players
+
+
+def build_statistics(rng: random.Random, player: dict, period_index: int) -> dict:
+    """Season aggregate block shaped like a real scouting export, scaled by ability and position."""
+    group = _group_of(player["position"])
+    ability = max(60, min(190, player["ca"] - (5 if period_index == 0 else 0)))
+    appearances = max(4, min(38, int((ability - 60) / 3) + rng.randint(-4, 6)))
+    minutes = max(120, appearances * rng.randint(55, 88))
+    games_per90 = minutes / 90
+    stats: dict[str, object] = {
+        "period": SEASON_PERIODS[period_index],
+        "competition": "Premier Division",
+        "appearances": appearances,
+        "starts": max(0, appearances - rng.randint(0, 6)),
+        "minutes_played": minutes,
+    }
+    if group == "FW":
+        goals = max(0, int(games_per90 * (ability - 95) / 55) + rng.randint(-2, 3))
+        stats.update(
+            goals=goals,
+            assists=max(0, int(goals * rng.uniform(0.2, 0.7))),
+            shots=max(goals, int(games_per90 * rng.uniform(0.6, 3.2))),
+            shots_on_target=max(goals, int(games_per90 * rng.uniform(0.3, 1.4))),
+            xg=round(games_per90 * rng.uniform(0.1, 0.7), 2),
+        )
+    elif group == "MF":
+        stats.update(
+            assists=max(0, int(games_per90 * rng.uniform(0.05, 0.35))),
+            key_passes=max(0, int(games_per90 * rng.uniform(0.4, 2.4))),
+            tackles=max(0, int(games_per90 * rng.uniform(0.6, 3.4))),
+            passes_attempted=max(1, int(games_per90 * rng.uniform(28, 72))),
+        )
+        stats["passes_completed"] = int(stats["passes_attempted"] * rng.uniform(0.72, 0.93))  # type: ignore[arg-type]
+    elif group == "DF":
+        stats.update(
+            tackles=max(0, int(games_per90 * rng.uniform(0.8, 3.6))),
+            interceptions=max(0, int(games_per90 * rng.uniform(0.6, 3.0))),
+            clearances=max(0, int(games_per90 * rng.uniform(1.0, 5.0))),
+            aerials_won=max(0, int(games_per90 * rng.uniform(0.5, 3.5))),
+        )
+    else:
+        stats.update(
+            saves=max(0, int(games_per90 * rng.uniform(1.4, 4.2))),
+            conceded=max(0, int(games_per90 * rng.uniform(0.6, 2.2))),
+            clean_sheets=max(0, int(appearances * rng.uniform(0.1, 0.45))),
+        )
+    return stats
 
 
 def build_scan(
@@ -202,6 +306,7 @@ def build_scan(
                 "goals": scan_index * 2 + rng.randint(0, 3),
                 "assists": scan_index + rng.randint(0, 2),
                 "attributes": attributes,
+                "statistics": [build_statistics(rng, player, period_index) for period_index in (0, 1)],
             }
         )
     return {

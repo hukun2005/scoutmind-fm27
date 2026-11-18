@@ -282,8 +282,16 @@ def evaluate_role(session: Session, instance_id: int, role_key: str) -> ToolCall
 
 
 TOOL_NAMES = (
-    "search_players",
+    "get_squad_overview",
     "get_player_profile",
+    "search_players",
+    "evaluate_player",
+    "compare_players",
+    "analyze_position_depth",
+    "find_transfer_targets",
+    "analyze_transfer_history",
+    "get_player_growth_history",
+    "generate_recruitment_report",
     "get_player_history",
     "find_similar_transfers",
     "get_transfer_price_stats",
@@ -291,7 +299,164 @@ TOOL_NAMES = (
     "estimate_transfer_value",
     "simulate_transfer_offer",
     "analyze_own_club_deal",
+    "evaluate_role",
 )
+
+
+def get_squad_overview(session: Session, save_id: int, profile: str | None = None) -> ToolCall:
+    """``get_squad_overview`` — squad score, depth, contracts and planning signals for the managed club."""
+    from ..analytics.squad import squad_overview
+
+    result = squad_overview(session, save_id, profile_key=profile)
+    club = result.get("club")
+    score = result.get("score")
+    return ToolCall(
+        "get_squad_overview",
+        {"save_id": save_id, "profile": profile},
+        result,  # type: ignore[arg-type]
+        f"{club['name'] if club else '无俱乐部'}：阵容评分 {score if score is not None else '—'}，"
+        f"阵容人数 {result.get('squad_size')}",
+        warnings=[str(item) for item in result.get("data_gaps", [])],  # type: ignore[union-attr]
+    )
+
+
+def analyze_position_depth(session: Session, save_id: int) -> ToolCall:
+    """``analyze_position_depth`` — per-slot depth with the ranked weaknesses."""
+    from ..analytics.squad import position_depth, roster, squad_weakness
+
+    players = roster(session, save_id)
+    depth = position_depth(players)
+    weakness = squad_weakness(depth)
+    return ToolCall(
+        "analyze_position_depth",
+        {"save_id": save_id},
+        {"depth": depth, "weakness": weakness, "squad_size": len(players)},
+        f"最薄弱位置：{weakness[0]['slot_name']}（缺口评分 {weakness[0]['severity']}）" if weakness else "没有位置数据",
+    )
+
+
+def evaluate_player(session: Session, save_id: int, instance_id: int) -> ToolCall:
+    """``evaluate_player`` — six-dimensional player score with strengths, risks and cost estimate."""
+    from ..analytics.recruitment import player_score
+
+    result = player_score(session, save_id, instance_id)
+    player = result["player"]
+    assert isinstance(player, dict)
+    return ToolCall(
+        "evaluate_player",
+        {"save_id": save_id, "instance_id": instance_id},
+        result,
+        f"{player['name']}：综合评分 {result['score']}，强项 {', '.join(str(item) for item in result['strengths'][:2]) or '—'}",
+    )
+
+
+def compare_players(session: Session, save_id: int, instance_ids: list[int]) -> ToolCall:
+    """``compare_players`` — score several players with identical weights."""
+    from ..analytics.recruitment import compare_players as compare
+
+    result = compare(session, save_id, instance_ids)
+    return ToolCall(
+        "compare_players",
+        {"save_id": save_id, "instance_ids": instance_ids},
+        result,
+        f"比较 {result['compared']} 名球员，可比维度 {len(result['shared_dimensions'])} 项",
+    )
+
+
+def find_transfer_targets(
+    session: Session,
+    save_id: int,
+    slot: str | None = None,
+    min_age: int | None = None,
+    max_age: int | None = None,
+    max_value: int | None = None,
+    limit: int = 10,
+) -> ToolCall:
+    """``find_transfer_targets`` — ranked candidates for one slot within budget and age limits."""
+    from ..analytics.recruitment import search_recruitment
+
+    result = search_recruitment(
+        session,
+        save_id,
+        slot=slot,
+        min_age=min_age,
+        max_age=max_age,
+        max_value=max_value,
+        limit=limit,
+    )
+    return ToolCall(
+        "find_transfer_targets",
+        {"save_id": save_id, "slot": slot, "min_age": min_age, "max_age": max_age, "max_value": max_value},
+        result,
+        f"{result['total']} 名候选，返回前 {len(result['items'])} 名",
+        warnings=[str(item) for item in result.get("data_gaps", [])][:5],  # type: ignore[union-attr]
+    )
+
+
+def analyze_transfer_history(session: Session, save_id: int, club_id: int | None = None) -> ToolCall:
+    """``analyze_transfer_history`` — own-club deal review plus the transaction taxonomy summary."""
+    from ..analytics.deals import transaction_summary, transfer_review
+
+    review = transfer_review(session, save_id, club_id)
+    summary = transaction_summary(session, save_id)
+    result = {"review": review, "categories": summary}
+    club = review.get("club")
+    deals = review.get("summary")
+    detail = f"{deals['deals']} 笔交易，其中 {deals['profitable']} 笔已升值" if isinstance(deals, dict) else "没有可复盘的交易"
+    return ToolCall(
+        "analyze_transfer_history",
+        {"save_id": save_id, "club_id": club_id},
+        result,
+        f"{club['name'] if club else '本队'}：{detail}",
+    )
+
+
+def get_player_growth_history(session: Session, instance_id: int) -> ToolCall:
+    """``get_player_growth_history`` — growth timeline, rate, advice and outlook band."""
+    from ..analytics.development import growth_profile
+
+    result = growth_profile(session, instance_id)
+    player = result["player"]
+    assert isinstance(player, dict)
+    outlook = result["outlook"]
+    assert isinstance(outlook, dict)
+    return ToolCall(
+        "get_player_growth_history",
+        {"instance_id": instance_id},
+        result,
+        f"{player['name']}：{len(result['points'])} 个快照，月均成长 {result['rates']['overall_per_month']}，"  # type: ignore[index]
+        f"潜力判断「{outlook['label']}」",
+        warnings=[str(item) for item in result.get("data_gaps", [])],  # type: ignore[union-attr]
+    )
+
+
+def generate_recruitment_report(
+    session: Session,
+    save_id: int,
+    slot: str | None = None,
+    budget: int | None = None,
+    limit: int = 5,
+) -> ToolCall:
+    """``generate_recruitment_report`` — shortlist with reasons, cost and risks for one slot."""
+    from ..analytics.recruitment import build_shortlist
+
+    result = build_shortlist(
+        session,
+        save_id,
+        name=f"{slot or '全位置'}引援方案",
+        slot=slot,
+        budget=budget,
+        limit=limit,
+        persist=False,
+    )
+    top = result["items"][0] if result["items"] else None
+    return ToolCall(
+        "generate_recruitment_report",
+        {"save_id": save_id, "slot": slot, "budget": budget},
+        result,
+        f"生成 {len(result['items'])} 名候选" + (f"，首选 {top['player']['name']}（{top['score']}）" if top else ""),
+        warnings=[str(item) for item in result.get("data_gaps", [])][:5],  # type: ignore[union-attr]
+    )
 
 
 def _verdict(percentile: float | None) -> str:

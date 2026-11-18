@@ -12,7 +12,17 @@ import DemoBanner from './components/DemoBanner.vue'
 import { useSessionStore } from './stores/session'
 import { formatInt } from './utils/format'
 
-type IconName = 'overview' | 'players' | 'watchlist' | 'scouting' | 'transfers' | 'agent' | 'data'
+type IconName =
+  | 'overview'
+  | 'players'
+  | 'watchlist'
+  | 'scouting'
+  | 'squad'
+  | 'development'
+  | 'performance'
+  | 'transfers'
+  | 'agent'
+  | 'data'
 
 interface NavItem {
   key: string
@@ -22,14 +32,26 @@ interface NavItem {
   hint: string
 }
 
+/**
+ * Navigation follows the V2 product structure: analysis modules first, tool screens last.
+ * Each entry states what the screen answers rather than naming the underlying endpoint.
+ */
 const NAV_ITEMS: NavItem[] = [
-  { key: 'overview', label: '概览', to: '/', icon: 'overview', hint: '关键指标与覆盖度' },
+  { key: 'overview', label: '概览', to: '/', icon: 'overview', hint: '全局数据与覆盖度' },
+  { key: 'squad', label: '阵容智能', to: '/squad', icon: 'squad', hint: '六维评分、位置深度与接班规划' },
+  { key: 'recruitment', label: '智能球探引擎', to: '/recruitment', icon: 'scouting', hint: '六维球员评分、隐藏价值与候选名单' },
+  { key: 'transfers', label: '转会情报', to: '/transfers', icon: 'transfers', hint: '成本模型、投资效率与历史复盘' },
+  { key: 'development', label: '球员发展', to: '/development', icon: 'development', hint: '成长速率、建议与潜力区间' },
+  { key: 'performance', label: '表现分析', to: '/performance', icon: 'performance', hint: '分位置产出与能力对比' },
+  { key: 'agent', label: 'AI 体育总监', to: '/agent', icon: 'agent', hint: '自然语言提问，工具级证据' },
+  { key: 'data', label: '数据中心', to: '/data', icon: 'data', hint: '数据导入、覆盖度与兼容性' },
+]
+
+/** Secondary screens reachable from the analysis pages rather than the main rail. */
+const SECONDARY_ITEMS: NavItem[] = [
   { key: 'players', label: '球员中心', to: '/players', icon: 'players', hint: '筛选、排序与球员档案' },
-  { key: 'watchlist', label: '成长追踪', to: '/watchlist', icon: 'watchlist', hint: '关注名单与提醒' },
-  { key: 'scouting', label: '智能球探', to: '/scouting', icon: 'scouting', hint: '角色模板与候选人排序' },
-  { key: 'transfers', label: '转会情报', to: '/transfers', icon: 'transfers', hint: '成交样本、分位数与俱乐部画像' },
-  { key: 'agent', label: 'AI 决策中心', to: '/agent', icon: 'agent', hint: '带工具证据的结构化回答' },
-  { key: 'data', label: '数据与诊断', to: '/data', icon: 'data', hint: '导入、覆盖度与兼容性' },
+  { key: 'scouting', label: '角色球探', to: '/scouting', icon: 'scouting', hint: '战术角色模板与排序' },
+  { key: 'watchlist', label: '关注名单', to: '/watchlist', icon: 'watchlist', hint: '关注球员与提醒规则' },
 ]
 
 const session = useSessionStore()
@@ -130,6 +152,21 @@ onMounted(() => {
           :title="item.hint"
         >
           <AppIcon :name="item.icon" :size="17" />
+          <span class="nav__label">{{ item.label }}</span>
+        </router-link>
+      </nav>
+
+      <nav class="nav nav--secondary" aria-label="辅助页面">
+        <router-link
+          v-for="item in SECONDARY_ITEMS"
+          :key="item.key"
+          :to="item.to"
+          class="nav__item"
+          :class="{ 'nav__item--active': activeKey === item.key }"
+          :aria-current="activeKey === item.key ? 'page' : undefined"
+          :title="item.hint"
+        >
+          <AppIcon :name="item.icon" :size="15" />
           <span class="nav__label">{{ item.label }}</span>
         </router-link>
       </nav>
@@ -314,6 +351,24 @@ onMounted(() => {
   font-weight: var(--sm-fw-medium);
 }
 
+.nav--secondary {
+  flex: 0 0 auto;
+  margin-top: var(--sm-space-2);
+  padding-top: var(--sm-space-2);
+  border-top: 1px solid var(--sm-sidebar-2);
+}
+
+.nav--secondary .nav__item {
+  font-size: var(--sm-fs-xs);
+  color: var(--sm-sidebar-text);
+  opacity: 0.85;
+}
+
+.nav--secondary .nav__item:hover,
+.nav--secondary .nav__item--active {
+  opacity: 1;
+}
+
 .nav__label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -345,7 +400,7 @@ onMounted(() => {
 }
 
 .sidebar__dot--demo {
-  background: #d8a12c;
+  background: var(--sm-warn);
 }
 
 .sidebar__meta {

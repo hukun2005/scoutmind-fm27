@@ -1,4 +1,4 @@
-/** AI 决策中心：会话、结构化回答、工具证据与确定性模式提示。 */
+/** AI 体育总监：会话、结构化回答、可靠性分类、工具引用与确定性模式提示。 */
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
@@ -38,9 +38,11 @@ const thread = ref<HTMLElement | null>(null)
 
 /** Suggested questions from the product spec; they work in deterministic mode too. */
 const SUGGESTIONS = [
+  '我的球队目前最大的问题是什么？',
+  '哪个位置最需要补强？',
+  '帮我找一个 23 岁以下、适合高位逼抢的中锋，预算不超过 3000 万。',
+  '分析过去三个赛季我的转会策略。',
   '一个 20 岁、CA 145、PA 175 的前锋，历史上类似球员通常卖多少钱？',
-  '当前存档里，合同 12 个月内到期且 CA ≥ 140 的球员有哪些？',
-  '21 岁以下、PA ≥ 165 的中场，按角色评分谁最值得优先考察？',
   '最近已完成交易的中位数与 P25/P75 是多少？样本量够吗？',
 ]
 
@@ -180,6 +182,21 @@ function answerSections(answer: AgentAnswer): AgentAnswer['sections'] {
   return answer.sections ?? []
 }
 
+/** Chinese label of one reliability class. */
+function reliabilityLabel(value: string): string {
+  return (
+    { fact: '数据库事实', computed: '模型计算', inference: 'AI 推断', unavailable: '无法获得' }[value] ?? value
+  )
+}
+
+/** Element tag type of one reliability class. */
+function reliabilityTagType(value: string): 'success' | 'primary' | 'warning' | 'info' {
+  if (value === 'fact') return 'success'
+  if (value === 'inference') return 'warning'
+  if (value === 'unavailable') return 'info'
+  return 'primary'
+}
+
 /** Select a conversation from the sidebar. */
 function selectConversation(id: number): void {
   activeId.value = id
@@ -202,7 +219,7 @@ watch(activeId, () => {
 <template>
   <div class="sm-page agent-page">
     <PageHeader
-      title="AI 决策中心"
+      title="AI Sporting Director · AI 体育总监"
       description="回答中的每个数字都必须来自工具结果；样本不足时后端会拒绝精确估值。工具调用与置信度完整展示，可逐条核对。"
     >
       <template #meta>
@@ -341,7 +358,12 @@ watch(activeId, () => {
                   </el-alert>
 
                   <section v-for="section in answerSections(message.answer)" :key="section.key" class="answer__section">
-                    <h3 class="answer__section-title">{{ section.title }}</h3>
+                    <h3 class="answer__section-title">
+                      {{ section.title }}
+                      <el-tag v-if="section.reliability" size="small" :type="reliabilityTagType(section.reliability)">
+                        {{ reliabilityLabel(section.reliability) }}
+                      </el-tag>
+                    </h3>
                     <ul v-if="section.bullets && section.bullets.length > 0" class="answer__bullets">
                       <li v-for="bullet in section.bullets" :key="bullet">{{ bullet }}</li>
                     </ul>
@@ -362,6 +384,32 @@ watch(activeId, () => {
                       </table>
                     </div>
                   </section>
+
+                  <div v-if="message.answer.reliability" class="answer__block">
+                    <span class="sm-label">可靠性分类</span>
+                    <div class="answer__reliability">
+                      <el-tag size="small" type="success">事实 {{ message.answer.reliability.facts.length }}</el-tag>
+                      <el-tag size="small" type="primary">计算 {{ message.answer.reliability.computed.length }}</el-tag>
+                      <el-tag size="small" type="warning">推断 {{ message.answer.reliability.inferences.length }}</el-tag>
+                      <el-tag size="small" type="info">无法获得 {{ message.answer.reliability.unavailable.length }}</el-tag>
+                    </div>
+                    <ul v-if="message.answer.reliability.unavailable.length > 0" class="answer__bullets">
+                      <li v-for="item in message.answer.reliability.unavailable" :key="item">{{ item }}</li>
+                    </ul>
+                    <p v-if="message.answer.reliability.rule" class="sm-text-2xs sm-text-faint">
+                      {{ message.answer.reliability.rule }}
+                    </p>
+                  </div>
+
+                  <div v-if="(message.answer.citations ?? []).length > 0" class="answer__block">
+                    <span class="sm-label">引用来源</span>
+                    <ul class="answer__evidence">
+                      <li v-for="(citation, index) in message.answer.citations ?? []" :key="`${citation.tool}-${index}`">
+                        <span class="sm-mono">{{ citation.tool }}</span>
+                        <span class="sm-text-2xs sm-text-faint">{{ citation.summary }}</span>
+                      </li>
+                    </ul>
+                  </div>
 
                   <div v-if="message.answer.data_gaps.length > 0" class="answer__block">
                     <span class="sm-label">数据缺口</span>
@@ -731,6 +779,13 @@ watch(activeId, () => {
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-sm);
   background: var(--sm-surface);
+}
+
+.answer__reliability {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm-space-2);
+  margin-bottom: var(--sm-space-2);
 }
 
 .answer__tools {

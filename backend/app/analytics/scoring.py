@@ -198,28 +198,49 @@ def list_roles(session: Session) -> list[dict[str, object]]:
 def evaluate_player(session: Session, instance_id: int, role_key: str) -> dict[str, object]:
     """Score one player against one role template and return the component breakdown."""
     seed_role_templates(session)
-    template = session.scalar(
-        select(ScoreTemplateVersion)
-        .where(ScoreTemplateVersion.key == role_key)
-        .order_by(ScoreTemplateVersion.version.desc())
-        .limit(1)
-    )
+    template = _template(session, role_key)
     if template is None:
         raise ValueError(f"unknown role template {role_key!r}")
     instance = session.get(PlayerInstance, instance_id)
     if instance is None:
         raise ValueError("player instance not found")
-    snapshot = session.scalar(
-        select(PlayerSnapshot)
-        .where(PlayerSnapshot.player_instance_id == instance_id)
-        .order_by(PlayerSnapshot.observed_at.desc())
-        .limit(1)
-    )
-    attributes = _attribute_values(session, snapshot.id) if snapshot is not None else {}
-    names = _attribute_names(session)
+    attributes = attribute_values(session, instance_id)
+    result = score_attributes(attributes, template_weights(template), attribute_names(session))
     import json
 
-    weights: dict[str, float] = json.loads(template.weights_json)
+    session.add(
+        PlayerScore(
+            player_instance_id=instance_id,
+            role_key=role_key,
+            template_version=template.version,
+            score=float(result["score"]),
+            coverage=float(result["coverage"]),
+            components_json=json.dumps(result["components"], ensure_ascii=False),
+        )
+    )
+    return {
+        "instance_id": instance_id,
+        "role_key": role_key,
+        "role_name": template.name,
+        "score": result["score"],
+        "components": result["components"],
+        "template_version": template.version,
+        "algorithm_version": template.algorithm_version,
+        "coverage": result["coverage"],
+        "strengths": result["strengths"],
+        "weaknesses": result["weaknesses"],
+        "computed_at": iso(utcnow()),
+    }
+
+
+def score_attributes(
+    attributes: dict[str, float], weights: dict[str, float], names: dict[str, str]
+) -> dict[str, object]:
+    """Pure role score for one attribute reading set.
+
+    ``score`` is rescaled to the weight that was actually observed, so a player is never punished for an attribute the
+    scanner did not report; ``coverage`` is reported next to it so callers can refuse to compare thin readings.
+    """
     components: list[dict[str, object]] = []
     available_weight = 0.0
     total_weight = sum(weights.values()) or 1.0
@@ -248,29 +269,72 @@ def evaluate_player(session: Session, instance_id: int, role_key: str) -> dict[s
     weaknesses = [f"{item['name']} {item['value']:.0f}/20" for item in scorable[-2:] if item not in scorable[:2]]
     if coverage < 0.7:
         weaknesses.append("属性覆盖率不足 70%，评分参考价值有限")
-    session.add(
-        PlayerScore(
-            player_instance_id=instance_id,
-            role_key=role_key,
-            template_version=template.version,
-            score=score,
-            coverage=round(coverage, 4),
-            components_json=json.dumps(components, ensure_ascii=False),
-        )
-    )
     return {
-        "instance_id": instance_id,
-        "role_key": role_key,
-        "role_name": template.name,
         "score": score,
-        "components": components,
-        "template_version": template.version,
-        "algorithm_version": template.algorithm_version,
         "coverage": round(coverage, 4),
+        "components": components,
         "strengths": strengths,
         "weaknesses": weaknesses,
-        "computed_at": iso(utcnow()),
     }
+
+
+def template_weights(template: ScoreTemplateVersion) -> dict[str, float]:
+    """Attribute weights of one stored template version."""
+    import json
+
+    return json.loads(template.weights_json)
+
+
+def attribute_names(session: Session) -> dict[str, str]:
+    """Public accessor for the 中文 attribute labels used inside score components."""
+    return _attribute_names(session)
+
+
+def attribute_values(session: Session, instance_id: int) -> dict[str, float]:
+    """Attribute readings of the newest snapshot of one player instance."""
+    snapshot = session.scalar(
+        select(PlayerSnapshot)
+        .where(PlayerSnapshot.player_instance_id == instance_id)
+        .order_by(PlayerSnapshot.observed_at.desc())
+        .limit(1)
+    )
+    return _attribute_values(session, snapshot.id) if snapshot is not None else {}
+
+
+def best_role_score(
+    session: Session, instance_id: int, attributes: dict[str, float], names: dict[str, str], position_group_code: str | None
+) -> dict[str, object] | None:
+    """Highest-scoring role template inside one position group, without persisting a score row."""
+    seed_role_templates(session)
+    rows = [
+        row
+        for row in session.scalars(select(ScoreTemplateVersion).order_by(ScoreTemplateVersion.key))
+        if position_group_code is None or row.position_group == position_group_code
+    ]
+    best: dict[str, object] | None = None
+    for row in rows:
+        result = score_attributes(attributes, template_weights(row), names)
+        if float(result["coverage"]) < 0.5:
+            continue
+        candidate = {
+            "role_key": row.key,
+            "role_name": row.name,
+            "score": result["score"],
+            "coverage": result["coverage"],
+            "template_version": row.version,
+        }
+        if best is None or float(candidate["score"]) > float(best["score"]):
+            best = candidate
+    return best
+
+
+def _template(session: Session, role_key: str) -> ScoreTemplateVersion | None:
+    return session.scalar(
+        select(ScoreTemplateVersion)
+        .where(ScoreTemplateVersion.key == role_key)
+        .order_by(ScoreTemplateVersion.version.desc())
+        .limit(1)
+    )
 
 
 def _attribute_values(session: Session, snapshot_id: int) -> dict[str, float]:

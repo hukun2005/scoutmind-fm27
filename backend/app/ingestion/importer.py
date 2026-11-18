@@ -28,6 +28,7 @@ from ..models import (
     PlayerAttributeValue,
     PlayerInstance,
     PlayerSnapshot,
+    PlayerStatistic,
     Transfer,
     TransferFeeComponent,
 )
@@ -35,6 +36,7 @@ from ..utils import iso, payload_checksum, utcnow
 from .attributes import ATTRIBUTE_KEYS, ensure_attributes, position_group
 from .identity import resolve_player_instance
 from .protocol import (
+    STATISTIC_FIELDS,
     FeeComponentRecord,
     PlayerRecord,
     RowValidationError,
@@ -67,6 +69,8 @@ class ImportOutcome:
     transfers_created: int = 0
     transfers_updated: int = 0
     transfers_skipped: int = 0
+    statistics_created: int = 0
+    statistics_updated: int = 0
     rows_rejected: int = 0
     warnings: list[str] = field(default_factory=list)
     errors: list[dict[str, object]] = field(default_factory=list)
@@ -279,6 +283,7 @@ class ScanImporter:
             if club is not None:
                 instance.club_id = club.id
             self._create_snapshot(job, payload, record, instance, club, attribute_ids, outcome)
+            self._upsert_statistics(job, payload, record, instance, outcome)
             if record.record_id:
                 instance_by_record[record.record_id] = instance.id
             instance_by_record[record.save_local_uid] = instance.id
@@ -346,6 +351,57 @@ class ScanImporter:
                 )
             )
         outcome.snapshots_created += 1
+
+    def _upsert_statistics(
+        self,
+        job: ImportJob,
+        payload: ScanPayload,
+        record: PlayerRecord,
+        instance: PlayerInstance,
+        outcome: ImportOutcome,
+    ) -> None:
+        """Store optional season aggregates; a newer observation replaces older counts for the same period."""
+        if not record.statistics:
+            return
+        observed_at = payload.scan.observed_at
+        for statistics in record.statistics:
+            values = {name: getattr(statistics, name) for name in STATISTIC_FIELDS}
+            if all(value is None for value in values.values()):
+                outcome.warnings.append(
+                    f"球员 {record.name} 的 {statistics.period} 统计块没有任何可用字段，已忽略"
+                )
+                continue
+            existing = self.session.scalar(
+                select(PlayerStatistic).where(
+                    PlayerStatistic.player_instance_id == instance.id,
+                    PlayerStatistic.scope == "season",
+                    PlayerStatistic.period == statistics.period,
+                )
+            )
+            if existing is not None:
+                if existing.observed_at >= observed_at:
+                    continue
+                for name, value in values.items():
+                    setattr(existing, name, value)
+                existing.competition = statistics.competition or existing.competition
+                existing.observed_at = observed_at
+                existing.import_job_id = job.id
+                outcome.statistics_updated += 1
+                continue
+            row = PlayerStatistic(
+                player_instance_id=instance.id,
+                import_job_id=job.id,
+                scope="season",
+                period=statistics.period,
+                competition=statistics.competition,
+                observed_at=observed_at,
+                source=payload.source,
+                reader_version=payload.reader_version,
+            )
+            for name, value in values.items():
+                setattr(row, name, value)
+            self.session.add(row)
+            outcome.statistics_created += 1
 
     def _upsert_transfers(
         self,
@@ -469,6 +525,11 @@ class ScanImporter:
                 transfers,
                 ("base_fee", "fee_paid", "player_ca_at_transfer", "contract_remaining_months"),
             ),
+            "statistics": round(
+                sum(1 for row in players if isinstance(row.get("statistics"), dict)) / len(players), 4
+            )
+            if players
+            else 0.0,
         }
         return {key: round(value, 4) for key, value in attribution.items()}
 
@@ -526,6 +587,9 @@ def _completeness(record: PlayerRecord) -> float:
 
 
 def _age(record: PlayerRecord, game_date: object) -> int | None:
+    """Reported age wins over a derived one: a source that knows the age is not second-guessed from a birth year."""
+    if record.age is not None:
+        return record.age
     if record.birth_date is None:
         return None
     reference = game_date if hasattr(game_date, "year") else utcnow().date()

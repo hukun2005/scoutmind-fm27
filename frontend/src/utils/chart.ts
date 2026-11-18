@@ -10,18 +10,18 @@ import type { TrendPoint } from '../types/analytics'
 import type { PlayerHistoryPoint } from '../types/players'
 import type { DistributionBucket } from '../types/transfers'
 
-const TEXT_2 = '#59616f'
-const TEXT_3 = '#8b94a3'
-const BORDER = '#e2e5ea'
+const TEXT_2 = '#a6b2c4'
+const TEXT_3 = '#7a8698'
+const BORDER = '#232d3c'
 
-/** Series colours reused across screens. */
+/** Series colours reused across screens; chosen for contrast on the dark canvas. */
 export const CHART_COLORS = {
-  ca: '#2b62d9',
-  pa: '#8b94a3',
-  value: '#17774f',
-  minutes: '#2b62d9',
-  appearances: '#9a5f12',
-  fee: '#2b62d9',
+  ca: '#4d8dff',
+  pa: '#7a8698',
+  value: '#35c98a',
+  minutes: '#4d8dff',
+  appearances: '#e6a93c',
+  fee: '#4d8dff',
 } as const
 
 /** Date label of a history point: game date when present, otherwise the observation date. */
@@ -68,7 +68,7 @@ function valueAxis(name: string, options?: { min?: number; max?: number }) {
     min: options?.min,
     max: options?.max,
     axisLabel: { color: TEXT_3, fontSize: 11 },
-    splitLine: { lineStyle: { color: '#eef0f3' } },
+    splitLine: { lineStyle: { color: '#1d2632' } },
     axisLine: { show: false },
   }
 }
@@ -204,7 +204,7 @@ export function buildTrendChart(trend: TrendPoint[]): EChartsOption {
         ),
         lineStyle: { width: 2, color: CHART_COLORS.value },
         itemStyle: { color: CHART_COLORS.value },
-        areaStyle: { color: 'rgba(23, 119, 79, 0.08)' },
+        areaStyle: { color: 'rgba(53, 201, 138, 0.12)' },
       },
       {
         name: 'CA 均值',
@@ -214,6 +214,59 @@ export function buildTrendChart(trend: TrendPoint[]): EChartsOption {
         data: trend.map((point) => point.ca_avg),
         lineStyle: { width: 2, color: CHART_COLORS.ca },
         itemStyle: { color: CHART_COLORS.ca },
+      },
+    ],
+  }
+}
+
+/** One player's radar series: a label plus one 0-100 value per axis. */
+export interface RadarSeries {
+  name: string
+  values: (number | null)[]
+}
+
+/** Radar palette; cycles when more players are compared than colours. */
+const RADAR_COLORS = ['#4d8dff', '#35c98a', '#e6a93c', '#f06a63', '#a97bff'] as const
+
+/**
+ * Player comparison radar, the screen the recruitment report is built around.
+ * @param dimensions Axis labels shared by every series (for example the six score dimensions).
+ * @param series One entry per compared player; `null` values are drawn as zero and must be labelled by the caller.
+ * @returns Radar chart option sized for the dark canvas.
+ */
+export function buildRadarChart(dimensions: string[], series: RadarSeries[]): EChartsOption {
+  return {
+    animationDuration: 240,
+    tooltip: { trigger: 'item', confine: true },
+    legend: {
+      bottom: 0,
+      left: 'center',
+      itemWidth: 10,
+      itemHeight: 10,
+      itemGap: 12,
+      textStyle: { color: TEXT_2, fontSize: 11 },
+    },
+    radar: {
+      indicator: dimensions.map((name) => ({ name, max: 100 })),
+      radius: '62%',
+      center: ['50%', '46%'],
+      splitNumber: 4,
+      axisName: { color: TEXT_3, fontSize: 11 },
+      splitLine: { lineStyle: { color: BORDER } },
+      splitArea: { areaStyle: { color: ['rgba(255,255,255,0.02)', 'rgba(255,255,255,0.05)'] } },
+      axisLine: { lineStyle: { color: BORDER } },
+    },
+    series: [
+      {
+        type: 'radar',
+        symbolSize: 4,
+        data: series.map((entry, index) => ({
+          name: entry.name,
+          value: entry.values.map((value) => (value === null ? 0 : Number(value.toFixed(2)))),
+          lineStyle: { width: 2, color: RADAR_COLORS[index % RADAR_COLORS.length] },
+          itemStyle: { color: RADAR_COLORS[index % RADAR_COLORS.length] },
+          areaStyle: { opacity: 0.12 },
+        })),
       },
     ],
   }

@@ -45,6 +45,18 @@ def answer_question(
         answer = _club_profile(session, save_id, intent, calls)
     elif intent.kind == "deal":
         answer = _deal(session, save_id, intent, calls)
+    elif intent.kind == "squad":
+        answer = _squad(session, save_id, intent, calls)
+    elif intent.kind == "depth":
+        answer = _depth(session, save_id, intent, calls)
+    elif intent.kind == "recruitment":
+        answer = _recruitment(session, save_id, intent, calls)
+    elif intent.kind == "growth":
+        answer = _growth(session, save_id, intent, calls)
+    elif intent.kind == "compare":
+        answer = _compare(session, save_id, intent, calls)
+    elif intent.kind == "transfer_history":
+        answer = _transfer_history(session, save_id, intent, calls)
     else:
         answer = _scout(session, save_id, intent, calls)
     if _has_demo_data(session, save_id):
@@ -53,9 +65,439 @@ def answer_question(
     answer["evidence"] = [
         {"type": "tool", "label": call.name, "value": call.payload()["result_summary"]} for call in calls
     ]
+    answer["reliability"] = _reliability_block(answer)
+    answer["citations"] = _citations(calls)
     answer["mode"] = "deterministic"
     answer["generated_at"] = iso(utcnow())
     return answer, calls
+
+
+# -- V2 handlers: squad, depth, recruitment, growth, comparison, history -----------------------------------------
+
+
+def _squad(session: Session, save_id: int, intent: planner.Intent, calls: list[ToolCall]) -> dict[str, object]:
+    call = tools.get_squad_overview(session, save_id)
+    calls.append(call)
+    result = call.result
+    club = result.get("club") or {}
+    components = result.get("components") or []
+    sections: list[dict[str, object]] = [
+        _section(
+            "score",
+            "阵容评分",
+            bullets=[
+                f"球队：{club.get('name') or '—'}（{club.get('league') or '未知联赛'}）",
+                f"综合评分：{result.get('score') if result.get('score') is not None else '不可计算'}",
+                f"权重模板：{(result.get('profile') or {}).get('name', '—')}",
+                f"阵容人数：{result.get('squad_size')}",
+            ],
+            reliability="fact",
+        ),
+        _section(
+            "components",
+            "六个维度",
+            table=_table(
+                ["维度", "得分", "权重"],
+                [
+                    [
+                        str(component["label"]),
+                        str(component["value"]) if component["value"] is not None else "不可计算",
+                        f"{float(component['weight']):.0%}",
+                    ]
+                    for component in components  # type: ignore[union-attr]
+                ],
+            ),
+        ),
+    ]
+    weakness = result.get("weakness") or []
+    if weakness:
+        sections.append(
+            _section(
+                "weakness",
+                "阵容短板",
+                table=_table(
+                    ["位置", "缺口评分", "人数/要求", "建议"],
+                    [
+                        [
+                            str(item["slot_name"]),
+                            str(item["severity"]),
+                            f"{item['count']}/{item['required']}",
+                            str(item["suggestion"]),
+                        ]
+                        for item in weakness  # type: ignore[union-attr]
+                    ],
+                ),
+            )
+        )
+    contracts = result.get("contracts") or {}
+    if isinstance(contracts, dict) and contracts.get("at_risk_names"):
+        sections.append(
+            _section(
+                "contracts",
+                "合同风险",
+                bullets=[f"12 个月内到期：{', '.join(str(name) for name in contracts['at_risk_names'][:8])}"],
+                reliability="fact",
+            )
+        )
+    gaps = [str(item) for item in result.get("data_gaps", [])]  # type: ignore[union-attr]
+    sections.append(_section("risks", "数据缺口", bullets=gaps or ["六个维度全部有数据支撑"], reliability="unavailable"))
+    conclusion = (
+        f"{club.get('name') or '本队'} 阵容评分 {result.get('score')}，最薄弱位置是 "
+        f"{weakness[0]['slot_name'] if weakness else '—'}。"
+    )
+    return _answer(conclusion, sections, int(result.get("squad_size") or 0), "medium", gaps)
+
+
+def _depth(session: Session, save_id: int, intent: planner.Intent, calls: list[ToolCall]) -> dict[str, object]:
+    call = tools.analyze_position_depth(session, save_id)
+    calls.append(call)
+    result = call.result
+    depth = result.get("depth") or []
+    weakness = result.get("weakness") or []
+    rows = [
+        [
+            str(item["slot_name"]),
+            str(item["count"]),
+            str(item["required"]),
+            str(item["status"]),
+            str(item["suggestion"]),
+        ]
+        for item in depth  # type: ignore[union-attr]
+        if item["slot"] != "UNKNOWN"
+    ]
+    sections = [
+        _section("depth", "位置深度", table=_table(["位置", "人数", "最低要求", "状态", "建议"], rows), reliability="fact"),
+        _section(
+            "weakness",
+            "优先补强",
+            bullets=[
+                f"{item['slot_name']}：缺口评分 {item['severity']}，{item['suggestion']}" for item in weakness  # type: ignore[union-attr]
+            ]
+            or ["没有可评估的位置"],
+        ),
+    ]
+    conclusion = f"最需要补强的位置是 {weakness[0]['slot_name']}。" if weakness else "没有位置深度数据。"
+    return _answer(conclusion, sections, len(rows), "medium", [])
+
+
+def _recruitment(session: Session, save_id: int, intent: planner.Intent, calls: list[ToolCall]) -> dict[str, object]:
+    slot = intent.slot
+    report = tools.generate_recruitment_report(
+        session, save_id, slot=slot, budget=int(intent.budget) if intent.budget else None, limit=5
+    )
+    calls.append(report)
+    items = report.result.get("items") or []
+    rows = [
+        [
+            str(item["player"]["name"]),
+            str(item["player"].get("age") or "—"),
+            str(item["player"].get("club") or "自由身"),
+            str(item["score"]),
+            _money(item["cost_estimate"].get("market_value")),
+            "、".join(str(value) for value in item["strengths"][:2]) or "—",
+        ]
+        for item in items  # type: ignore[union-attr]
+    ]
+    sections = [
+        _section(
+            "criteria",
+            "筛选条件",
+            bullets=[
+                f"位置：{slot or '不限'}",
+                f"预算：{_money(intent.budget) if intent.budget else '未指定'}",
+                f"年龄：{intent.min_age or '不限'} - {intent.max_age or '不限'}",
+            ],
+            reliability="fact",
+        )
+    ]
+    if rows:
+        sections.append(
+            _section(
+                "candidates",
+                "候选名单",
+                table=_table(["球员", "年龄", "俱乐部", "综合评分", "身价", "强项"], rows),
+            )
+        )
+    gaps = [str(item) for item in report.result.get("data_gaps", [])][:6]  # type: ignore[union-attr]
+    sections.append(
+        _section(
+            "risks",
+            "推荐理由与风险",
+            bullets=[
+                *(f"{item['player']['name']}：{item['reason']}" for item in items[:3]),  # type: ignore[union-attr]
+                *(f"风险 — {risk}" for item in items[:1] for risk in item["risks"]),  # type: ignore[union-attr]
+            ]
+            or ["没有符合条件且数据足够的候选"],
+            reliability="inference",
+        )
+    )
+    if gaps:
+        sections.append(_section("gaps", "数据缺口", bullets=gaps, reliability="unavailable"))
+    conclusion = (
+        f"按 {slot or '不限位置'}、预算 {_money(intent.budget) if intent.budget else '不限'} 找到 "
+        f"{report.result.get('items') and len(items) or 0} 名候选，首选 "
+        f"{items[0]['player']['name']}（综合评分 {items[0]['score']}）。"  # type: ignore[index]
+        if items
+        else "没有找到符合条件且数据足够的候选球员。"
+    )
+    return _answer(conclusion, sections, len(items), "medium", gaps)
+
+
+def _growth(session: Session, save_id: int, intent: planner.Intent, calls: list[ToolCall]) -> dict[str, object]:
+    if intent.instance_id is None:
+        return _growth_board(session, save_id, calls)
+    call = tools.get_player_growth_history(session, intent.instance_id)
+    calls.append(call)
+    result = call.result
+    player = result["player"]
+    assert isinstance(player, dict)
+    outlook = result["outlook"]
+    assert isinstance(outlook, dict)
+    points = result["points"] or []
+    rows = [
+        [
+            str(point["date"]),
+            str(point["age"] or "—"),
+            str(point["ca"] or "—"),
+            str(point["pa"] or "—"),
+            str(point["change_label"]),
+        ]
+        for point in points  # type: ignore[union-attr]
+    ]
+    sections = [
+        _section("timeline", "成长记录", table=_table(["日期", "年龄", "CA", "PA", "主要变化"], rows), reliability="fact"),
+        _section(
+            "rate",
+            "成长速率",
+            bullets=[
+                f"公式：{result['rates']['formula']}",  # type: ignore[index]
+                f"月均成长：{result['rates']['overall_per_month']}",  # type: ignore[index]
+                f"最近区间：{result['rates']['recent_per_month']}",  # type: ignore[index]
+                f"分类：{result['rates']['classification']}",  # type: ignore[index]
+            ],
+        ),
+        _section(
+            "outlook",
+            "潜力判断",
+            bullets=[
+                f"判断：{outlook['label']}（概率 {outlook.get('probability')}）",
+                f"外推区间：{outlook.get('projected_low')} – {outlook.get('projected_high')} CA",
+                str(outlook.get("rationale") or ""),
+                "这是等级与区间，不是精确 CA 预测",
+            ],
+            reliability="inference",
+        ),
+        _section(
+            "advice",
+            "发展建议",
+            bullets=[f"{item['action']}：{item['reason']}（{item['confidence']}）" for item in result["advice"]],  # type: ignore[index]
+            reliability="inference",
+        ),
+    ]
+    gaps = [str(item) for item in result.get("data_gaps", [])]  # type: ignore[union-attr]
+    if gaps:
+        sections.append(_section("gaps", "数据缺口", bullets=gaps, reliability="unavailable"))
+    conclusion = (
+        f"{player['name']}：{len(points)} 个快照，月均成长 {result['rates']['overall_per_month']}，"  # type: ignore[index]
+        f"潜力判断「{outlook['label']}」。"
+    )
+    return _answer(conclusion, sections, len(points), "medium", gaps)
+
+
+def _compare(session: Session, save_id: int, intent: planner.Intent, calls: list[ToolCall]) -> dict[str, object]:
+    instance_ids = _mention_instances(session, save_id, intent.question)
+    if len(instance_ids) < 2:
+        sections = [
+            _section(
+                "filters",
+                "需要至少两名球员",
+                bullets=["比较需要至少两名球员；请在问题中写出两名球员的姓名"],
+                reliability="unavailable",
+            )
+        ]
+        return _answer("缺少可比较的球员。", sections, 0, "insufficient", ["未识别到两名球员"])
+    call = tools.compare_players(session, save_id, instance_ids)
+    calls.append(call)
+    items = call.result.get("items") or []
+    rows = [
+        [
+            str(item["player"]["name"]),
+            str(item["player"].get("age") or "—"),
+            str(item["score"]),
+            "、".join(str(value) for value in item["strengths"][:2]) or "—",
+        ]
+        for item in items  # type: ignore[union-attr]
+    ]
+    sections = [
+        _section("compare", "对比结果", table=_table(["球员", "年龄", "综合评分", "强项"], rows)),
+        _section(
+            "dimensions",
+            "可比维度",
+            bullets=[f"共同可评分维度：{'、'.join(call.result.get('shared_dimensions') or []) or '无'}"],
+            reliability="fact",
+        ),
+    ]
+    conclusion = (
+        f"{items[0]['player']['name']} 综合评分最高（{items[0]['score']}）。" if items else "没有可比较的数据。"
+    )
+    return _answer(conclusion, sections, len(items), "medium", [])
+
+
+def _transfer_history(session: Session, save_id: int, intent: planner.Intent, calls: list[ToolCall]) -> dict[str, object]:
+    call = tools.analyze_transfer_history(session, save_id, intent.club_id)
+    calls.append(call)
+    review = call.result.get("review") or {}
+    summary = review.get("summary") or {} if isinstance(review, dict) else {}
+    categories = (call.result.get("categories") or {}).get("categories", [])  # type: ignore[union-attr]
+    sections: list[dict[str, object]] = [
+        _section(
+            "categories",
+            "交易类型",
+            table=_table(
+                ["类型", "笔数", "计入价格统计", "处理方式"],
+                [
+                    [
+                        str(item["label"]),
+                        str(item["count"]),
+                        "是" if item["counts_in_stats"] else "否",
+                        str(item["treatment"]),
+                    ]
+                    for item in categories  # type: ignore[union-attr]
+                ],
+            ),
+            reliability="fact",
+        )
+    ]
+    if isinstance(summary, dict) and summary.get("deals"):
+        sections.append(
+            _section(
+                "summary",
+                "复盘汇总",
+                bullets=[
+                    f"交易 {summary.get('deals')} 笔，其中 {summary.get('profitable')} 笔身价已上升",
+                    f"身价变化中位数：{_money(summary.get('median_value_delta'))}",
+                    *(
+                        f"{item['band']} 岁段：{item['deals']} 笔，中位变化 {_money(item['median_delta'])}"
+                        for item in summary.get("by_age_band") or []  # type: ignore[union-attr]
+                    ),
+                ],
+            )
+        )
+        rows = [
+            [
+                str(item["player"]["name"]),
+                str(item["transfer_date"]),
+                _money(item["fee"]),
+                str(item["verdict"]),
+                _money(item["value_delta_since"]),
+            ]
+            for item in (review.get("items") or [])[:10]  # type: ignore[union-attr]
+        ]
+        if rows:
+            sections.append(
+                _section("deals", "逐笔复盘", table=_table(["球员", "日期", "成交价", "结论", "身价变化"], rows))
+            )
+    sections.append(
+        _section(
+            "risks",
+            "风险提示",
+            bullets=[str((review or {}).get("note") or "复盘只使用带身价对比的交易")],
+            reliability="unavailable",
+        )
+    )
+    conclusion = (
+        f"本队 {summary.get('deals')} 笔交易中 {summary.get('profitable')} 笔身价上升。"
+        if isinstance(summary, dict) and summary.get("deals")
+        else "没有可复盘的本队交易。"
+    )
+    return _answer(conclusion, sections, int(summary.get("deals") or 0) if isinstance(summary, dict) else 0, "low", [])
+
+
+def _reliability_block(answer: dict[str, object]) -> dict[str, object]:
+    """Split the answer into facts, computed values, inferences and unavailable data (product rule 9.5)."""
+    sections = answer.get("sections") or []
+    buckets: dict[str, list[str]] = {"fact": [], "computed": [], "inference": [], "unavailable": []}
+    for section in sections:  # type: ignore[union-attr]
+        tag = str(section.get("reliability") or "computed")
+        buckets.setdefault(tag, []).append(str(section.get("title")))
+    buckets["unavailable"].extend(str(item) for item in answer.get("data_gaps") or [])
+    return {
+        "facts": buckets.get("fact", []),
+        "computed": buckets.get("computed", []),
+        "inferences": buckets.get("inference", []),
+        "unavailable": [item for item in dict.fromkeys(buckets.get("unavailable", [])) if item],
+        "rule": "数据库事实 / 模型计算结果 / AI 推断 / 无法获得的数据 四类必须分开呈现",
+    }
+
+
+def _citations(calls: list[ToolCall]) -> list[dict[str, object]]:
+    """Every number in the answer maps to one of these tool results."""
+    return [
+        {
+            "tool": call.name,
+            "arguments": call.arguments,
+            "summary": call.summary,
+            "warnings": call.warnings,
+        }
+        for call in calls
+    ]
+
+
+def _growth_board(session: Session, save_id: int, calls: list[ToolCall]) -> dict[str, object]:
+    """Growth answer when the question does not name one player: the youngest tracked players by rate."""
+    from ..analytics.development import development_board
+
+    board = development_board(session, save_id, limit=10, min_age=23)
+    rows = [
+        [
+            str(item["player"]["name"]),
+            str(item["player"].get("age") or "—"),
+            str(item["overall_per_month"]),
+            str((item["outlook"] or {}).get("label") or "—"),
+            str((item["advice_top"] or {}).get("action") or "—"),
+        ]
+        for item in board["items"]  # type: ignore[union-attr]
+    ]
+    sections = [
+        _section(
+            "board",
+            "U23 成长排行",
+            table=_table(["球员", "年龄", "月均成长", "潜力判断", "建议"], rows)
+            if rows
+            else None,
+            bullets=None if rows else ["没有至少两个快照的 U23 球员，无法给出成长结论"],
+        ),
+        _section(
+            "method",
+            "口径",
+            bullets=[
+                "成长速率 = (CA_t − CA_t−1) / Δ月；只统计至少两个快照的球员",
+                "潜力判断是区间与等级，不是精确 CA 预测",
+                str(board.get("note") or ""),
+            ],
+            reliability="fact",
+        ),
+    ]
+    conclusion = (
+        f"U23 中成长最快的是 {board['items'][0]['player']['name']}（月均 {board['items'][0]['overall_per_month']}）。"  # type: ignore[index]
+        if board["items"]
+        else "没有足够的快照数据来评估成长。"
+    )
+    return _answer(conclusion, sections, int(board["total"]), "medium", [])
+
+
+def _mention_instances(session: Session, save_id: int, question: str) -> list[int]:
+    """Player instances whose full name appears in the question."""
+    found: list[int] = []
+    rows = session.execute(
+        select(Player.full_name, PlayerInstance.id)
+        .join(PlayerInstance, PlayerInstance.player_id == Player.id)
+        .where(PlayerInstance.fm_save_id == save_id)
+    ).all()
+    for name, instance_id in rows:
+        if str(name) and str(name) in question and int(instance_id) not in found:
+            found.append(int(instance_id))
+    return found[:5]
 
 
 def _price_stats(session: Session, save_id: int, intent: planner.Intent, calls: list[ToolCall]) -> dict[str, object]:
@@ -476,8 +918,9 @@ def _section(
     bullets: list[str] | None = None,
     table: dict[str, object] | None = None,
     body: str | None = None,
+    reliability: str = "computed",
 ) -> dict[str, object]:
-    payload: dict[str, object] = {"key": key, "title": title}
+    payload: dict[str, object] = {"key": key, "title": title, "reliability": reliability}
     if body:
         payload["body"] = body
     if bullets:

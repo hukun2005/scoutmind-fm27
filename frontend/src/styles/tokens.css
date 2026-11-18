@@ -1,4 +1,4 @@
-/* Design tokens. 8px spacing grid, neutral palette, one accent. */
+/* Design tokens. 8px spacing grid, dark professional football-analysis palette, one accent. */
 
 :root {
   /* Spacing: 4 / 8 / 12 / 16 / 24 / 32 / 40 / 48 / 64 */
@@ -12,39 +12,39 @@
   --sm-space-8: 48px;
   --sm-space-9: 64px;
 
-  /* Surfaces */
-  --sm-bg: #f4f5f7;
-  --sm-surface: #ffffff;
-  --sm-surface-2: #fafbfc;
-  --sm-surface-3: #f0f2f5;
-  --sm-sidebar: #171b24;
-  --sm-sidebar-2: #212734;
-  --sm-sidebar-3: #2c3443;
-  --sm-sidebar-text: #a9b2c1;
-  --sm-sidebar-text-strong: #eef1f6;
+  /* Surfaces: near-black canvas, two raised levels for cards and nested panels */
+  --sm-bg: #0b0e14;
+  --sm-surface: #131922;
+  --sm-surface-2: #18202b;
+  --sm-surface-3: #202a38;
+  --sm-sidebar: #080b11;
+  --sm-sidebar-2: #121a24;
+  --sm-sidebar-3: #1d2836;
+  --sm-sidebar-text: #94a2b8;
+  --sm-sidebar-text-strong: #f1f5fb;
 
   /* Lines */
-  --sm-border: #e2e5ea;
-  --sm-border-strong: #c9cfd8;
+  --sm-border: #232d3c;
+  --sm-border-strong: #35435c;
 
   /* Text */
-  --sm-text: #171c26;
-  --sm-text-2: #59616f;
-  --sm-text-3: #8b94a3;
-  --sm-text-inverse: #ffffff;
+  --sm-text: #e9eef6;
+  --sm-text-2: #a6b2c4;
+  --sm-text-3: #7a8698;
+  --sm-text-inverse: #0b0e14;
 
   /* Semantic */
-  --sm-accent: #2b62d9;
-  --sm-accent-hover: #2453ba;
-  --sm-accent-weak: #eaf0fd;
-  --sm-success: #17774f;
-  --sm-success-weak: #e7f4ee;
-  --sm-warn: #9a5f12;
-  --sm-warn-weak: #fbf1e1;
-  --sm-danger: #b3342a;
-  --sm-danger-weak: #fbeceb;
-  --sm-neutral: #5b6472;
-  --sm-neutral-weak: #eef0f3;
+  --sm-accent: #4d8dff;
+  --sm-accent-hover: #6fa4ff;
+  --sm-accent-weak: #17243c;
+  --sm-success: #35c98a;
+  --sm-success-weak: #10291f;
+  --sm-warn: #e6a93c;
+  --sm-warn-weak: #2b2314;
+  --sm-danger: #f06a63;
+  --sm-danger-weak: #2e1618;
+  --sm-neutral: #8f9db2;
+  --sm-neutral-weak: #1b2334;
 
   /* Typography */
   --sm-font-sans: 'Inter', 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
@@ -66,23 +66,60 @@
   /* Radii and elevation */
   --sm-radius-sm: 4px;
   --sm-radius-md: 6px;
-  --sm-radius-lg: 8px;
-  --sm-shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06);
-  --sm-shadow-2: 0 4px 14px rgba(16, 24, 40, 0.08);
+  --sm-radius-lg: 10px;
+  --sm-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --sm-shadow-2: 0 10px 28px rgba(0, 0, 0, 0.45);
 
   /* Layout */
-  --sm-sidebar-width: 208px;
+  --sm-sidebar-width: 216px;
   --sm-topbar-height: 56px;
   --sm-page-max: 1680px;
-  --sm-focus-ring: 0 0 0 2px rgba(43, 98, 217, 0.45);
+  --sm-focus-ring: 0 0 0 2px rgba(77, 141, 255, 0.55);
 
-  /* Element Plus alignment */
-  --el-color-primary: #2b62d9;
-  --el-border-radius-base: 4px;
+  color-scheme: dark;
+}
+
+/*
+ * Element Plus keys its dark theme off `html.dark`, so these overrides live on the same selector to win the
+ * cascade: every Element surface then follows the same scale as our own components.
+ */
+html.dark {
+  --el-color-primary: #4d8dff;
+  --el-color-primary-light-3: #3f74cf;
+  --el-color-primary-light-5: #335b9f;
+  --el-color-primary-light-7: #26416f;
+  --el-color-primary-light-8: #1f3459;
+  --el-color-primary-light-9: #17243c;
+  --el-color-primary-dark-2: #6fa4ff;
+  --el-color-success: #35c98a;
+  --el-color-warning: #e6a93c;
+  --el-color-danger: #f06a63;
+  --el-color-error: #f06a63;
+  --el-color-info: #8f9db2;
+  --el-bg-color: #131922;
+  --el-bg-color-page: #0b0e14;
+  --el-bg-color-overlay: #18202b;
+  --el-fill-color: #18202b;
+  --el-fill-color-light: #18202b;
+  --el-fill-color-lighter: #151c26;
+  --el-fill-color-dark: #202a38;
+  --el-fill-color-darker: #26313f;
+  --el-fill-color-blank: #131922;
+  --el-border-color: #232d3c;
+  --el-border-color-light: #232d3c;
+  --el-border-color-lighter: #1d2632;
+  --el-border-color-extra-light: #1a222d;
+  --el-border-color-dark: #35435c;
+  --el-border-color-darker: #40506c;
+  --el-text-color-primary: #e9eef6;
+  --el-text-color-regular: #a6b2c4;
+  --el-text-color-secondary: #7a8698;
+  --el-text-color-placeholder: #6b7789;
+  --el-text-color-disabled: #5b6678;
+  --el-mask-color: rgba(8, 11, 17, 0.8);
+  --el-box-shadow-light: var(--sm-shadow-1);
+  --el-box-shadow: var(--sm-shadow-2);
+  --el-border-radius-base: 6px;
   --el-font-family: var(--sm-font-sans);
-  --el-text-color-primary: var(--sm-text);
-  --el-text-color-regular: var(--sm-text-2);
-  --el-border-color: var(--sm-border);
-  --el-border-color-light: var(--sm-border);
-  --el-fill-color-blank: var(--sm-surface);
+  --el-disabled-bg-color: #1b2334;
 }

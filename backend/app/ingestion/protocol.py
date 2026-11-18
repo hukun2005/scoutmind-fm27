@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 SOURCE_KINDS = (
     "fm27_live_reader",
     "fm_save_parser",
+    "fmsuperscout",
     "manual",
     "ocr",
     "external",
@@ -25,6 +26,7 @@ SOURCE_KINDS = (
 TRANSFER_TYPES = (
     "permanent",
     "loan",
+    "loan_with_option",
     "free",
     "end_of_contract",
     "clause_release",
@@ -44,7 +46,30 @@ FEE_COMPONENT_TYPES = (
     "loan_fee",
     "sell_on",
     "buy_back",
+    "buy_option",
     "wage_contribution",
+)
+
+STATISTIC_FIELDS = (
+    "appearances",
+    "starts",
+    "minutes_played",
+    "goals",
+    "assists",
+    "shots",
+    "shots_on_target",
+    "xg",
+    "key_passes",
+    "passes_attempted",
+    "passes_completed",
+    "dribbles",
+    "tackles",
+    "interceptions",
+    "clearances",
+    "aerials_won",
+    "saves",
+    "conceded",
+    "clean_sheets",
 )
 
 FEE_COMPONENT_STATUSES = ("paid", "scheduled", "triggered", "untriggered", "conditional_unknown", "unknown")
@@ -98,6 +123,38 @@ class ClubRecord(BaseModel):
     is_user_club: bool = False
 
 
+class SeasonStatisticsRecord(BaseModel):
+    """Season aggregate performance reported for one player.
+
+    The block is optional: a reader that cannot read match statistics omits it, and the backend then reports the
+    affected performance screens as unavailable instead of showing zeros.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    period: str = Field(min_length=1, max_length=32)
+    competition: str | None = None
+    appearances: int | None = Field(default=None, ge=0)
+    starts: int | None = Field(default=None, ge=0)
+    minutes_played: int | None = Field(default=None, ge=0)
+    goals: int | None = Field(default=None, ge=0)
+    assists: int | None = Field(default=None, ge=0)
+    shots: int | None = Field(default=None, ge=0)
+    shots_on_target: int | None = Field(default=None, ge=0)
+    xg: float | None = Field(default=None, ge=0)
+    key_passes: int | None = Field(default=None, ge=0)
+    passes_attempted: int | None = Field(default=None, ge=0)
+    passes_completed: int | None = Field(default=None, ge=0)
+    dribbles: int | None = Field(default=None, ge=0)
+    tackles: int | None = Field(default=None, ge=0)
+    interceptions: int | None = Field(default=None, ge=0)
+    clearances: int | None = Field(default=None, ge=0)
+    aerials_won: int | None = Field(default=None, ge=0)
+    saves: int | None = Field(default=None, ge=0)
+    conceded: int | None = Field(default=None, ge=0)
+    clean_sheets: int | None = Field(default=None, ge=0)
+
+
 class PlayerRecord(BaseModel):
     """A player observation. Any field the scanner cannot read must be ``null``."""
 
@@ -108,6 +165,7 @@ class PlayerRecord(BaseModel):
     game_unique_id: str | None = None
     name: str = Field(min_length=1, max_length=128)
     birth_date: date | None = None
+    age: int | None = Field(default=None, ge=0, le=100)
     nationality: str | None = None
     position: str | None = None
     club_uid: str | None = None
@@ -121,6 +179,7 @@ class PlayerRecord(BaseModel):
     goals: int | None = Field(default=None, ge=0)
     assists: int | None = Field(default=None, ge=0)
     attributes: dict[str, float] = Field(default_factory=dict)
+    statistics: list[SeasonStatisticsRecord] = Field(default_factory=list)
 
     @field_validator("name", "save_local_uid")
     @classmethod
@@ -145,6 +204,7 @@ class FeeComponentRecord(BaseModel):
         "loan_fee",
         "sell_on",
         "buy_back",
+        "buy_option",
         "wage_contribution",
     ]
     amount: float | None = Field(default=None, ge=0)
@@ -164,6 +224,7 @@ class TransferRecord(BaseModel):
     transfer_type: Literal[
         "permanent",
         "loan",
+        "loan_with_option",
         "free",
         "end_of_contract",
         "clause_release",
@@ -203,6 +264,7 @@ class ScanPayload(BaseModel):
     source: Literal[
         "fm27_live_reader",
         "fm_save_parser",
+        "fmsuperscout",
         "manual",
         "ocr",
         "external",

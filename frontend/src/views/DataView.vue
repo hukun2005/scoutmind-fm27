@@ -7,6 +7,7 @@ import { ElMessage } from 'element-plus'
 import { asApiError, type ApiError } from '../api/client'
 import { getCompatibility, getOverview } from '../api/analytics'
 import { listImports, uploadScan } from '../api/imports'
+import { getFmscoutAdapter, importFmscoutDump, previewFmscoutDump } from '../api/fmscout'
 import { getSaveSummary } from '../api/saves'
 import CoverageBar from '../components/CoverageBar.vue'
 import DataTable from '../components/DataTable.vue'
@@ -16,6 +17,12 @@ import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
 import type { CompatibilityItem, CompatibilityResponse, OverviewResponse } from '../types/analytics'
 import type { ImportJob, ScanImportResponse } from '../types/imports'
+import type {
+  FmscoutAdapterInfo,
+  FmscoutImportResponse,
+  FmscoutReport,
+  FmscoutSamplePlayer,
+} from '../types/fmscout'
 import type { SaveSummary } from '../types/bootstrap'
 import type { TableColumn } from '../types/table'
 import { useSessionStore } from '../stores/session'
@@ -24,6 +31,8 @@ import {
   displayText,
   formatDateTime,
   formatInt,
+  formatMoney,
+  formatPercent,
 } from '../utils/format'
 import { coverageLabel, importStatusLabel, sourceLabel } from '../utils/labels'
 
@@ -48,6 +57,15 @@ const compatibilityError = ref<ApiError | null>(null)
 const uploading = ref(false)
 const uploadResult = ref<ScanImportResponse | null>(null)
 const uploadError = ref<ApiError | null>(null)
+
+// ---------- FMSuperScout 适配层 ----------
+
+const fmscoutInfo = ref<FmscoutAdapterInfo | null>(null)
+const fmscoutReport = ref<FmscoutReport | null>(null)
+const fmscoutImport = ref<FmscoutImportResponse['import'] | null>(null)
+const fmscoutPreviewPlayers = ref<FmscoutSamplePlayer[]>([])
+const fmscoutBusy = ref(false)
+const fmscoutError = ref<ApiError | null>(null)
 
 /** Counts reported by the save summary (these are record counts, not ratios). */
 const summaryCounts = computed(() => {
@@ -89,6 +107,19 @@ const importColumns: TableColumn<ImportJob>[] = [
   },
   { prop: 'scan_id', label: 'scan_id', width: 190, formatter: (row) => displayText(row.scan_id) },
   { prop: 'raw_payload_path', label: '原始报文', minWidth: 220, showOverflowTooltip: true, formatter: (row) => displayText(row.raw_payload_path) },
+]
+
+/** 预览用的样例球员列：证明适配层把哪些字段落到了协议上。 */
+const fmscoutPreviewColumns: TableColumn<FmscoutSamplePlayer>[] = [
+  { prop: 'name', label: '球员', minWidth: 160 },
+  { prop: 'age', label: '年龄', width: 64, align: 'right' },
+  { prop: 'position', label: '位置', width: 88 },
+  { prop: 'ca', label: 'CA', width: 60, align: 'right' },
+  { prop: 'pa', label: 'PA', width: 60, align: 'right' },
+  { prop: 'market_value', label: '身价', width: 110, align: 'right', formatter: (row) => formatMoney(row.market_value) },
+  { prop: 'wage', label: '工资', width: 100, align: 'right', formatter: (row) => formatMoney(row.wage) },
+  { prop: 'contract_end', label: '合同到期', width: 108 },
+  { prop: 'attributes', label: '属性数', width: 84, align: 'right', formatter: (row) => String(Object.keys(row.attributes).length) },
 ]
 
 const compatibilityColumns: TableColumn<CompatibilityItem>[] = [  { prop: 'app_id', label: 'App ID', width: 110, formatter: (row) => displayText(row.app_id) },
@@ -203,10 +234,67 @@ function handleUpload(options: UploadRequestOptions): Promise<void> {
   return runUpload(options.file)
 }
 
+/** Convert a dump and show the field-mapping report without writing anything. */
+async function runFmscoutPreview(file: File): Promise<void> {
+  fmscoutBusy.value = true
+  fmscoutError.value = null
+  fmscoutReport.value = null
+  fmscoutImport.value = null
+  fmscoutPreviewPlayers.value = []
+  try {
+    const result = await previewFmscoutDump(file)
+    fmscoutReport.value = result.report
+    fmscoutPreviewPlayers.value = result.sample_players
+    ElMessage.success(`映射预览完成：可导入 ${formatInt(result.report.players_converted)} 名球员`)
+  } catch (caught) {
+    fmscoutError.value = asApiError(caught)
+    ElMessage.error(`预览失败：${fmscoutError.value.message}`)
+  } finally {
+    fmscoutBusy.value = false
+  }
+}
+
+/** Convert and import a dump; the backend deduplicates on the dump's content hash. */
+async function runFmscoutImport(file: File): Promise<void> {
+  fmscoutBusy.value = true
+  fmscoutError.value = null
+  try {
+    const result = await importFmscoutDump(file, session.activeSaveId ?? undefined)
+    fmscoutReport.value = result.report
+    fmscoutImport.value = result.import
+    fmscoutPreviewPlayers.value = []
+    if (result.import.duplicate) {
+      ElMessage.warning('这份导出已经导入过，后端未写入新数据')
+    } else {
+      ElMessage.success(
+        `导入完成：新建 ${formatInt(result.import.players_created)} 名球员、${formatInt(result.import.snapshots_created)} 个快照`,
+      )
+    }
+    await loadDataset()
+    await session.load()
+  } catch (caught) {
+    fmscoutError.value = asApiError(caught)
+    ElMessage.error(`导入失败：${fmscoutError.value.message}`)
+  } finally {
+    fmscoutBusy.value = false
+  }
+}
+
+/** Upload hooks for the two FMSuperScout actions. */
+function handleFmscoutPreview(options: UploadRequestOptions): Promise<void> {
+  return runFmscoutPreview(options.file)
+}
+
+/** See {@link handleFmscoutPreview}. */
+function handleFmscoutImport(options: UploadRequestOptions): Promise<void> {
+  return runFmscoutImport(options.file)
+}
+
 /** Reload everything on this page. */
 function reloadAll(): void {
   void loadDataset()
   void loadCompatibility()
+  void loadFmscoutInfo()
 }
 
 watch(
@@ -218,6 +306,17 @@ watch(
 )
 
 void loadCompatibility()
+
+/** Adapter metadata: upstream identity, license and the field policy. */
+async function loadFmscoutInfo(): Promise<void> {
+  try {
+    fmscoutInfo.value = await getFmscoutAdapter()
+  } catch {
+    fmscoutInfo.value = null
+  }
+}
+
+void loadFmscoutInfo()
 </script>
 
 <template>
@@ -391,6 +490,122 @@ void loadCompatibility()
       </template>
     </SectionCard>
 
+    <SectionCard
+      title="FMSuperScout 接入"
+      subtitle="第三方开源读取器（MIT）导出的 dump 由适配层转换成本系统的扫描协议；只读文件，不改游戏、存档或对方数据，并给出字段映射报告"
+    >
+      <div class="fmscout">
+        <div class="fmscout__actions">
+          <el-upload
+            class="fmscout__uploader"
+            accept=".json,application/json"
+            :show-file-list="false"
+            :disabled="fmscoutBusy"
+            :http-request="handleFmscoutPreview"
+          >
+            <el-button size="small" :loading="fmscoutBusy">预览字段映射</el-button>
+          </el-upload>
+          <el-upload
+            class="fmscout__uploader"
+            accept=".json,application/json"
+            :show-file-list="false"
+            :disabled="fmscoutBusy"
+            :http-request="handleFmscoutImport"
+          >
+            <el-button size="small" type="primary" :loading="fmscoutBusy">转换并导入</el-button>
+          </el-upload>
+          <span class="sm-text-2xs sm-text-faint">
+            也可以直接把 dump 文件拖到上方「上传扫描数据」，后端会自动识别来源
+          </span>
+        </div>
+
+        <p v-if="fmscoutInfo" class="sm-text-2xs sm-text-faint">
+          上游 <a :href="fmscoutInfo.upstream.url" target="_blank" rel="noreferrer">{{ fmscoutInfo.upstream.name }}</a>
+          ·{{ fmscoutInfo.upstream.license }} ·适配器 v{{ fmscoutInfo.version }} ·{{ fmscoutInfo.upstream.note }}
+        </p>
+
+        <ErrorState v-if="fmscoutError" :error="fmscoutError" compact title="FMSuperScout 处理失败" />
+        <EmptyState
+          v-else-if="!fmscoutReport && !fmscoutBusy"
+          title="还没有导入过 FMSuperScout 数据"
+          description="在 FMSuperScout 里按 F9 导出，然后选择该 dump 文件预览或导入"
+        />
+
+        <template v-if="fmscoutReport">
+          <div class="fmscout__summary">
+            <span>导出时间 {{ displayText(fmscoutReport.dump_generated) }}</span>
+            <span>球员 {{ formatInt(fmscoutReport.players_converted) }} / {{ formatInt(fmscoutReport.players_total) }}</span>
+            <span>球队 {{ formatInt(fmscoutReport.clubs_converted) }}</span>
+            <span>我的俱乐部 {{ displayText(fmscoutReport.user_club) }}</span>
+            <span>映射属性 {{ formatInt(fmscoutReport.attributes_mapped) }}</span>
+            <span v-if="fmscoutReport.players_skipped > 0">跳过幽灵记录 {{ formatInt(fmscoutReport.players_skipped) }}</span>
+          </div>
+
+          <div v-if="fmscoutImport" class="fmscout__result">
+            <el-alert
+              :type="fmscoutImport.duplicate ? 'warning' : 'success'"
+              :closable="false"
+              show-icon
+              :title="
+                fmscoutImport.duplicate
+                  ? `这份导出已导入过（scan_id=${displayText(fmscoutImport.scan_id)}），未写入新数据`
+                  : `导入完成：新建球员 ${formatInt(fmscoutImport.players_created)}、快照 ${formatInt(fmscoutImport.snapshots_created)}、拒绝 ${formatInt(fmscoutImport.rows_rejected)}`
+              "
+            />
+          </div>
+
+          <div class="fmscout__grid">
+            <div>
+              <p class="sm-label">已映射字段</p>
+              <p class="sm-text-xs sm-text-2">{{ fmscoutReport.mapped_fields.join('、') || EMPTY }}</p>
+            </div>
+            <div>
+              <p class="sm-label">导出中不存在的字段（相关功能显示为不可用）</p>
+              <p class="sm-text-xs sm-text-2">{{ fmscoutReport.absent_fields.join('、') || EMPTY }}</p>
+            </div>
+            <div>
+              <p class="sm-label">忽略的属性</p>
+              <p class="sm-text-xs sm-text-2">{{ fmscoutReport.attributes_ignored.join('、') || EMPTY }}</p>
+            </div>
+            <div>
+              <p class="sm-label">字段覆盖率</p>
+              <p class="sm-text-xs sm-text-2">
+                {{
+                  Object.entries(fmscoutReport.coverage)
+                    .map(([key, value]) => `${key} ${formatPercent(value, 0)}`)
+                    .join(' · ') || EMPTY
+                }}
+              </p>
+            </div>
+          </div>
+
+          <el-collapse v-if="fmscoutReport.ignored_fields.length > 0" class="fmscout__ignored">
+            <el-collapse-item :title="`被忽略的字段（${fmscoutReport.ignored_fields.length}）`" name="ignored">
+              <ul class="fmscout__list">
+                <li v-for="item in fmscoutReport.ignored_fields" :key="item.field">
+                  <span class="sm-mono">{{ item.field }}</span> — {{ item.reason }}
+                </li>
+              </ul>
+            </el-collapse-item>
+          </el-collapse>
+
+          <ul v-if="fmscoutReport.warnings.length > 0" class="fmscout__list">
+            <li v-for="warning in fmscoutReport.warnings" :key="warning">{{ warning }}</li>
+          </ul>
+
+          <DataTable
+            v-if="fmscoutPreviewPlayers.length > 0"
+            :columns="fmscoutPreviewColumns"
+            :rows="fmscoutPreviewPlayers"
+            row-key="save_local_uid"
+            dense
+            :show-pagination="false"
+            caption="转换后的样例球员（预览模式不写库）"
+          />
+        </template>
+      </div>
+    </SectionCard>
+
     <div class="sm-grid sm-grid--wide-left">
       <SectionCard title="导入历史" subtitle="后端保留原始报文路径，便于重新解析" flush>
         <DataTable
@@ -547,6 +762,53 @@ ScoutMind.LiveReader.exe scan --out D:\scans\scan.json</pre>
 </template>
 
 <style scoped>
+.fmscout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-3);
+}
+
+.fmscout__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sm-space-2);
+}
+
+.fmscout__uploader {
+  display: inline-flex;
+}
+
+.fmscout__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm-space-4);
+  padding: var(--sm-space-2) var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: var(--sm-surface-2);
+  font-size: var(--sm-fs-xs);
+  color: var(--sm-text-2);
+}
+
+.fmscout__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--sm-space-3);
+}
+
+.fmscout__list {
+  margin: 0;
+  padding-left: var(--sm-space-4);
+  font-size: var(--sm-fs-xs);
+  line-height: 1.65;
+  color: var(--sm-text-2);
+}
+
+.fmscout__ignored {
+  border-top: 1px solid var(--sm-border);
+  padding-top: var(--sm-space-2);
+}
 .real-data-warning {
   margin-bottom: 0;
 }

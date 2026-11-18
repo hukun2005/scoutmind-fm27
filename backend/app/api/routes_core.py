@@ -12,10 +12,12 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..ingestion.importer import ImportOutcome, ScanImporter
-from ..models import Club, DataSource, FmSave, ImportJob, PlayerInstance, PlayerSnapshot, Transfer
+from ..ingestion.protocol import ProtocolError, ScanPayload
+from ..models import Club, DataSource, FmSave, ImportJob, PlayerInstance, PlayerSnapshot, PlayerStatistic, Transfer
 from ..schemas import SaveCreate
 from ..utils import iso, utcnow
 from .deps import get_active_save, get_current_user
+from .routes_adapters import maybe_adapt
 
 router = APIRouter()
 
@@ -43,9 +45,26 @@ def bootstrap(db: Session = Depends(get_db), user=Depends(get_current_user)) -> 
         "capabilities": {
             "live_reader": any(source.source == "fm27_live_reader" for source in sources),
             "save_parser": any(source.source == "fm_save_parser" for source in sources),
-            "agent_llm": False,
+            "fmscout_adapter": True,
+            "fmscout_data": any(source.source == "fmsuperscout" for source in sources),
+            "agent_llm": bool(settings.agent_llm_enabled),
             "watchlist": True,
             "transfer_intelligence": True,
+            "squad_intelligence": True,
+            "recruitment_engine": True,
+            "player_development": True,
+            "performance_analytics": True,
+            "statistics": bool(
+                active
+                and db.scalar(
+                    select(func.count())
+                    .select_from(PlayerStatistic)
+                    .join(PlayerInstance, PlayerInstance.id == PlayerStatistic.player_instance_id)
+                    .where(PlayerInstance.fm_save_id == active.id)
+                )
+            )
+            if active
+            else False,
         },
         "warnings": warnings,
     }
@@ -144,6 +163,18 @@ async def import_scan(
     if target_save is None or target_save.user_id != user.id:
         raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
     importer = ScanImporter(db)
+    # A dropped FMSuperScout dump is converted by the adapter layer, then imported like any other scan.
+    adapted = maybe_adapt(raw)
+    if adapted is not None:
+        payload, report = adapted
+        try:
+            validated = ScanPayload.model_validate(payload)
+        except ValueError as exc:  # pydantic raises ValidationError, a ValueError subclass
+            raise ProtocolError(f"FMSuperScout 适配结果不符合扫描协议：{exc}") from exc
+        outcome = importer.import_payload(target_save.id, validated, raw)
+        body = _outcome_payload(outcome)
+        body["adapted_by"] = report
+        return body
     outcome = importer.import_bytes(target_save.id, raw)
     return _outcome_payload(outcome)
 
@@ -212,6 +243,8 @@ def _outcome_payload(outcome: ImportOutcome) -> dict[str, Any]:
         "transfers_created": outcome.transfers_created,
         "transfers_updated": outcome.transfers_updated,
         "transfers_skipped": outcome.transfers_skipped,
+        "statistics_created": outcome.statistics_created,
+        "statistics_updated": outcome.statistics_updated,
         "rows_rejected": outcome.rows_rejected,
         "warnings": outcome.warnings,
         "errors": outcome.errors,
