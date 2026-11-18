@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Wire contracts shared by the live reader, the desktop agent and (by URL) the backend.
+       Package-free by design: only in-box System.Text.Json is used. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ScoutMind.Contracts</RootNamespace>
+    <AssemblyName>ScoutMind.Contracts</AssemblyName>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "appId": "4530370",
+      "buildId": "26577676",
+      "pluginProductVersion": "27.0.1+2503222",
+      "status": "candidate",
+      "notes": "未验证的 Windows 预览候选：构建号与插件版本来自公开情报，尚未在安装 FM27 的本机上跑通 probe 与扫描。只有把 status 改为 verified 并填写 verifiedAt 之后，读取器才会进入 Compatible 状态；在此之前它会拒绝读取。",
+      "verifiedAt": null
+    },
+    {
+      "appId": "4530370",
+      "buildId": "26620374",
+      "pluginProductVersion": "27.1.0+2505117",
+      "status": "candidate",
+      "notes": "2026-11-18 在本机 Steam 库 D:\\steam 实测观测到：appmanifest_4530370.acf 的 buildid=26620374，game_plugin.dll 位于 fm_Data\\Plugins\\x86_64，ProductVersion=27.1.0+2505117。尚未配置外部扫描器，未执行 probe，因此仍为 candidate，读取器会拒绝读取。",
+      "verifiedAt": null
+    }
+  ]
+}

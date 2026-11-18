@@ -1,0 +1,468 @@
+"""SQLAlchemy models for the ScoutMind core schema.
+
+Design rules that the ingestion and analytics code rely on:
+
+* ``players`` is the relatively stable identity of a person; ``player_instances`` is that person inside one FM save.
+* ``player_snapshots`` is append-only. Re-importing the same observation never rewrites history.
+* Every save-scoped row carries ``fm_save_id`` so a future multi-user build can isolate data by user and save.
+* Money columns keep the game currency unit; ``currency`` records which currency a transfer used.
+* Missing facts stay ``NULL``. Nothing here has a server-side default that could be mistaken for observed data.
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from .utils import utcnow
+
+
+class Base(DeclarativeBase):
+    """Declarative base for every ScoutMind table."""
+
+
+class TimestampMixin:
+    """Adds the two import timestamps used across operational tables."""
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class User(TimestampMixin, Base):
+    """Local operator account. The MVP ships one implicit user but the column exists for isolation."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(128))
+
+
+class FmSave(TimestampMixin, Base):
+    """One Football Manager career save; every domain row belongs to exactly one."""
+
+    __tablename__ = "fm_saves"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    game_version: Mapped[str | None] = mapped_column(String(64))
+    game_build: Mapped[str | None] = mapped_column(String(64))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class DataSource(TimestampMixin, Base):
+    """Aggregated provenance per save and source kind, so the UI can show where records came from."""
+
+    __tablename__ = "data_sources"
+    __table_args__ = (UniqueConstraint("fm_save_id", "source", name="uq_data_source_save_kind"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    reader_version: Mapped[str | None] = mapped_column(String(32))
+    game_build: Mapped[str | None] = mapped_column(String(64))
+    record_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class ImportJob(TimestampMixin, Base):
+    """One accepted scan payload. ``scan_id`` is the idempotency key for the whole import."""
+
+    __tablename__ = "import_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    scan_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    reader_version: Mapped[str | None] = mapped_column(String(32))
+    game_build: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16), default="running", nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    player_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    transfer_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    warnings_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    coverage_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    raw_payload_path: Mapped[str | None] = mapped_column(String(512))
+    checksum: Mapped[str | None] = mapped_column(String(64))
+
+    rows: Mapped[list[ImportRow]] = relationship(back_populates="job", cascade="all, delete-orphan")
+
+
+class ImportRow(TimestampMixin, Base):
+    """A rejected or skipped row inside an import, kept for diagnostics and re-processing."""
+
+    __tablename__ = "import_rows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"), nullable=False, index=True)
+    row_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    entity: Mapped[str] = mapped_column(String(16), nullable=False)
+    code: Mapped[str] = mapped_column(String(64), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_json: Mapped[str | None] = mapped_column(Text)
+
+    job: Mapped[ImportJob] = relationship(back_populates="rows")
+
+
+class Club(TimestampMixin, Base):
+    """A club inside one save, identified by the save-local UID when the scanner provides it."""
+
+    __tablename__ = "clubs"
+    __table_args__ = (UniqueConstraint("fm_save_id", "uid", name="uq_club_save_uid"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    uid: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    nation: Mapped[str | None] = mapped_column(String(64))
+    league: Mapped[str | None] = mapped_column(String(128))
+    reputation: Mapped[int | None] = mapped_column(Integer)
+    is_user_club: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class Player(TimestampMixin, Base):
+    """Stable person identity across saves. Never carries save-specific IDs."""
+
+    __tablename__ = "players"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    full_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    normalized_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    birth_date: Mapped[date | None] = mapped_column(Date)
+    nationality: Mapped[str | None] = mapped_column(String(64))
+
+    instances: Mapped[list[PlayerInstance]] = relationship(back_populates="player")
+
+
+class PlayerInstance(TimestampMixin, Base):
+    """A player as they exist inside one save. UIDs are save-local and may be reused by the game."""
+
+    __tablename__ = "player_instances"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", "save_local_uid", "uid_occurrence", name="uq_instance_save_uid"),
+        Index("ix_instance_game_unique_id", "game_unique_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), nullable=False, index=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    save_local_uid: Mapped[str] = mapped_column(String(64), nullable=False)
+    uid_occurrence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    game_unique_id: Mapped[str | None] = mapped_column(String(64))
+    club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"), index=True)
+    position: Mapped[str | None] = mapped_column(String(16))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    player: Mapped[Player] = relationship(back_populates="instances")
+
+
+class IdentityMatch(TimestampMixin, Base):
+    """Audit trail for how an incoming record was matched to a player identity."""
+
+    __tablename__ = "identity_matches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), nullable=False, index=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    strategy: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class PlayerAttribute(TimestampMixin, Base):
+    """Attribute dictionary. Values are the FM 1-20 scale unless the source says otherwise."""
+
+    __tablename__ = "player_attributes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    name_zh: Mapped[str] = mapped_column(String(64), nullable=False)
+    category: Mapped[str] = mapped_column(String(16), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class PlayerSnapshot(TimestampMixin, Base):
+    """One observation of a player instance. Rows are appended, never updated in place."""
+
+    __tablename__ = "player_snapshots"
+    __table_args__ = (
+        UniqueConstraint("player_instance_id", "observed_at", name="uq_snapshot_instance_time"),
+        Index("ix_snapshot_instance_observed", "player_instance_id", "observed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False)
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), index=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    game_date: Mapped[date | None] = mapped_column(Date)
+    imported_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    age: Mapped[int | None] = mapped_column(Integer)
+    ca: Mapped[int | None] = mapped_column(Integer)
+    pa: Mapped[int | None] = mapped_column(Integer)
+    market_value: Mapped[int | None] = mapped_column(Integer)
+    wage: Mapped[int | None] = mapped_column(Integer)
+    contract_end: Mapped[date | None] = mapped_column(Date)
+    club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"))
+    position: Mapped[str | None] = mapped_column(String(16))
+    minutes_played: Mapped[int | None] = mapped_column(Integer)
+    appearances: Mapped[int | None] = mapped_column(Integer)
+    goals: Mapped[int | None] = mapped_column(Integer)
+    assists: Mapped[int | None] = mapped_column(Integer)
+    data_completeness: Mapped[float | None] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    reader_version: Mapped[str | None] = mapped_column(String(32))
+    game_build: Mapped[str | None] = mapped_column(String(64))
+
+    values: Mapped[list[PlayerAttributeValue]] = relationship(
+        back_populates="snapshot", cascade="all, delete-orphan"
+    )
+
+
+class PlayerAttributeValue(TimestampMixin, Base):
+    """A single attribute reading attached to one snapshot."""
+
+    __tablename__ = "player_attribute_values"
+    __table_args__ = (UniqueConstraint("player_snapshot_id", "attribute_id", name="uq_value_snapshot_attr"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    player_snapshot_id: Mapped[int] = mapped_column(ForeignKey("player_snapshots.id"), nullable=False, index=True)
+    attribute_id: Mapped[int] = mapped_column(ForeignKey("player_attributes.id"), nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+
+    snapshot: Mapped[PlayerSnapshot] = relationship(back_populates="values")
+    attribute: Mapped[PlayerAttribute] = relationship()
+
+
+class Transfer(TimestampMixin, Base):
+    """A historical transfer record. Only ``status='completed'`` rows enter price statistics."""
+
+    __tablename__ = "transfer_history"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", "source_record_id", name="uq_transfer_save_record"),
+        Index("ix_transfer_save_date", "fm_save_id", "transfer_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False)
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), index=True)
+    source_record_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    player_instance_id: Mapped[int | None] = mapped_column(ForeignKey("player_instances.id"), index=True)
+    player_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    from_club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"), index=True)
+    to_club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"), index=True)
+    from_club_name: Mapped[str | None] = mapped_column(String(128))
+    to_club_name: Mapped[str | None] = mapped_column(String(128))
+    transfer_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    transfer_date: Mapped[date] = mapped_column(Date, nullable=False)
+    season: Mapped[str | None] = mapped_column(String(16))
+    currency: Mapped[str] = mapped_column(String(8), default="EUR", nullable=False)
+    base_fee: Mapped[float | None] = mapped_column(Float)
+    fee_paid: Mapped[float | None] = mapped_column(Float)
+    addons_potential: Mapped[float | None] = mapped_column(Float)
+    effective_fee: Mapped[float | None] = mapped_column(Float)
+    player_age_at_transfer: Mapped[int | None] = mapped_column(Integer)
+    player_ca_at_transfer: Mapped[int | None] = mapped_column(Integer)
+    player_pa_at_transfer: Mapped[int | None] = mapped_column(Integer)
+    contract_remaining_months: Mapped[int | None] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float | None] = mapped_column(Float)
+
+    components: Mapped[list[TransferFeeComponent]] = relationship(
+        back_populates="transfer", cascade="all, delete-orphan"
+    )
+
+
+class TransferFeeComponent(TimestampMixin, Base):
+    """A fee component such as an installment, add-on or sell-on clause."""
+
+    __tablename__ = "transfer_fee_components"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    transfer_id: Mapped[int] = mapped_column(ForeignKey("transfer_history.id"), nullable=False, index=True)
+    component_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    amount: Mapped[float | None] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    due_date: Mapped[date | None] = mapped_column(Date)
+    condition: Mapped[str | None] = mapped_column(String(256))
+
+    transfer: Mapped[Transfer] = relationship(back_populates="components")
+
+
+class Watchlist(TimestampMixin, Base):
+    """A named watchlist; the default one is created lazily per save."""
+
+    __tablename__ = "watchlists"
+    __table_args__ = (UniqueConstraint("user_id", "fm_save_id", "name", name="uq_watchlist_scope"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(64), default="默认关注", nullable=False)
+
+
+class WatchlistItem(TimestampMixin, Base):
+    """A followed player instance, optionally tagged for a development workflow."""
+
+    __tablename__ = "watchlist_items"
+    __table_args__ = (UniqueConstraint("watchlist_id", "player_instance_id", name="uq_watchlist_instance"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    watchlist_id: Mapped[int] = mapped_column(ForeignKey("watchlists.id"), nullable=False, index=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    tag: Mapped[str | None] = mapped_column(String(32))
+    note: Mapped[str | None] = mapped_column(String(512))
+    source: Mapped[str] = mapped_column(String(16), default="manual", nullable=False)
+
+
+class WatchRule(TimestampMixin, Base):
+    """Automatic watchlist rule, e.g. "under 21 with PA above 150"."""
+
+    __tablename__ = "watch_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    watchlist_id: Mapped[int] = mapped_column(ForeignKey("watchlists.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    rule_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    conditions_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class Alert(TimestampMixin, Base):
+    """A generated, user-facing notification tied to one save and player."""
+
+    __tablename__ = "alerts"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", "player_instance_id", "alert_type", "title", name="uq_alert_identity"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    player_instance_id: Mapped[int | None] = mapped_column(ForeignKey("player_instances.id"), index=True)
+    alert_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    severity: Mapped[str] = mapped_column(String(8), default="info", nullable=False)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class PlayerValuation(TimestampMixin, Base):
+    """A stored valuation result so a past answer can be reproduced and audited."""
+
+    __tablename__ = "player_valuations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    as_of: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    method: Mapped[str] = mapped_column(String(48), nullable=False)
+    algorithm_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    low: Mapped[float | None] = mapped_column(Float)
+    mid: Mapped[float | None] = mapped_column(Float)
+    high: Mapped[float | None] = mapped_column(Float)
+    sample_size: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    confidence: Mapped[str] = mapped_column(String(16), default="low", nullable=False)
+    insufficient_sample: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class ScoreTemplateVersion(TimestampMixin, Base):
+    """A versioned role template. Scores are only comparable inside one template version."""
+
+    __tablename__ = "score_template_versions"
+    __table_args__ = (UniqueConstraint("key", "version", name="uq_template_key_version"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    position_group: Mapped[str] = mapped_column(String(8), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    weights_json: Mapped[str] = mapped_column(Text, nullable=False)
+    algorithm_version: Mapped[str] = mapped_column(String(32), default="role-score-1", nullable=False)
+
+
+class PlayerScore(TimestampMixin, Base):
+    """A computed role score with its component breakdown, kept for explainability."""
+
+    __tablename__ = "player_scores"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    role_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    template_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    coverage: Mapped[float] = mapped_column(Float, nullable=False)
+    components_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+
+
+class ReaderCompatibility(TimestampMixin, Base):
+    """Known-good FM27 build / plugin combinations for the external reader."""
+
+    __tablename__ = "reader_compatibility"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    app_id: Mapped[str | None] = mapped_column(String(32))
+    build_id: Mapped[str | None] = mapped_column(String(32))
+    plugin_version: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(512))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class AlgorithmVersion(TimestampMixin, Base):
+    """Registered algorithm identifiers so reports can name the exact computation used."""
+
+    __tablename__ = "algorithm_versions"
+    __table_args__ = (UniqueConstraint("key", "version", name="uq_algorithm_key_version"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(48), nullable=False)
+    version: Mapped[str] = mapped_column(String(16), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(512))
+
+
+class AgentConversation(TimestampMixin, Base):
+    """A decision-support conversation scoped to one save."""
+
+    __tablename__ = "agent_conversations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(128), default="新的分析", nullable=False)
+
+    messages: Mapped[list[AgentMessage]] = relationship(
+        back_populates="conversation", cascade="all, delete-orphan"
+    )
+
+
+class AgentMessage(TimestampMixin, Base):
+    """One user question or assistant answer, including the tool calls behind it."""
+
+    __tablename__ = "agent_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("agent_conversations.id"), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    answer_json: Mapped[str | None] = mapped_column(Text)
+    tool_calls_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+
+    conversation: Mapped[AgentConversation] = relationship(back_populates="messages")

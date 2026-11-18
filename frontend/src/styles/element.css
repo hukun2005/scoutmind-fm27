@@ -1,0 +1,164 @@
+/* Element Plus overrides: denser tables, restrained borders, tabular numbers. */
+
+.el-card {
+  border-color: var(--sm-border);
+  border-radius: var(--sm-radius-lg);
+  box-shadow: var(--sm-shadow-1);
+}
+
+.el-card__header {
+  padding: var(--sm-space-3) var(--sm-space-4);
+  border-bottom-color: var(--sm-border);
+}
+
+.el-card__body {
+  padding: var(--sm-space-4);
+}
+
+.el-button {
+  font-weight: var(--sm-fw-medium);
+}
+
+.el-button--small {
+  font-size: var(--sm-fs-xs);
+}
+
+.el-tag {
+  --el-tag-font-size: var(--sm-fs-2xs);
+  border-radius: var(--sm-radius-sm);
+}
+
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner {
+  box-shadow: 0 0 0 1px var(--sm-border) inset;
+}
+
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--sm-accent) inset;
+}
+
+.el-form-item {
+  margin-bottom: 0;
+}
+
+.el-form-item__label {
+  font-size: var(--sm-fs-xs);
+  color: var(--sm-text-2);
+  padding-right: var(--sm-space-2);
+}
+
+/* ---------- Tables ---------- */
+
+.sm-table {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sm-table__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sm-space-2);
+  flex-wrap: wrap;
+  padding-bottom: var(--sm-space-3);
+}
+
+.sm-table__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--sm-space-3);
+  padding-top: var(--sm-space-3);
+  border-top: 1px solid var(--sm-border);
+  margin-top: var(--sm-space-3);
+}
+
+.sm-table .el-table {
+  --el-table-border-color: var(--sm-border);
+  --el-table-header-bg-color: var(--sm-surface-2);
+  --el-table-row-hover-bg-color: var(--sm-accent-weak);
+  --el-table-text-color: var(--sm-text);
+  --el-table-header-text-color: var(--sm-text-2);
+  font-size: var(--sm-fs-sm);
+}
+
+.sm-table .el-table th.el-table__cell {
+  padding: 6px 0;
+  font-size: var(--sm-fs-xs);
+  font-weight: var(--sm-fw-semibold);
+  letter-spacing: 0.02em;
+}
+
+.sm-table .el-table td.el-table__cell {
+  padding: 7px 0;
+}
+
+.sm-table--dense .el-table td.el-table__cell {
+  padding: 4px 0;
+}
+
+.sm-table .el-table .cell {
+  padding: 0 var(--sm-space-3);
+  line-height: 1.45;
+}
+
+.sm-table .el-table__row {
+  cursor: default;
+}
+
+.sm-table--clickable .el-table__row {
+  cursor: pointer;
+}
+
+.sm-table .el-table__row:focus-visible {
+  outline: 2px solid var(--sm-accent);
+  outline-offset: -2px;
+}
+
+.sm-table .el-table__expanded-cell {
+  background: var(--sm-surface-2);
+  padding: var(--sm-space-3) var(--sm-space-4);
+}
+
+.sm-table .el-table__empty-text {
+  width: 100%;
+}
+
+.sm-table .el-table__inner-wrapper::before {
+  background-color: var(--sm-border);
+}
+
+/* Right-aligned numeric columns keep the cell content flush to the edge. */
+.sm-table .is-right .cell {
+  padding-right: var(--sm-space-4);
+}
+
+/* ---------- Detail / misc ---------- */
+
+.el-descriptions__label {
+  color: var(--sm-text-3);
+  font-weight: var(--sm-fw-medium);
+}
+
+.el-collapse-item__header {
+  font-weight: var(--sm-fw-medium);
+  color: var(--sm-text-2);
+}
+
+.el-tabs__item {
+  font-size: var(--sm-fs-sm);
+}
+
+.el-alert {
+  border-radius: var(--sm-radius-md);
+}
+
+.el-dialog {
+  border-radius: var(--sm-radius-lg);
+}
+
+.el-popper.is-light {
+  border-color: var(--sm-border);
+}

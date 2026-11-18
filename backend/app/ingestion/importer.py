@@ -1,0 +1,541 @@
+"""Import one scan payload into the database.
+
+Guarantees that the API and tests rely on:
+
+* ``scan_id`` is an idempotency key; a successful import is never applied twice.
+* One scan is applied atomically. A crash leaves a ``failed`` job and no partial rows.
+* Snapshots are append-only: an existing ``(instance, observed_at)`` row is never overwritten.
+* Every rejected row is recorded with a stable code and message.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
+
+from ..analytics.fees import compute_effective_fee
+from ..config import settings as default_settings
+from ..models import (
+    Club,
+    DataSource,
+    ImportJob,
+    ImportRow,
+    PlayerAttributeValue,
+    PlayerInstance,
+    PlayerSnapshot,
+    Transfer,
+    TransferFeeComponent,
+)
+from ..utils import iso, payload_checksum, utcnow
+from .attributes import ATTRIBUTE_KEYS, ensure_attributes, position_group
+from .identity import resolve_player_instance
+from .protocol import (
+    FeeComponentRecord,
+    PlayerRecord,
+    RowValidationError,
+    ScanPayload,
+    TransferRecord,
+    parse_payload,
+    validate_club_row,
+    validate_player_row,
+    validate_transfer_row,
+)
+
+EXPECTED_PLAYER_FIELDS = ("ca", "pa", "market_value", "wage", "contract_end", "position", "club_uid")
+EXPECTED_TRANSFER_FIELDS = ("effective_fee", "transfer_date", "player_ca_at_transfer", "contract_remaining_months")
+
+
+@dataclass
+class ImportOutcome:
+    """Counts and warnings produced by one import request."""
+
+    job_id: int
+    save_id: int
+    scan_id: str
+    status: str
+    duplicate: bool = False
+    players_created: int = 0
+    players_updated: int = 0
+    instances_matched: int = 0
+    snapshots_created: int = 0
+    snapshots_skipped: int = 0
+    transfers_created: int = 0
+    transfers_updated: int = 0
+    transfers_skipped: int = 0
+    rows_rejected: int = 0
+    warnings: list[str] = field(default_factory=list)
+    errors: list[dict[str, object]] = field(default_factory=list)
+    coverage: dict[str, float] = field(default_factory=dict)
+
+
+class ScanImporter:
+    """Applies a validated scan payload for one save."""
+
+    def __init__(self, session: Session, raw_dir: Path | None = None) -> None:
+        self.session = session
+        self.raw_dir = raw_dir or default_settings.raw_import_dir
+
+    # -- public API ---------------------------------------------------------------------------------------------
+
+    def import_bytes(self, save_id: int, raw: bytes) -> ImportOutcome:
+        """Parse and import a raw payload (JSON or NDJSON)."""
+        payload, structural_warnings = parse_payload(raw)
+        payload.warnings.extend(structural_warnings)
+        return self.import_payload(save_id, payload, raw)
+
+    def import_payload(self, save_id: int, payload: ScanPayload, raw: bytes | None = None) -> ImportOutcome:
+        """Import an already parsed payload; the caller owns the ``save_id`` existence check."""
+        existing = self.session.scalar(select(ImportJob).where(ImportJob.scan_id == payload.scan.scan_id))
+        if existing is not None and existing.status in {"succeeded", "partial"}:
+            return ImportOutcome(
+                job_id=existing.id,
+                save_id=existing.fm_save_id,
+                scan_id=existing.scan_id,
+                status=existing.status,
+                duplicate=True,
+                players_created=existing.player_count,
+                snapshots_created=0,
+                transfers_created=existing.transfer_count,
+                warnings=_load_json(existing.warnings_json, []),
+                coverage=_load_json(existing.coverage_json, {}),
+            )
+
+        job = self._begin_job(save_id, payload, existing, raw)
+        try:
+            outcome = self._apply(job, payload)
+        except Exception as exc:  # keep the failure visible and leave no partial rows behind
+            self.session.rollback()
+            self._mark_failed(job.id, str(exc))
+            raise
+        self.session.commit()
+        return outcome
+
+    # -- job lifecycle ------------------------------------------------------------------------------------------
+
+    def _begin_job(
+        self, save_id: int, payload: ScanPayload, existing: ImportJob | None, raw: bytes | None
+    ) -> ImportJob:
+        if existing is not None:
+            self.session.execute(delete(ImportRow).where(ImportRow.import_job_id == existing.id))
+            job = existing
+            job.status = "running"
+            job.finished_at = None
+            job.fm_save_id = save_id
+            job.warnings_json = "[]"
+            job.coverage_json = "{}"
+            job.player_count = 0
+            job.transfer_count = 0
+            job.received_at = utcnow()
+        else:
+            job = ImportJob(
+                fm_save_id=save_id,
+                scan_id=payload.scan.scan_id,
+                source=payload.source,
+                schema_version=payload.schema_version,
+                reader_version=payload.reader_version,
+                game_build=payload.game.build,
+                status="running",
+                received_at=utcnow(),
+            )
+            self.session.add(job)
+        if raw is not None:
+            target_dir = self.raw_dir / str(save_id)
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target = target_dir / f"{payload.scan.scan_id}.json"
+            target.write_bytes(raw)
+            job.raw_payload_path = str(target)
+            job.checksum = payload_checksum(raw)
+        self.session.commit()
+        return job
+
+    def _mark_failed(self, job_id: int, message: str) -> None:
+        job = self.session.get(ImportJob, job_id)
+        if job is None:
+            return
+        job.status = "failed"
+        job.finished_at = utcnow()
+        job.warnings_json = json.dumps([f"导入失败：{message}"], ensure_ascii=False)
+        self.session.commit()
+
+    # -- main pass ----------------------------------------------------------------------------------------------
+
+    def _apply(self, job: ImportJob, payload: ScanPayload) -> ImportOutcome:
+        outcome = ImportOutcome(
+            job_id=job.id,
+            save_id=job.fm_save_id,
+            scan_id=payload.scan.scan_id,
+            status="succeeded",
+        )
+        outcome.warnings.extend(payload.warnings)
+        attribute_ids = ensure_attributes(self.session)
+        clubs = self._upsert_clubs(job.fm_save_id, payload, outcome)
+        instance_by_record = self._upsert_players(job, payload, clubs, attribute_ids, outcome)
+        self._upsert_transfers(job, payload, clubs, instance_by_record, outcome)
+        outcome.coverage = self._coverage(payload, outcome)
+        outcome.status = "failed" if outcome.rows_rejected and not outcome.snapshots_created else (
+            "partial" if outcome.rows_rejected else "succeeded"
+        )
+        self._touch_source(job, payload, outcome)
+        job.status = outcome.status
+        job.finished_at = utcnow()
+        job.player_count = outcome.snapshots_created
+        job.transfer_count = outcome.transfers_created
+        job.warnings_json = json.dumps(outcome.warnings, ensure_ascii=False)
+        job.coverage_json = json.dumps(outcome.coverage, ensure_ascii=False)
+        label = f"扫描 {payload.scan.scan_id}"
+        self.session.add(
+            ImportRow(
+                import_job_id=job.id,
+                row_index=0,
+                entity="scan",
+                code="summary",
+                message=f"{label} 导入 {outcome.snapshots_created} 名球员快照、{outcome.transfers_created} 笔交易",
+            )
+        )
+        return outcome
+
+    def _upsert_clubs(
+        self, save_id: int, payload: ScanPayload, outcome: ImportOutcome
+    ) -> dict[str, Club]:
+        cache: dict[str, Club] = {}
+        existing = {
+            club.uid: club for club in self.session.scalars(select(Club).where(Club.fm_save_id == save_id))
+        }
+        for raw in payload.clubs:
+            try:
+                record = validate_club_row(raw)
+            except RowValidationError as exc:
+                outcome.rows_rejected += 1
+                outcome.errors.append({"entity": "club", "code": exc.code, "message": exc.message})
+                continue
+            club = existing.get(record.uid)
+            if club is None:
+                club = Club(fm_save_id=save_id, uid=record.uid, name=record.name)
+                self.session.add(club)
+                existing[record.uid] = club
+            club.name = record.name
+            club.nation = record.nation or club.nation
+            club.league = record.league or club.league
+            club.reputation = record.reputation if record.reputation is not None else club.reputation
+            club.is_user_club = club.is_user_club or record.is_user_club
+            cache[record.uid] = club
+        self.session.flush()
+        return cache
+
+    def _club_for(
+        self, save_id: int, uid: str | None, name: str | None, cache: dict[str, Club], is_user: bool = False
+    ) -> Club | None:
+        if uid and uid in cache:
+            return cache[uid]
+        if not uid and not name:
+            return None
+        if uid:
+            club = self.session.scalar(select(Club).where(Club.fm_save_id == save_id, Club.uid == uid))
+        else:
+            club = self.session.scalar(select(Club).where(Club.fm_save_id == save_id, Club.name == name))
+        if club is None:
+            club = Club(
+                fm_save_id=save_id,
+                uid=uid or f"name:{name}",
+                name=name or uid or "未知俱乐部",
+                is_user_club=is_user,
+            )
+            self.session.add(club)
+            self.session.flush()
+        if uid:
+            cache[uid] = club
+        return club
+
+    def _upsert_players(
+        self,
+        job: ImportJob,
+        payload: ScanPayload,
+        clubs: dict[str, Club],
+        attribute_ids: dict[str, int],
+        outcome: ImportOutcome,
+    ) -> dict[str, int]:
+        instance_by_record: dict[str, int] = {}
+        observed_at = payload.scan.observed_at
+        for index, raw in enumerate(payload.players, start=1):
+            try:
+                record = validate_player_row(raw)
+            except RowValidationError as exc:
+                self._reject(job, index, "player", exc, outcome, raw)
+                continue
+            resolved = resolve_player_instance(self.session, job.fm_save_id, record, outcome.warnings)
+            instance = resolved.instance
+            if resolved.created_player:
+                outcome.players_created += 1
+            elif resolved.created_instance:
+                outcome.instances_matched += 1
+            else:
+                outcome.players_updated += 1
+            club = self._club_for(job.fm_save_id, record.club_uid, None, clubs)
+            if club is not None:
+                instance.club_id = club.id
+            self._create_snapshot(job, payload, record, instance, club, attribute_ids, outcome)
+            if record.record_id:
+                instance_by_record[record.record_id] = instance.id
+            instance_by_record[record.save_local_uid] = instance.id
+            if observed_at > (instance.last_seen_at or datetime.min):
+                instance.last_seen_at = observed_at
+        self.session.flush()
+        return instance_by_record
+
+    def _create_snapshot(
+        self,
+        job: ImportJob,
+        payload: ScanPayload,
+        record: PlayerRecord,
+        instance: PlayerInstance,
+        club: Club | None,
+        attribute_ids: dict[str, int],
+        outcome: ImportOutcome,
+    ) -> None:
+        observed_at = payload.scan.observed_at
+        exists = self.session.scalar(
+            select(PlayerSnapshot.id).where(
+                PlayerSnapshot.player_instance_id == instance.id,
+                PlayerSnapshot.observed_at == observed_at,
+            )
+        )
+        if exists is not None:
+            outcome.snapshots_skipped += 1
+            return
+        known = {key: value for key, value in record.attributes.items() if key in ATTRIBUTE_KEYS}
+        unknown = sorted(set(record.attributes) - ATTRIBUTE_KEYS)
+        if unknown:
+            outcome.warnings.append(f"球员 {record.name} 含未知属性 {', '.join(unknown)}，已忽略")
+        completeness = _completeness(record)
+        snapshot = PlayerSnapshot(
+            player_instance_id=instance.id,
+            import_job_id=job.id,
+            observed_at=observed_at,
+            game_date=payload.scan.game_date,
+            imported_at=utcnow(),
+            age=_age(record, payload.scan.game_date),
+            ca=record.ca,
+            pa=record.pa,
+            market_value=record.market_value,
+            wage=record.wage,
+            contract_end=record.contract_end,
+            club_id=club.id if club is not None else None,
+            position=record.position,
+            minutes_played=record.minutes_played,
+            appearances=record.appearances,
+            goals=record.goals,
+            assists=record.assists,
+            data_completeness=completeness,
+            source=payload.source,
+            reader_version=payload.reader_version,
+            game_build=payload.game.build,
+        )
+        self.session.add(snapshot)
+        self.session.flush()
+        for key, value in known.items():
+            self.session.add(
+                PlayerAttributeValue(
+                    player_snapshot_id=snapshot.id,
+                    attribute_id=attribute_ids[key],
+                    value=float(value),
+                )
+            )
+        outcome.snapshots_created += 1
+
+    def _upsert_transfers(
+        self,
+        job: ImportJob,
+        payload: ScanPayload,
+        clubs: dict[str, Club],
+        instance_by_record: dict[str, int],
+        outcome: ImportOutcome,
+    ) -> None:
+        for index, raw in enumerate(payload.transfers, start=1):
+            try:
+                record = validate_transfer_row(raw)
+            except RowValidationError as exc:
+                self._reject(job, index, "transfer", exc, outcome, raw)
+                continue
+            existing = self.session.scalar(
+                select(Transfer).where(
+                    Transfer.fm_save_id == job.fm_save_id,
+                    Transfer.source_record_id == record.record_id,
+                )
+            )
+            effective_fee = _effective_fee(record)
+            if existing is not None:
+                if existing.status in {"pending", "future", "unknown"} and record.status != existing.status:
+                    existing.status = record.status
+                    existing.effective_fee = effective_fee
+                    existing.fee_paid = record.fee_paid
+                    outcome.transfers_updated += 1
+                else:
+                    outcome.transfers_skipped += 1
+                continue
+            from_club = self._club_for(job.fm_save_id, record.from_club_uid, record.from_club_name, clubs)
+            to_club = self._club_for(job.fm_save_id, record.to_club_uid, record.to_club_name, clubs)
+            instance_id = None
+            if record.player_record_id:
+                instance_id = instance_by_record.get(record.player_record_id)
+                if instance_id is None:
+                    instance = self.session.scalar(
+                        select(PlayerInstance).where(
+                            PlayerInstance.fm_save_id == job.fm_save_id,
+                            PlayerInstance.save_local_uid == record.player_record_id,
+                        )
+                    )
+                    instance_id = instance.id if instance is not None else None
+            transfer = Transfer(
+                fm_save_id=job.fm_save_id,
+                import_job_id=job.id,
+                source_record_id=record.record_id,
+                player_instance_id=instance_id,
+                player_name=record.player_name,
+                from_club_id=from_club.id if from_club is not None else None,
+                to_club_id=to_club.id if to_club is not None else None,
+                from_club_name=record.from_club_name or (from_club.name if from_club else None),
+                to_club_name=record.to_club_name or (to_club.name if to_club else None),
+                transfer_type=record.transfer_type,
+                status=record.status,
+                transfer_date=record.transfer_date,
+                season=record.season,
+                currency=record.currency or "EUR",
+                base_fee=record.base_fee,
+                fee_paid=record.fee_paid,
+                addons_potential=record.addons_potential,
+                effective_fee=effective_fee,
+                player_age_at_transfer=record.player_age_at_transfer,
+                player_ca_at_transfer=record.player_ca_at_transfer,
+                player_pa_at_transfer=record.player_pa_at_transfer,
+                contract_remaining_months=record.contract_remaining_months,
+                source=payload.source,
+                confidence=record.confidence,
+            )
+            self.session.add(transfer)
+            self.session.flush()
+            for component in record.fee_components:
+                self.session.add(
+                    TransferFeeComponent(
+                        transfer_id=transfer.id,
+                        component_type=component.type,
+                        amount=component.amount,
+                        status=component.status,
+                        due_date=component.due_date,
+                        condition=component.condition,
+                    )
+                )
+            outcome.transfers_created += 1
+        self.session.flush()
+
+    def _reject(
+        self,
+        job: ImportJob,
+        index: int,
+        entity: str,
+        exc: RowValidationError,
+        outcome: ImportOutcome,
+        raw: dict[str, object],
+    ) -> None:
+        outcome.rows_rejected += 1
+        outcome.errors.append({"entity": entity, "code": exc.code, "message": exc.message})
+        outcome.warnings.append(f"{entity} 第 {index} 行被拒绝：{exc.message}")
+        self.session.add(
+            ImportRow(
+                import_job_id=job.id,
+                row_index=index,
+                entity=entity,
+                code=exc.code,
+                message=exc.message,
+                payload_json=json.dumps(raw, ensure_ascii=False, default=str)[:4000],
+            )
+        )
+
+    def _coverage(self, payload: ScanPayload, outcome: ImportOutcome) -> dict[str, float]:
+        players = payload.players
+        transfers = payload.transfers
+        attribution = {
+            "players": len(players),
+            "transfers": len(transfers),
+            "player_fields": _field_ratio(
+                players,
+                ("ca", "pa", "market_value", "wage", "contract_end", "position"),
+            ),
+            "transfer_fields": _field_ratio(
+                transfers,
+                ("base_fee", "fee_paid", "player_ca_at_transfer", "contract_remaining_months"),
+            ),
+        }
+        return {key: round(value, 4) for key, value in attribution.items()}
+
+    def _touch_source(self, job: ImportJob, payload: ScanPayload, outcome: ImportOutcome) -> None:
+        source = self.session.scalar(
+            select(DataSource).where(
+                DataSource.fm_save_id == job.fm_save_id,
+                DataSource.source == payload.source,
+            )
+        )
+        if source is None:
+            source = DataSource(fm_save_id=job.fm_save_id, source=payload.source)
+            self.session.add(source)
+        source.reader_version = payload.reader_version or source.reader_version
+        source.game_build = payload.game.build or source.game_build
+        source.record_count = (source.record_count or 0) + len(payload.players)
+        source.first_seen_at = source.first_seen_at or utcnow()
+        source.last_seen_at = utcnow()
+
+
+def _load_json(text: str, fallback: object) -> object:
+    try:
+        return json.loads(text)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _effective_fee(record: TransferRecord | FeeComponentRecord) -> float | None:
+    components = getattr(record, "fee_components", [])
+    return compute_effective_fee(
+        record.base_fee if hasattr(record, "base_fee") else None,
+        record.fee_paid if hasattr(record, "fee_paid") else None,
+        record.addons_potential if hasattr(record, "addons_potential") else None,
+        components,  # type: ignore[arg-type]
+    )
+
+
+def _field_ratio(rows: list[dict[str, object]], fields: tuple[str, ...]) -> float:
+    if not rows:
+        return 0.0
+    present = 0
+    total = 0
+    for row in rows:
+        for name in fields:
+            value = row.get(name)
+            total += 1
+            if value is not None and value != "":
+                present += 1
+    return present / total if total else 0.0
+
+
+def _completeness(record: PlayerRecord) -> float:
+    present = sum(1 for name in EXPECTED_PLAYER_FIELDS if getattr(record, name, None) is not None)
+    return round(present / len(EXPECTED_PLAYER_FIELDS), 4)
+
+
+def _age(record: PlayerRecord, game_date: object) -> int | None:
+    if record.birth_date is None:
+        return None
+    reference = game_date if hasattr(game_date, "year") else utcnow().date()
+    years = reference.year - record.birth_date.year
+    if (reference.month, reference.day) < (record.birth_date.month, record.birth_date.day):
+        years -= 1
+    return max(years, 0)
+
+
+def describe_payload(payload: ScanPayload) -> str:
+    """Short human-readable description used in logs and job summaries."""
+    return f"{payload.source} scan {payload.scan.scan_id} at {iso(payload.scan.observed_at)} ({len(payload.players)} players)"
+

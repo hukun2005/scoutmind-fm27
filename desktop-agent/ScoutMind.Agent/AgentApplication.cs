@@ -1,0 +1,488 @@
+using System.Globalization;
+using System.Text.Json;
+using ScoutMind.Contracts;
+
+namespace ScoutMind.Agent;
+
+/// <summary>
+/// 代理命令实现。代理从不直接读取游戏内存，也从不编造扫描结果：
+/// 它调用读取器、透传退出码，并负责把读取器写出的 JSON 投递到后端。
+/// </summary>
+public sealed class AgentApplication
+{
+    private const int ReaderScanFailed = 5;
+
+    private readonly TextWriter _stdout;
+    private readonly TextWriter _stderr;
+    private readonly string _baseDirectory;
+    private readonly TimeSpan _statusTimeout = TimeSpan.FromSeconds(120);
+    private readonly TimeSpan _syncTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>创建代理应用。</summary>
+    /// <param name="stdout">标准输出。</param>
+    /// <param name="stderr">标准错误。</param>
+    /// <param name="baseDirectory">代理可执行文件所在目录，用于定位配置与读取器。</param>
+    public AgentApplication(TextWriter stdout, TextWriter stderr, string baseDirectory)
+    {
+        _stdout = stdout ?? throw new ArgumentNullException(nameof(stdout));
+        _stderr = stderr ?? throw new ArgumentNullException(nameof(stderr));
+        _baseDirectory = baseDirectory;
+    }
+
+    /// <summary>执行命令行。</summary>
+    /// <param name="args">进程参数（不含程序名）。</param>
+    /// <param name="cancellationToken">取消令牌（Ctrl+C）。</param>
+    /// <returns>进程退出码。</returns>
+    public async Task<int> RunAsync(string[] args, CancellationToken cancellationToken)
+    {
+        var parsed = AgentCommandLine.Parse(args);
+        if (!parsed.Ok)
+        {
+            WriteUsageError(parsed.Error!);
+            return AgentExitCodes.UsageError;
+        }
+
+        var options = parsed.Options!;
+        switch (options.Command)
+        {
+            case AgentCommand.Help:
+                WriteUsage(_stdout);
+                return AgentExitCodes.Success;
+
+            case AgentCommand.Status:
+                return await RunStatusAsync(options, cancellationToken).ConfigureAwait(false);
+
+            case AgentCommand.Scan:
+                return await RunScanAsync(options, cancellationToken).ConfigureAwait(false);
+
+            case AgentCommand.Watch:
+                return await RunWatchAsync(options, cancellationToken).ConfigureAwait(false);
+
+            case AgentCommand.Sync:
+                return await RunSyncAsync(options, cancellationToken).ConfigureAwait(false);
+
+            case AgentCommand.ConfigShow:
+                return RunConfigShow();
+
+            default:
+                WriteUsageError("未知子命令。");
+                return AgentExitCodes.UsageError;
+        }
+    }
+
+    private async Task<int> RunStatusAsync(AgentOptions options, CancellationToken cancellationToken)
+    {
+        var configuration = LoadConfiguration();
+        if (configuration.ReaderPath.Length == 0)
+        {
+            return ReportMissingReader(configuration);
+        }
+
+        var runner = new ReaderRunner(configuration.ReaderPath, _statusTimeout);
+        var invocation = await runner.RunAsync(new[] { "status", "--json" }, cancellationToken).ConfigureAwait(false);
+
+        var failure = MapReaderTransportFailure(invocation);
+        if (failure is not null)
+        {
+            _stderr.WriteLine(failure.Value.Message);
+            return failure.Value.ExitCode;
+        }
+
+        var status = TryDeserialize<ReaderStatus>(invocation.Stdout);
+        if (status is null)
+        {
+            _stderr.WriteLine("读取器返回的 status 不是可解析的 JSON。");
+            WriteReaderStderr(invocation);
+            return invocation.ExitCode == 0 ? ReaderScanFailed : invocation.ExitCode;
+        }
+
+        if (options.Json)
+        {
+            _stdout.WriteLine(JsonSerializer.Serialize(status, ScoutMindJson.Options));
+        }
+        else
+        {
+            WriteStatusHuman(status);
+        }
+
+        return invocation.ExitCode;
+    }
+
+    private async Task<int> RunScanAsync(AgentOptions options, CancellationToken cancellationToken)
+    {
+        var configuration = LoadConfiguration();
+        if (configuration.ReaderPath.Length == 0)
+        {
+            return ReportMissingReader(configuration);
+        }
+
+        var queue = new ScanQueue(configuration.QueueDirectory);
+        queue.EnsureCreated();
+
+        var readerTimeout = TimeSpan.FromSeconds(Math.Max(180, configuration.Config.TimeoutSeconds + 120));
+        var runner = new ReaderRunner(configuration.ReaderPath, readerTimeout);
+        var invocation = await runner
+            .RunAsync(new[] { "scan", "--output", queue.ScanDirectory, "--json" }, cancellationToken)
+            .ConfigureAwait(false);
+
+        var failure = MapReaderTransportFailure(invocation);
+        if (failure is not null)
+        {
+            _stderr.WriteLine(failure.Value.Message);
+            return failure.Value.ExitCode;
+        }
+
+        var result = TryDeserialize<ScanResult>(invocation.Stdout);
+        if (result is null)
+        {
+            _stderr.WriteLine("读取器返回的 scan 结果不是可解析的 JSON。");
+            WriteReaderStderr(invocation);
+            return invocation.ExitCode == 0 ? ReaderScanFailed : invocation.ExitCode;
+        }
+
+        if (result.State != ReaderState.ScanCompleted)
+        {
+            _stderr.WriteLine($"读取器未完成扫描：{result.State}。{result.FailureReason}");
+            WriteReaderStderr(invocation);
+            return invocation.ExitCode == 0 ? ReaderScanFailed : invocation.ExitCode;
+        }
+
+        if (options.Json)
+        {
+            _stdout.WriteLine(JsonSerializer.Serialize(result, ScoutMindJson.Options));
+        }
+        else
+        {
+            WriteScanResultHuman(result);
+        }
+
+        if (!options.Sync)
+        {
+            if (result.OutputFile is not null)
+            {
+                _stdout.WriteLine("未请求同步；可用 `ScoutMind.Agent sync` 或 `sync --file <路径>` 上传。");
+            }
+
+            return AgentExitCodes.Success;
+        }
+
+        if (result.OutputFile is null)
+        {
+            _stderr.WriteLine("读取器未给出扫描输出文件路径，无法同步。");
+            return ReaderScanFailed;
+        }
+
+        var synced = await SyncOneAsync(result.OutputFile, configuration, queue, cancellationToken).ConfigureAwait(false);
+        return synced ? AgentExitCodes.Success : AgentExitCodes.SyncFailed;
+    }
+
+    private async Task<int> RunWatchAsync(AgentOptions options, CancellationToken cancellationToken)
+    {
+        var minutes = options.IntervalMinutes ?? 0;
+        if (minutes <= 0)
+        {
+            WriteUsageError("watch 需要 --interval-minutes <分钟>。");
+            return AgentExitCodes.UsageError;
+        }
+
+        var interval = TimeSpan.FromMinutes(minutes);
+        _stdout.WriteLine($"开始监视：每 {minutes.ToString(CultureInfo.InvariantCulture)} 分钟执行一次扫描并同步。按 Ctrl+C 停止。");
+
+        var round = 0;
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            round++;
+            var scanOptions = options with { Command = AgentCommand.Scan, Sync = true };
+            var code = await RunScanAsync(scanOptions, cancellationToken).ConfigureAwait(false);
+            _stdout.WriteLine(
+                $"[第 {round.ToString(CultureInfo.InvariantCulture)} 轮] {ScoutMindJson.FormatTimestamp(DateTimeOffset.UtcNow)} 退出码 {code.ToString(CultureInfo.InvariantCulture)}");
+
+            try
+            {
+                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+
+        _stdout.WriteLine("监视已停止。");
+        return AgentExitCodes.Success;
+    }
+
+    private async Task<int> RunSyncAsync(AgentOptions options, CancellationToken cancellationToken)
+    {
+        var configuration = LoadConfiguration();
+        var queue = new ScanQueue(configuration.QueueDirectory);
+        queue.EnsureCreated();
+
+        if (options.FilePath is not null)
+        {
+            string fullPath;
+            try
+            {
+                fullPath = Path.GetFullPath(options.FilePath);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                _stderr.WriteLine($"文件路径非法：{ex.Message}");
+                return AgentExitCodes.UsageError;
+            }
+
+            if (!File.Exists(fullPath))
+            {
+                _stderr.WriteLine($"文件不存在：{fullPath}");
+                return AgentExitCodes.UsageError;
+            }
+
+            var synced = await SyncOneAsync(fullPath, configuration, queue, cancellationToken).ConfigureAwait(false);
+            return synced ? AgentExitCodes.Success : AgentExitCodes.SyncFailed;
+        }
+
+        var outstanding = queue.ListOutstanding();
+        if (outstanding.Count == 0)
+        {
+            _stdout.WriteLine("没有待同步的扫描结果。");
+            return AgentExitCodes.Success;
+        }
+
+        var succeeded = 0;
+        var failed = 0;
+        foreach (var file in outstanding)
+        {
+            if (await SyncOneAsync(file, configuration, queue, cancellationToken).ConfigureAwait(false))
+            {
+                succeeded++;
+            }
+            else
+            {
+                failed++;
+            }
+        }
+
+        _stdout.WriteLine($"同步完成：成功 {succeeded.ToString(CultureInfo.InvariantCulture)}，失败 {failed.ToString(CultureInfo.InvariantCulture)}。");
+        return failed == 0 ? AgentExitCodes.Success : AgentExitCodes.SyncFailed;
+    }
+
+    private int RunConfigShow()
+    {
+        // The diagnostics are part of the JSON view, so they are not echoed to stderr here.
+        var configuration = LoadConfiguration(echoDiagnostics: false);
+        var view = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["readerPath"] = configuration.ReaderPath,
+            ["scannerPath"] = configuration.Config.ScannerPath,
+            ["probeArguments"] = configuration.Config.ProbeArguments,
+            ["scanArgumentsTemplate"] = configuration.Config.ScanArgumentsTemplate,
+            ["timeoutSeconds"] = configuration.Config.TimeoutSeconds,
+            ["backendBaseUrl"] = configuration.Config.BackendBaseUrl,
+            ["apiToken"] = string.IsNullOrWhiteSpace(configuration.Config.ApiToken) ? null : "***（已配置，已隐藏）",
+            ["saveName"] = configuration.Config.SaveName,
+            ["queueDirectory"] = configuration.QueueDirectory,
+            ["diagnostics"] = configuration.Diagnostics,
+        };
+
+        _stdout.WriteLine(JsonSerializer.Serialize(view, ScoutMindJson.Options));
+        return AgentExitCodes.Success;
+    }
+
+    private async Task<bool> SyncOneAsync(
+        string path,
+        AgentRuntimeConfiguration configuration,
+        ScanQueue queue,
+        CancellationToken cancellationToken)
+    {
+        ScanFilePayload payload;
+        try
+        {
+            payload = await ScanFileReader.LoadAsync(path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            _stderr.WriteLine($"读取扫描文件失败（{path}）：{ex.Message}");
+            queue.EnqueuePending(path);
+            return false;
+        }
+
+        BackendSyncResult result;
+        try
+        {
+            using var client = new BackendClient(
+                configuration.Config.BackendBaseUrl,
+                configuration.Config.ApiToken,
+                _syncTimeout);
+            result = await client.PostScanAsync(payload.Json, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ArgumentException ex)
+        {
+            _stderr.WriteLine($"后端地址配置错误：{ex.Message}");
+            queue.EnqueuePending(path);
+            return false;
+        }
+
+        if (!result.Ok)
+        {
+            _stderr.WriteLine($"同步失败（{Path.GetFileName(path)}）：{result.Error}");
+            if (result.ResponseBody is not null)
+            {
+                _stderr.WriteLine($"后端响应：{result.ResponseBody}");
+            }
+
+            var pending = queue.EnqueuePending(path);
+            if (pending is not null)
+            {
+                _stderr.WriteLine($"已加入待重试队列：{pending}");
+            }
+
+            return false;
+        }
+
+        var duplicateNote = result.Duplicate ? "（后端报告 duplicate=true，未重复写入）" : string.Empty;
+        var statusCode = result.StatusCode?.ToString(CultureInfo.InvariantCulture) ?? "—";
+        _stdout.WriteLine($"已同步 {Path.GetFileName(path)}：scan_id={payload.ScanId}，HTTP {statusCode}{duplicateNote}");
+
+        try
+        {
+            queue.Archive(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _stderr.WriteLine($"扫描已同步，但归档失败：{ex.Message}");
+        }
+
+        return true;
+    }
+
+    private AgentRuntimeConfiguration LoadConfiguration(bool echoDiagnostics = true)
+    {
+        var configuration = AgentConfiguration.Load(_baseDirectory);
+        if (!echoDiagnostics)
+        {
+            return configuration;
+        }
+
+        foreach (var diagnostic in configuration.Diagnostics)
+        {
+            _stderr.WriteLine($"· {diagnostic}");
+        }
+
+        return configuration;
+    }
+
+    private int ReportMissingReader(AgentRuntimeConfiguration configuration)
+    {
+        _stderr.WriteLine("未找到 ScoutMind 读取器，无法继续。");
+        foreach (var diagnostic in configuration.Diagnostics)
+        {
+            _stderr.WriteLine($"· {diagnostic}");
+        }
+
+        return AgentExitCodes.ConfigurationError;
+    }
+
+    private static (int ExitCode, string Message)? MapReaderTransportFailure(ReaderInvocation invocation)
+    {
+        if (invocation.StartError is not null)
+        {
+            return (AgentExitCodes.ConfigurationError, invocation.StartError);
+        }
+
+        if (invocation.TimedOut)
+        {
+            return (ReaderScanFailed, "读取器调用超时，已终止其进程树。");
+        }
+
+        return null;
+    }
+
+    private void WriteReaderStderr(ReaderInvocation invocation)
+    {
+        if (!string.IsNullOrWhiteSpace(invocation.Stderr))
+        {
+            _stderr.WriteLine(invocation.Stderr.Trim());
+        }
+    }
+
+    private static T? TryDeserialize<T>(string json)
+        where T : class
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<T>(json, ScoutMindJson.Options);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private void WriteStatusHuman(ReaderStatus status)
+    {
+        _stdout.WriteLine($"状态        : {status.State}");
+        _stdout.WriteLine($"说明        : {status.Message}");
+        _stdout.WriteLine($"检测时间    : {ScoutMindJson.FormatTimestamp(status.DetectedAt)}");
+        _stdout.WriteLine($"FM27 进程   : {(status.Process is null ? "未运行" : $"pid {status.Process.Pid.ToString(CultureInfo.InvariantCulture)}")}");
+        _stdout.WriteLine($"游戏        : {(status.Game is null ? "—" : $"appId={status.Game.AppId} build={status.Game.BuildId ?? "—"}")}");
+        _stdout.WriteLine($"插件        : {status.Plugin?.ProductVersion ?? "—"}");
+        _stdout.WriteLine($"兼容性      : {status.Compatibility?.Reason ?? "未判定"}");
+
+        if (status.Diagnostics.Count > 0)
+        {
+            _stdout.WriteLine("诊断：");
+            foreach (var diagnostic in status.Diagnostics)
+            {
+                _stdout.WriteLine($"  - {diagnostic}");
+            }
+        }
+    }
+
+    private void WriteScanResultHuman(ScanResult result)
+    {
+        _stdout.WriteLine($"扫描状态    : {result.State}");
+        _stdout.WriteLine($"扫描 ID     : {result.ScanId}");
+        _stdout.WriteLine($"球员数量    : {result.PlayersCount.ToString(CultureInfo.InvariantCulture)}");
+        _stdout.WriteLine($"转会数量    : {result.TransfersCount.ToString(CultureInfo.InvariantCulture)}");
+        _stdout.WriteLine($"输出文件    : {result.OutputFile ?? "—"}");
+
+        if (result.Warnings.Count > 0)
+        {
+            _stdout.WriteLine("告警：");
+            foreach (var warning in result.Warnings)
+            {
+                _stdout.WriteLine($"  - {warning}");
+            }
+        }
+    }
+
+    private void WriteUsageError(string message)
+    {
+        _stderr.WriteLine($"参数错误：{message}");
+        WriteUsage(_stderr);
+    }
+
+    private void WriteUsage(TextWriter writer)
+    {
+        writer.WriteLine("用法：");
+        writer.WriteLine("  ScoutMind.Agent status [--json]");
+        writer.WriteLine("  ScoutMind.Agent scan [--sync] [--json]");
+        writer.WriteLine("  ScoutMind.Agent watch --interval-minutes <分钟>");
+        writer.WriteLine("  ScoutMind.Agent sync [--file <路径>]");
+        writer.WriteLine("  ScoutMind.Agent config show");
+        writer.WriteLine();
+        writer.WriteLine("退出码：");
+        writer.WriteLine("  0  成功");
+        writer.WriteLine("  2  未找到 FM27（透传读取器）");
+        writer.WriteLine("  3  构建或版本不受支持 / 无法确定（透传读取器）");
+        writer.WriteLine("  4  probe 失败（透传读取器）");
+        writer.WriteLine("  5  扫描失败（透传读取器）");
+        writer.WriteLine("  6  后端同步失败");
+        writer.WriteLine("  64 用法错误");
+        writer.WriteLine("  65 配置错误（找不到读取器或配置非法）");
+    }
+}

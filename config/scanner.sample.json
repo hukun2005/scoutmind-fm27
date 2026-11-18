@@ -1,0 +1,9 @@
+{
+  "scannerPath": "C:\\Tools\\ScoutMindScanner\\scoutmind-scanner.exe",
+  "probeArguments": ["probe", "--read-only"],
+  "scanArgumentsTemplate": "--scan --output \"{output}\" --save \"{saveName}\"",
+  "timeoutSeconds": 120,
+  "backendBaseUrl": "http://127.0.0.1:8000/api/v1",
+  "apiToken": "",
+  "saveName": "默认存档"
+}

@@ -1,0 +1,88 @@
+/* Design tokens. 8px spacing grid, neutral palette, one accent. */
+
+:root {
+  /* Spacing: 4 / 8 / 12 / 16 / 24 / 32 / 40 / 48 / 64 */
+  --sm-space-1: 4px;
+  --sm-space-2: 8px;
+  --sm-space-3: 12px;
+  --sm-space-4: 16px;
+  --sm-space-5: 24px;
+  --sm-space-6: 32px;
+  --sm-space-7: 40px;
+  --sm-space-8: 48px;
+  --sm-space-9: 64px;
+
+  /* Surfaces */
+  --sm-bg: #f4f5f7;
+  --sm-surface: #ffffff;
+  --sm-surface-2: #fafbfc;
+  --sm-surface-3: #f0f2f5;
+  --sm-sidebar: #171b24;
+  --sm-sidebar-2: #212734;
+  --sm-sidebar-3: #2c3443;
+  --sm-sidebar-text: #a9b2c1;
+  --sm-sidebar-text-strong: #eef1f6;
+
+  /* Lines */
+  --sm-border: #e2e5ea;
+  --sm-border-strong: #c9cfd8;
+
+  /* Text */
+  --sm-text: #171c26;
+  --sm-text-2: #59616f;
+  --sm-text-3: #8b94a3;
+  --sm-text-inverse: #ffffff;
+
+  /* Semantic */
+  --sm-accent: #2b62d9;
+  --sm-accent-hover: #2453ba;
+  --sm-accent-weak: #eaf0fd;
+  --sm-success: #17774f;
+  --sm-success-weak: #e7f4ee;
+  --sm-warn: #9a5f12;
+  --sm-warn-weak: #fbf1e1;
+  --sm-danger: #b3342a;
+  --sm-danger-weak: #fbeceb;
+  --sm-neutral: #5b6472;
+  --sm-neutral-weak: #eef0f3;
+
+  /* Typography */
+  --sm-font-sans: 'Inter', 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --sm-font-mono: 'JetBrains Mono', 'SFMono-Regular', 'Consolas', 'Menlo', monospace;
+  --sm-fs-2xs: 11px;
+  --sm-fs-xs: 12px;
+  --sm-fs-sm: 13px;
+  --sm-fs-md: 14px;
+  --sm-fs-lg: 16px;
+  --sm-fs-xl: 20px;
+  --sm-fs-2xl: 26px;
+  --sm-fs-3xl: 32px;
+  --sm-lh-tight: 1.25;
+  --sm-lh-normal: 1.55;
+  --sm-fw-regular: 400;
+  --sm-fw-medium: 500;
+  --sm-fw-semibold: 600;
+
+  /* Radii and elevation */
+  --sm-radius-sm: 4px;
+  --sm-radius-md: 6px;
+  --sm-radius-lg: 8px;
+  --sm-shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --sm-shadow-2: 0 4px 14px rgba(16, 24, 40, 0.08);
+
+  /* Layout */
+  --sm-sidebar-width: 208px;
+  --sm-topbar-height: 56px;
+  --sm-page-max: 1680px;
+  --sm-focus-ring: 0 0 0 2px rgba(43, 98, 217, 0.45);
+
+  /* Element Plus alignment */
+  --el-color-primary: #2b62d9;
+  --el-border-radius-base: 4px;
+  --el-font-family: var(--sm-font-sans);
+  --el-text-color-primary: var(--sm-text);
+  --el-text-color-regular: var(--sm-text-2);
+  --el-border-color: var(--sm-border);
+  --el-border-color-light: var(--sm-border);
+  --el-fill-color-blank: var(--sm-surface);
+}

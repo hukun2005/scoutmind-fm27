@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.deps/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+pnpm-debug.log*
+
+# .NET
+bin/
+obj/
+publish/
+*.user
+
+# Runtime data (never commit a user's save or scan exports)
+backend/data/
+database/*.db
+*.db
+*.sqlite
+*.sqlite3
+samples/private/
+exports/
+
+# Local configuration and secrets
+.env
+backend/.env
+scoutmind.config.json
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

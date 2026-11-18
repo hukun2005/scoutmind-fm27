@@ -1,0 +1,741 @@
+/** 数据与诊断：扫描上传、导入历史、覆盖度、兼容性与真实数据获取说明。 */
+
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import type { UploadRequestOptions } from 'element-plus'
+import { ElMessage } from 'element-plus'
+import { asApiError, type ApiError } from '../api/client'
+import { getCompatibility, getOverview } from '../api/analytics'
+import { listImports, uploadScan } from '../api/imports'
+import { getSaveSummary } from '../api/saves'
+import CoverageBar from '../components/CoverageBar.vue'
+import DataTable from '../components/DataTable.vue'
+import EmptyState from '../components/EmptyState.vue'
+import ErrorState from '../components/ErrorState.vue'
+import PageHeader from '../components/PageHeader.vue'
+import SectionCard from '../components/SectionCard.vue'
+import type { CompatibilityItem, CompatibilityResponse, OverviewResponse } from '../types/analytics'
+import type { ImportJob, ScanImportResponse } from '../types/imports'
+import type { SaveSummary } from '../types/bootstrap'
+import type { TableColumn } from '../types/table'
+import { useSessionStore } from '../stores/session'
+import {
+  EMPTY,
+  displayText,
+  formatDateTime,
+  formatInt,
+} from '../utils/format'
+import { coverageLabel, importStatusLabel, sourceLabel } from '../utils/labels'
+
+const session = useSessionStore()
+
+const imports = ref<ImportJob[]>([])
+const importsLoading = ref(false)
+const importsError = ref<ApiError | null>(null)
+
+const summary = ref<SaveSummary | null>(null)
+const summaryLoading = ref(false)
+const summaryError = ref<ApiError | null>(null)
+
+const overview = ref<OverviewResponse | null>(null)
+const overviewLoading = ref(false)
+const overviewError = ref<ApiError | null>(null)
+
+const compatibility = ref<CompatibilityResponse | null>(null)
+const compatibilityLoading = ref(false)
+const compatibilityError = ref<ApiError | null>(null)
+
+const uploading = ref(false)
+const uploadResult = ref<ScanImportResponse | null>(null)
+const uploadError = ref<ApiError | null>(null)
+
+/** Counts reported by the save summary (these are record counts, not ratios). */
+const summaryCounts = computed(() => {
+  const coverage = summary.value?.coverage
+  if (!coverage) return []
+  return [
+    { label: '球员', value: coverage.players },
+    { label: '快照', value: coverage.snapshots },
+    { label: '转会', value: coverage.transfers },
+    { label: '俱乐部', value: coverage.clubs },
+  ]
+})
+
+const fieldCoverage = computed(() => Object.entries(overview.value?.coverage ?? {}))
+
+const capabilities = computed(() => {
+  const capabilitiesValue = session.capabilities
+  return [
+    { label: '实时读取器', enabled: capabilitiesValue.live_reader },
+    { label: '存档解析', enabled: capabilitiesValue.save_parser },
+    { label: 'LLM 回答', enabled: capabilitiesValue.agent_llm },
+    { label: '关注名单', enabled: capabilitiesValue.watchlist },
+    { label: '转会情报', enabled: capabilitiesValue.transfer_intelligence },
+  ]
+})
+
+const importColumns: TableColumn<ImportJob>[] = [
+  { prop: 'received_at', label: '接收时间', width: 146, formatter: (row) => formatDateTime(row.received_at) },
+  { prop: 'source', label: '来源', width: 108, formatter: (row) => sourceLabel(row.source) },
+  { prop: 'status', label: '状态', width: 88, formatter: (row) => importStatusLabel(row.status) },
+  { prop: 'player_count', label: '球员', width: 76, align: 'right' },
+  { prop: 'transfer_count', label: '交易', width: 76, align: 'right' },
+  {
+    prop: 'warnings',
+    label: '警告',
+    width: 76,
+    align: 'right',
+    formatter: (row) => (row.warnings.length === 0 ? '0' : String(row.warnings.length)),
+  },
+  { prop: 'scan_id', label: 'scan_id', width: 190, formatter: (row) => displayText(row.scan_id) },
+  { prop: 'raw_payload_path', label: '原始报文', minWidth: 220, showOverflowTooltip: true, formatter: (row) => displayText(row.raw_payload_path) },
+]
+
+const compatibilityColumns: TableColumn<CompatibilityItem>[] = [  { prop: 'app_id', label: 'App ID', width: 110, formatter: (row) => displayText(row.app_id) },
+  { prop: 'build_id', label: 'Build ID', width: 130, formatter: (row) => displayText(row.build_id) },
+  { prop: 'plugin_version', label: '读取器版本', width: 150, formatter: (row) => displayText(row.plugin_version) },
+  { prop: 'status', label: '状态', width: 100 },
+  { prop: 'notes', label: '备注', minWidth: 220, formatter: (row) => displayText(row.notes) },
+]
+
+/** Coverage entries with an explicit value type for the template. */
+function coverageEntries(map: Record<string, number | null> | null | undefined): Array<[string, number | null]> {
+  return Object.entries(map ?? {})
+}
+
+/** Stable key for compatibility rows (app + build can repeat across plugin versions). */
+function compatibilityKey(row: CompatibilityItem): string {
+  return `${row.app_id ?? 'unknown'}-${row.build_id ?? 'unknown'}-${row.plugin_version ?? 'unknown'}`
+}
+
+/** Load import history, save summary and overview coverage. */
+async function loadDataset(): Promise<void> {
+  const saveId = session.activeSaveId
+  importsLoading.value = true
+  importsError.value = null
+  summaryLoading.value = true
+  summaryError.value = null
+  overviewLoading.value = true
+  overviewError.value = null
+
+  await Promise.all([
+    (async () => {
+      try {
+        const response = await listImports({ save_id: saveId ?? undefined, limit: 50 })
+        imports.value = response.items ?? []
+        session.markSources(imports.value.map((job) => job.source))
+      } catch (caught) {
+        importsError.value = asApiError(caught)
+        imports.value = []
+      } finally {
+        importsLoading.value = false
+      }
+    })(),
+    (async () => {
+      if (saveId === null) {
+        summary.value = null
+        summaryLoading.value = false
+        return
+      }
+      try {
+        summary.value = await getSaveSummary(saveId)
+      } catch (caught) {
+        summaryError.value = asApiError(caught)
+        summary.value = null
+      } finally {
+        summaryLoading.value = false
+      }
+    })(),
+    (async () => {
+      try {
+        overview.value = await getOverview(saveId ?? undefined)
+      } catch (caught) {
+        overviewError.value = asApiError(caught)
+        overview.value = null
+      } finally {
+        overviewLoading.value = false
+      }
+    })(),
+  ])
+}
+
+/** Load the compatibility list. */
+async function loadCompatibility(): Promise<void> {
+  compatibilityLoading.value = true
+  compatibilityError.value = null
+  try {
+    compatibility.value = await getCompatibility()
+  } catch (caught) {
+    compatibilityError.value = asApiError(caught)
+    compatibility.value = null
+  } finally {
+    compatibilityLoading.value = false
+  }
+}
+
+/** Upload one scan file through `POST /imports/scan` (multipart `file`). */
+async function runUpload(file: File): Promise<void> {
+  uploading.value = true
+  uploadError.value = null
+  uploadResult.value = null
+  try {
+    const result = await uploadScan(file)
+    uploadResult.value = result
+    if (result.duplicate) {
+      ElMessage.warning(`该 scan_id 已导入过（duplicate=true），后端未写入任何数据`)
+    } else if (result.status === 'partial') {
+      ElMessage.warning(`导入部分成功：${formatInt(result.rows_rejected)} 行被拒绝，详见下方错误列表`)
+    } else {
+      ElMessage.success('导入完成')
+    }
+    await loadDataset()
+    await session.load()
+  } catch (caught) {
+    uploadError.value = asApiError(caught)
+    ElMessage.error(`导入失败：${uploadError.value.message}`)
+  } finally {
+    uploading.value = false
+  }
+}
+
+/** Element Plus upload hook: take the raw file and post it manually. */
+function handleUpload(options: UploadRequestOptions): Promise<void> {
+  return runUpload(options.file)
+}
+
+/** Reload everything on this page. */
+function reloadAll(): void {
+  void loadDataset()
+  void loadCompatibility()
+}
+
+watch(
+  [() => session.activeSaveId, () => session.dataRevision],
+  () => {
+    void loadDataset()
+  },
+  { immediate: true },
+)
+
+void loadCompatibility()
+</script>
+
+<template>
+  <div class="sm-page">
+    <PageHeader
+      title="数据与诊断"
+      description="导入扫描报文、查看覆盖度与兼容性，并确认当前数据是否可用于真实决策。"
+    >
+      <template #meta>
+        <el-tag size="small" :type="session.hasRealScanData ? 'success' : 'warning'" disable-transitions>
+          {{ session.hasRealScanData ? '已有真实扫描数据' : '尚无真实扫描数据' }}
+        </el-tag>
+        <el-tag v-if="session.demoMode" size="small" type="warning" disable-transitions>demo_mode = true</el-tag>
+        <span class="sm-text-xs sm-text-faint">
+          后端版本 {{ session.version }} · 存档 {{ session.activeSave ? session.activeSave.name : EMPTY }}
+        </span>
+      </template>
+      <template #actions>
+        <el-button size="small" :loading="importsLoading" @click="reloadAll">刷新</el-button>
+      </template>
+    </PageHeader>
+
+    <el-alert
+      v-if="!session.hasRealScanData"
+      type="warning"
+      :closable="false"
+      show-icon
+      class="real-data-warning"
+    >
+      <template #title>
+        <span class="sm-text-xs">
+          当前没有真实 FM27 扫描数据：页面中的数值要么为空，要么来自 demo_mode 演示数据（source =
+          synthetic_fixture），不可用于真实决策。
+        </span>
+      </template>
+    </el-alert>
+
+    <SectionCard title="上传扫描数据" subtitle="支持 .json 与 .ndjson（multipart 字段名 file）">
+      <div class="upload-layout">
+        <el-upload
+          class="uploader"
+          drag
+          accept=".json,.ndjson,application/json,application/x-ndjson"
+          :show-file-list="false"
+          :disabled="uploading"
+          :http-request="handleUpload"
+        >
+          <div class="uploader__inner">
+            <p class="uploader__title">拖入扫描文件，或点击选择</p>
+            <p class="uploader__hint">
+              JSON 为单对象报文；NDJSON 首行为 header，其后每行一条实体。同一 scan_id 重复导入会返回
+              duplicate=true 且不写入数据。
+            </p>
+          </div>
+        </el-upload>
+
+        <div class="upload-meta">
+          <p class="sm-label">当前能力</p>
+          <div class="capability-list">
+            <el-tag
+              v-for="capability in capabilities"
+              :key="capability.label"
+              size="small"
+              :type="capability.enabled ? 'success' : 'info'"
+              disable-transitions
+            >
+              {{ capability.label }} {{ capability.enabled ? '启用' : '未启用' }}
+            </el-tag>
+          </div>
+          <p class="sm-text-2xs sm-text-faint">
+            数据源记录数：{{ session.dataSources.length === 0 ? EMPTY : session.dataSources.map((entry) => `${sourceLabel(entry.source)} ${formatInt(entry.records)}`).join(' · ') }}
+          </p>
+        </div>
+      </div>
+
+      <div v-if="uploading" class="sm-stack upload-pending">
+        <el-skeleton :rows="3" animated />
+      </div>
+
+      <ErrorState v-if="uploadError" :error="uploadError" compact :show-retry="false" />
+
+      <div v-if="uploadResult" class="upload-result">
+        <el-alert
+          :type="uploadResult.duplicate ? 'warning' : uploadResult.status === 'partial' ? 'warning' : 'success'"
+          :closable="false"
+          show-icon
+        >
+          <template #title>
+            <span class="sm-text-xs">
+              导入任务 #{{ uploadResult.job_id }} · 状态 {{ importStatusLabel(uploadResult.status) }}
+              <template v-if="uploadResult.duplicate"> · duplicate=true（未写入数据）</template>
+            </span>
+          </template>
+        </el-alert>
+
+        <div class="result-grid">
+          <div class="result-cell">
+            <span class="sm-label">新建球员</span>
+            <span class="sm-num">{{ formatInt(uploadResult.players_created) }}</span>
+          </div>
+          <div class="result-cell">
+            <span class="sm-label">更新球员</span>
+            <span class="sm-num">{{ formatInt(uploadResult.players_updated) }}</span>
+          </div>
+          <div class="result-cell">
+            <span class="sm-label">匹配实例</span>
+            <span class="sm-num">{{ formatInt(uploadResult.instances_matched) }}</span>
+          </div>
+          <div class="result-cell">
+            <span class="sm-label">新建快照</span>
+            <span class="sm-num">{{ formatInt(uploadResult.snapshots_created) }}</span>
+          </div>
+          <div class="result-cell">
+            <span class="sm-label">新建交易</span>
+            <span class="sm-num">{{ formatInt(uploadResult.transfers_created) }}</span>
+          </div>
+          <div class="result-cell">
+            <span class="sm-label">跳过交易</span>
+            <span class="sm-num">{{ formatInt(uploadResult.transfers_skipped) }}</span>
+          </div>
+          <div class="result-cell">
+            <span class="sm-label">拒绝行</span>
+            <span class="sm-num">{{ formatInt(uploadResult.rows_rejected) }}</span>
+          </div>
+          <div class="result-cell">
+            <span class="sm-label">scan_id</span>
+            <span class="sm-mono">{{ displayText(uploadResult.scan_id) }}</span>
+          </div>
+        </div>
+
+        <div v-if="Object.keys(uploadResult.coverage ?? {}).length > 0" class="result-coverage">
+          <CoverageBar
+            v-for="[key, value] in Object.entries(uploadResult.coverage ?? {})"
+            :key="key"
+            :label="coverageLabel(key)"
+            :value="value"
+            dense
+          />
+        </div>
+
+        <ul v-if="uploadResult.warnings.length > 0" class="warnings-list">
+          <li v-for="warning in uploadResult.warnings" :key="warning">{{ warning }}</li>
+        </ul>
+
+        <div v-if="uploadResult.errors.length > 0" class="errors">
+          <p class="sm-label">被拒绝的行（{{ uploadResult.errors.length }}）</p>
+          <table class="error-table">
+            <thead>
+              <tr>
+                <th>行号</th>
+                <th>实体</th>
+                <th>错误码</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(error, index) in uploadResult.errors" :key="`${error.code}-${index}`">
+                <td class="sm-num">{{ formatInt(error.row) }}</td>
+                <td>{{ displayText(error.entity) }}</td>
+                <td class="sm-mono">{{ error.code }}</td>
+                <td>{{ error.message }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <template #footer>
+        导入按 `docs/DATA_PROTOCOL.md` 校验：缺 save_local_uid/name 的行被拒绝并记录，不会用默认值填充；部分失败时
+        status=partial。
+      </template>
+    </SectionCard>
+
+    <div class="sm-grid sm-grid--wide-left">
+      <SectionCard title="导入历史" subtitle="后端保留原始报文路径，便于重新解析" flush>
+        <DataTable
+          :columns="importColumns"
+          :rows="imports"
+          :loading="importsLoading"
+          :error="importsError"
+          row-key="id"
+          expandable
+          :empty-title="imports.length === 0 ? '还没有导入记录' : '暂无数据'"
+          empty-description="导入第一份扫描文件后，这里会显示每次导入的状态、计数与警告。"
+          @retry="loadDataset"
+        >
+          <template #expand="{ row }">
+            <div class="import-detail">
+              <p class="sm-text-2xs sm-text-faint">
+                scan_id {{ displayText(row.scan_id) }} · 原始报文 {{ displayText(row.raw_payload_path) }} ·
+                完成于 {{ formatDateTime(row.finished_at) }}
+              </p>
+              <ul v-if="row.warnings.length > 0" class="warnings-list">
+                <li v-for="warning in row.warnings" :key="warning">{{ warning }}</li>
+              </ul>
+              <p v-else class="sm-text-2xs sm-text-faint">该任务没有警告。</p>
+              <div v-if="row.coverage" class="import-coverage">
+                <CoverageBar
+                  v-for="[key, value] in coverageEntries(row.coverage)"
+                  :key="key"
+                  :label="coverageLabel(key)"
+                  :value="value"
+                  dense
+                />
+              </div>
+            </div>
+          </template>
+        </DataTable>
+      </SectionCard>
+
+      <SectionCard title="数据覆盖度" subtitle="记录数与字段非空比例">
+        <div v-if="summaryLoading && !summary" class="sm-stack">
+          <el-skeleton :rows="4" animated />
+        </div>
+        <ErrorState v-else-if="summaryError" :error="summaryError" compact @retry="loadDataset" />
+        <template v-else>
+          <div class="coverage-counts">
+            <div v-for="count in summaryCounts" :key="count.label" class="coverage-count">
+              <span class="sm-label">{{ count.label }}</span>
+              <span class="sm-num">{{ formatInt(count.value) }}</span>
+            </div>
+          </div>
+          <p v-if="summaryCounts.length === 0" class="sm-text-2xs sm-text-faint">存档摘要中未返回记录数。</p>
+
+          <hr class="sm-divider" />
+
+          <div v-if="overviewLoading && !overview" class="sm-stack">
+            <el-skeleton :rows="3" animated />
+          </div>
+          <ErrorState v-else-if="overviewError" :error="overviewError" compact @retry="loadDataset" />
+          <div v-else-if="fieldCoverage.length === 0">
+            <EmptyState
+              title="字段覆盖度不可用"
+              description="概览接口没有返回 coverage 字段，通常是因为尚未导入扫描数据。"
+              compact
+            />
+          </div>
+          <div v-else class="coverage-list">
+            <CoverageBar
+              v-for="[key, value] in fieldCoverage"
+              :key="key"
+              :label="coverageLabel(key)"
+              :value="value"
+              dense
+            />
+          </div>
+        </template>
+        <template #footer>
+          最近导入 {{ formatDateTime(summary?.last_import?.finished_at ?? null) }} ·
+          覆盖度低于 60% 时相关统计会不稳定
+        </template>
+      </SectionCard>
+    </div>
+
+    <SectionCard title="客户端兼容性" subtitle="读取器版本与游戏 build 的已知组合" flush>
+      <DataTable
+        :columns="compatibilityColumns"
+        :rows="compatibility?.items ?? []"
+        :loading="compatibilityLoading"
+        :error="compatibilityError"
+        :row-key="compatibilityKey"
+        dense
+        :empty-title="compatibilityLoading ? '正在加载' : '没有兼容性记录'"
+        empty-description="后端 /compatibility 未返回任何记录；导入前请先用 Live Reader 的 probe 命令确认版本。"
+        @retry="loadCompatibility"
+      >
+        <template #cell="{ row, column }">
+          <template v-if="column.prop === 'status'">
+            <el-tag
+              size="small"
+              :type="row.status === 'verified' ? 'success' : row.status === 'unsupported' ? 'danger' : 'warning'"
+              disable-transitions
+            >
+              {{ row.status === 'verified' ? '已验证' : row.status === 'unsupported' ? '不支持' : row.status === 'candidate' ? '待验证' : row.status }}
+            </el-tag>
+          </template>
+          <template v-else>
+            {{ column.formatter ? column.formatter(row) : EMPTY }}
+          </template>
+        </template>
+        <template #toolbar>
+          <span class="sm-text-2xs sm-text-faint">读取器版本：</span>
+          <el-tag
+            v-for="version in compatibility?.reader_versions ?? []"
+            :key="version"
+            size="small"
+            type="info"
+            disable-transitions
+          >
+            {{ version }}
+          </el-tag>
+          <span v-if="(compatibility?.reader_versions ?? []).length === 0" class="sm-text-2xs sm-text-faint">未上报</span>
+        </template>
+      </DataTable>
+    </SectionCard>
+
+    <SectionCard title="如何生成真实数据" subtitle="Live Reader CLI 是当前唯一的真实数据来源">
+      <div class="cli-layout">
+        <div class="sm-stack sm-stack--tight">
+          <p class="sm-label">命令</p>
+          <pre class="sm-code">ScoutMind.LiveReader.exe status
+ScoutMind.LiveReader.exe probe
+ScoutMind.LiveReader.exe scan --out D:\scans\scan.json</pre>
+          <p class="sm-text-2xs sm-text-faint">
+            status 检查进程与读取器状态；probe 探测游戏 build 与兼容性；scan 输出符合 DATA_PROTOCOL v1 的扫描报文。
+          </p>
+        </div>
+        <ol class="steps">
+          <li>启动 FM27 并进入存档，保持游戏运行。</li>
+          <li>运行 status / probe，确认版本出现在上方兼容性列表中。</li>
+          <li>运行 scan 生成 .json（或 .ndjson）扫描文件。</li>
+          <li>把文件拖入本页「上传扫描数据」，等待任务状态变为 succeeded / partial。</li>
+          <li>回到概览与球员中心，确认球员数、快照数与覆盖度已更新。</li>
+        </ol>
+      </div>
+      <template #footer>
+        未导入扫描文件之前，界面不会显示任何伪造的球员或成交数据；demo_mode 下的 synthetic_fixture 记录会带横幅提示。
+        派生的统计（分位数、估值、角色评分）都要求足够的真实样本。
+      </template>
+    </SectionCard>
+
+    <p class="page-note">
+      诊断提示：所有错误响应遵循 <code>{"error": {"code", "message", "details"}}</code> 结构；401 表示缺少
+      X-ScoutMind-Token，503 表示数据库不可用。后端地址由 Vite 代理 <code>/api</code> → 127.0.0.1:8000 提供。
+    </p>
+  </div>
+</template>
+
+<style scoped>
+.real-data-warning {
+  margin-bottom: 0;
+}
+
+.upload-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
+  gap: var(--sm-space-4);
+}
+
+.uploader :deep(.el-upload-dragger) {
+  padding: var(--sm-space-5) var(--sm-space-4);
+  border-radius: var(--sm-radius-md);
+  background: var(--sm-surface-2);
+}
+
+.uploader__title {
+  color: var(--sm-text);
+  font-size: var(--sm-fs-sm);
+  font-weight: var(--sm-fw-medium);
+}
+
+.uploader__hint {
+  margin-top: var(--sm-space-1);
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.6;
+}
+
+.upload-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+  min-width: 0;
+}
+
+.capability-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm-space-1);
+}
+
+.upload-pending {
+  margin-top: var(--sm-space-3);
+}
+
+.upload-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-3);
+  margin-top: var(--sm-space-4);
+  padding-top: var(--sm-space-3);
+  border-top: 1px solid var(--sm-border);
+}
+
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: var(--sm-space-2);
+}
+
+.result-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sm-space-2);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: var(--sm-surface-2);
+  font-size: var(--sm-fs-sm);
+}
+
+.result-cell .sm-num {
+  font-weight: var(--sm-fw-semibold);
+}
+
+.result-coverage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--sm-space-2);
+}
+
+.warnings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding-left: var(--sm-space-4);
+  color: var(--sm-warn);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.6;
+}
+
+.errors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+}
+
+.error-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--sm-fs-xs);
+}
+
+.error-table th,
+.error-table td {
+  padding: var(--sm-space-1) var(--sm-space-2);
+  border-bottom: 1px solid var(--sm-border);
+  text-align: left;
+}
+
+.error-table th {
+  color: var(--sm-text-3);
+  font-weight: var(--sm-fw-medium);
+}
+
+.import-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+}
+
+.import-coverage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--sm-space-2);
+}
+
+.coverage-counts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sm-space-2);
+  margin-bottom: var(--sm-space-3);
+}
+
+.coverage-count {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sm-space-2);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: var(--sm-surface-2);
+  font-size: var(--sm-fs-lg);
+  font-weight: var(--sm-fw-semibold);
+}
+
+.coverage-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+}
+
+.cli-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: var(--sm-space-4);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+  margin: 0;
+  padding-left: var(--sm-space-4);
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-xs);
+  line-height: 1.7;
+}
+
+.page-note {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.7;
+}
+
+.page-note code {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--sm-surface-3);
+  font-family: var(--sm-font-mono);
+}
+
+@media (max-width: 1180px) {
+  .upload-layout,
+  .cli-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+</style>
+
