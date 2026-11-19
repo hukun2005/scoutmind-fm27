@@ -1,0 +1,25 @@
+{
+  "$comment": "构建 → 布局 → 已验证字段。verified_fields 里的字段必须是真的对着游戏内界面核对过的；没有列出的字段一律视为未验证（布局里是 Unknown）。新增构建时同时更新 verified-versions.json 与 config/compatibility.json。",
+  "builds": [
+    {
+      "build": "26620374",
+      "layout": "FM27_1",
+      "status": "candidate",
+      "plugin_version": "27.1.0+2505117",
+      "verified_fields": [],
+      "evidence": [],
+      "note": "本机 Steam 构建（FM 27.1.0）。上游 FMSuperScout 1.7.3 的偏移按 27.0 钉的，27.1 未逐类核对；结构化探测只能证明没有明显错位。"
+    },
+    {
+      "build": "26577676",
+      "layout": "FM27_0",
+      "status": "candidate",
+      "plugin_version": "27.0.1+2503222",
+      "verified_fields": [],
+      "evidence": [
+        "上游 FMSuperScout 1.7.3 · Fields.FM27 · 02-11-2026 于 FM 27.0 核对（上游声明的证据，ScoutMind 未复现）"
+      ],
+      "note": "上游钉过的 27.0 构建。ScoutMind 没有在该构建上复现核对，因此注册表里仍是 candidate；只要有人按 docs/FM27-VERSION-VERIFICATION.md 复现，就可以把 verified_fields 补上。"
+    }
+  ]
+}
