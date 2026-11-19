@@ -19,7 +19,7 @@ public static class ReportBuilder
         ArgumentNullException.ThrowIfNull(layout);
         ArgumentNullException.ThrowIfNull(probes);
 
-        if (layout.Fields.Values.Any(field => field.Status == FieldStatus.Rejected)
+        if (layout.Fields.Values.Any(field => field.Status == FieldStatus.Failed)
             || probes.Any(probe => probe.Status == ProbeStatus.Failed))
         {
             return OverallStatus.Rejected;
@@ -62,7 +62,8 @@ public static class ReportBuilder
         ILayout? layout,
         IReadOnlyList<ProbeOutcome> probes,
         IReadOnlyList<string> diagnostics,
-        IReadOnlyList<string> limitations)
+        IReadOnlyList<string> limitations,
+        IReadOnlyList<FieldSpec>? specifications = null)
     {
         var overall = layout is null
             ? OverallStatus.Unknown
@@ -89,7 +90,7 @@ public static class ReportBuilder
             PluginVersion: pluginVersion,
             AppId: appId,
             LayoutName: layout?.Name,
-            LayoutStatus: layout?.Status ?? FieldStatus.Unknown,
+            LayoutStatus: layout?.Status ?? FieldStatus.Pending,
             Probes: probes,
             Fields: layout is null
                 ? Array.Empty<FieldVerification>()
@@ -98,6 +99,9 @@ public static class ReportBuilder
             ScanAllowed: scanAllowed,
             Summary: summary,
             Diagnostics: diagnostics,
-            Limitations: limitations);
+            Limitations: limitations)
+        {
+            Specifications = specifications ?? Array.Empty<FieldSpec>(),
+        };
     }
 }

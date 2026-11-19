@@ -379,6 +379,118 @@ internal static class Program
                 }));
                 return matched > 0 && caOk == matched && paOk == matched ? 0 : 3;
             }
+            case "match":
+            {
+                // 任务一：未匹配记录分类（只分类，不删除、不强行匹配）。
+                var dumpPath = args.Length > 1 ? args[1] : null;
+                if (dumpPath is null || !File.Exists(dumpPath))
+                {
+                    Console.Error.WriteLine("用法：ScoutMind.FMReader.Diag match <dump.json> [sample]");
+                    return 64;
+                }
+
+                var limit = args.Length > 2 && int.TryParse(args[2], out var parsedLimit) ? parsedLimit : 400;
+                var layout = new LayoutResolver().Resolve("26620374", "27.1");
+                if (layout is null)
+                {
+                    Console.Error.WriteLine("未登记的构建");
+                    return 3;
+                }
+
+                var reference = new MatchDiagnostics.Reference();
+                using (var dump = JsonDocument.Parse(File.ReadAllText(dumpPath)))
+                {
+                    foreach (var player in dump.RootElement.GetProperty("players").EnumerateArray())
+                    {
+                        var name = player.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : null;
+                        var birthYear = player.TryGetProperty("birthYear", out var birth) ? birth.GetInt32() : 0;
+                        if (!string.IsNullOrWhiteSpace(name))
+                        {
+                            reference.Add(name!, birthYear);
+                        }
+                    }
+                }
+
+                using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
+                var locator = new ScoutMind.FMReader.Engine.HeapObjectLocator(memory);
+                var rows = new List<MatchDiagnostics.ReaderRow>();
+                foreach (var player in locator.FindPlayers(layout, limit, TimeSpan.FromSeconds(45)))
+                {
+                    var name = memory.NestedString(player.Person + layout["PERO_COMMON_NAME"])
+                               ?? string.Join(" ", new[]
+                               {
+                                   memory.NestedString(player.Person + layout["PERO_FIRST_NAME"]),
+                                   memory.NestedString(player.Person + layout["PERO_SECOND_NAME"]),
+                               }.Where(part => !string.IsNullOrWhiteSpace(part)));
+                    var birthYear = FmDate.Decode(memory.UInt32(player.Person + layout["PERO_DOB"])).Year;
+                    var gender = memory.Byte(player.Person + layout["PERO_GENDER"]);
+                    rows.Add(new MatchDiagnostics.ReaderRow(name, birthYear, (gender & 0x10) != 0));
+                }
+
+                var report = MatchDiagnostics.Summarize(rows, reference);
+                Console.WriteLine(ToJson(new
+                {
+                    sampled = report.Sampled,
+                    matched = report.Matched,
+                    unmatched = report.Unmatched.Count,
+                    reference_keys = report.ReferenceSize,
+                    counts = report.Counts.ToDictionary(item => item.Key.ToString(), item => item.Value),
+                    details = report.Unmatched.Select(item => new
+                    {
+                        outcome = item.Outcome.ToString(),
+                        name = item.Name,
+                        birth_year = item.BirthYear,
+                        detail = item.Detail,
+                    }),
+                }));
+                return 0;
+            }
+
+            case "sample":
+            {
+                // 任务三：生成 30 名可人工核对的样本（JSON + Markdown）。
+                var layout = new LayoutResolver().Resolve("26620374", "27.1");
+                if (layout is null)
+                {
+                    Console.Error.WriteLine("未登记的构建");
+                    return 3;
+                }
+
+                using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
+                var locator = new ScoutMind.FMReader.Engine.HeapObjectLocator(memory);
+                var reader = new VerificationReader(memory, layout);
+                var candidates = new List<VerificationPlayer>();
+                foreach (var located in locator.FindPlayers(layout, 400, TimeSpan.FromSeconds(40)))
+                {
+                    var row = reader.Read(located);
+                    if (row is not null)
+                    {
+                        candidates.Add(row);
+                    }
+                }
+
+                var sample = VerificationSample.Select(candidates, 30);
+                var outputJson = args.Length > 1 ? args[1] : null;
+                var json = ToJson(new
+                {
+                    build = "26620374",
+                    plugin_version = "27.1.0+2505117",
+                    candidates = candidates.Count,
+                    selected = sample.Count,
+                    players = sample,
+                });
+                if (!string.IsNullOrWhiteSpace(outputJson))
+                {
+                    File.WriteAllText(outputJson, json);
+                    var markdown = VerificationSample.ToMarkdown(sample, "26620374", "27.1.0+2505117");
+                    File.WriteAllText(Path.ChangeExtension(outputJson, ".md"), markdown);
+                    Console.Error.WriteLine($"样本已写入 {outputJson} 与 .md");
+                }
+
+                Console.WriteLine(json);
+                return sample.Count > 0 ? 0 : 3;
+            }
+
             case "foot":
                 Console.WriteLine(ToJson(new
                 {

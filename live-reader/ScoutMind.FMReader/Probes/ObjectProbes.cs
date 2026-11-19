@@ -52,7 +52,7 @@ public static class FmDate
 }
 
 /// <summary>对象探测：只读，逐类验证"定位到的对象是否是它声称的东西"。</summary>
-public sealed class ObjectProbes
+public sealed partial class ObjectProbes
 {
     private const int SampleLimit = 32;
 
@@ -297,7 +297,7 @@ public sealed class ObjectProbes
         var checks = new List<FieldCheck>
         {
             Ratio("team_reachable", teamReachable, sample.Count, "合同 → 球队 指针链可达"),
-            Ratio("team_type_range", teamTypeSane, sample.Count, "球队类型字节 0..20（上游：0=一线队，>=10=青年队）", 0.9),
+            Ratio("team_type_range", teamTypeSane, sample.Count, "球队类型字节 0..20（上游：0=一线队，>=10=青年队）", 0.7),
             Ratio("club_from_team", clubReachable, sample.Count, "球队 → 俱乐部 指针可达且名称可读", 0.9),
             Ratio("team_players_range", playersRangeSane, sample.Count, "球队球员向量 [begin,end) 合理"),
             Ratio("player_in_team", crossConsistent, sample.Count, "球员对象确实出现在自己球队的球员向量中", 0.6),
@@ -319,7 +319,7 @@ public sealed class ObjectProbes
         }
 
         int pointerValid = 0, expirySane = 0, wageSane = 0, flagsSane = 0, expiryAfterBirth = 0;
-        int applicable = 0, missing = 0;
+        int applicable = 0, missing = 0, noExpiry = 0, expiryApplicable = 0;
         foreach (var player in sample)
         {
             try

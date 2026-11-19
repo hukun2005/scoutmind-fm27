@@ -104,4 +104,13 @@ public sealed record DiagnosticReport(
     bool ScanAllowed,
     string Summary,
     IReadOnlyList<string> Diagnostics,
-    IReadOnlyList<string> Limitations);
+    IReadOnlyList<string> Limitations)
+{
+    /// <summary>字段规格（含证据种类），与 <see cref="Fields"/> 互补：前者是"字段设计"，后者是"布局键状态"。</summary>
+    public IReadOnlyList<FieldSpec> Specifications { get; init; } = Array.Empty<FieldSpec>();
+
+    /// <summary>各证据种类的字段数。</summary>
+    /// <returns>证据种类 → 数量。</returns>
+    public IReadOnlyDictionary<EvidenceKind, int> EvidenceCounts() =>
+        Specifications.GroupBy(item => item.Kind).ToDictionary(group => group.Key, group => group.Count());
+}

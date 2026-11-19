@@ -314,7 +314,10 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
             var memory = _probeEnvironment.Open();
             var locator = _probeEnvironment.CreateLocator(memory);
             var probes = new ObjectProbes(memory, layout);
-            var players = locator.FindPlayers(layout, 64, TimeSpan.FromSeconds(20));
+            var located = locator.FindPlayers(layout, 96, TimeSpan.FromSeconds(25));
+            // 女子数据库的对象结构未单独核对：分开统计，不让它污染男子样本的比率，也不假装它已通过。
+            var (men, women) = probes.SplitByGender(located);
+            var players = men.Count > 0 ? men : located;
             var clubs = locator.FindClubs(layout, 16, TimeSpan.FromSeconds(10)).ToList();
             // 俱乐部对象不一定能被 vtable 扫描命中；从球员的合同链上补一批。
             foreach (var (club, _) in probes.DeriveClubsFromPlayers(players))
@@ -333,6 +336,20 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
                 probes.ProbeLoans(),
                 probes.ProbeTransfers(Array.Empty<ulong>()),
                 probes.ProbeIntegrity(players, clubs),
+                // 字段级：属性三组 + 位置 + 国籍 + 球队关系（注册俱乐部/当前球队/层级）
+                probes.ProbeAttributeGroup(players, "attributes.technical", FieldSpecs.Technical),
+                probes.ProbeAttributeGroup(players, "attributes.mental", FieldSpecs.Mental),
+                probes.ProbeAttributeGroup(players, "attributes.physical", FieldSpecs.Physical),
+                probes.ProbePositions(players),
+                probes.ProbeNationality(players),
+                probes.ProbeTeamRelations(players),
+                new ProbeOutcome("women_database", ProbeStatus.Inconclusive, women.Count,
+                    new[]
+                    {
+                        new FieldCheck("women.objects", women.Count > 0 ? CheckStatus.Inconclusive : CheckStatus.Passed,
+                            $"定位到女子数据库对象 {women.Count} 个（男子样本 {players.Count} 个）"),
+                    },
+                    "女子数据库结构与男子不同（合同/球队链在 25% 样本上读不通）：未验证，扫描前必须单独核对。"),
             };
 
             diagnostics.Add($"定位到球员对象 {players.Count} 个、俱乐部对象 {clubs.Count} 个。");
@@ -344,7 +361,8 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
                 layout,
                 outcomes,
                 diagnostics,
-                limitations);
+                limitations,
+                FieldSpecs.Build(layout));
             return Task.FromResult(report);
         }
         catch (MemoryUnreadableException)

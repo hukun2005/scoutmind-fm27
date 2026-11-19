@@ -18,7 +18,7 @@ public sealed class FM27_1_Layout : LayoutBase
 
     /// <summary>创建布局。</summary>
     public FM27_1_Layout()
-        : base(LayoutName, major: 27, minor: 1, FM27_0_Layout.OffsetsTable(), FieldStatus.Unknown, Source)
+        : base(LayoutName, major: 27, minor: 1, FM27_0_Layout.OffsetsTable(), FieldStatus.Pending, Source)
     {
         Require(
             "OBJ_DUNI",
