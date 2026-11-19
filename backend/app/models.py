@@ -203,6 +203,33 @@ class IdentityMatch(TimestampMixin, Base):
     evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
 
 
+class IdentityConflict(TimestampMixin, Base):
+    """一次无法安全合并的身份冲突，保留证据供人工复核。
+
+    典型场景：同一个 save_local_uid 出现过不同出生日期，或缺少出生日期且姓名不同——这时不能猜测
+    "是不是同一个人"，只能把两条记录都保留下来并记录冲突，等下一轮扫描或人工确认。
+    """
+
+    __tablename__ = "identity_conflicts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    save_local_uid: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(String(48), nullable=False)
+    existing_player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"), index=True)
+    incoming_player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"), index=True)
+    existing_name: Mapped[str | None] = mapped_column(String(128))
+    incoming_name: Mapped[str | None] = mapped_column(String(128))
+    existing_birth_date: Mapped[date | None] = mapped_column(Date)
+    incoming_birth_date: Mapped[date | None] = mapped_column(Date)
+    resolution: Mapped[str] = mapped_column(String(32), default="kept_both", nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+    __table_args__ = (
+        Index("ix_identity_conflicts_save_uid", "fm_save_id", "save_local_uid"),
+    )
+
+
 class PlayerAttribute(TimestampMixin, Base):
     """Attribute dictionary. Values are the FM 1-20 scale unless the source says otherwise."""
 
