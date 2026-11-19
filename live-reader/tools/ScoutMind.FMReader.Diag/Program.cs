@@ -524,6 +524,29 @@ internal static class Program
                 return 0;
             }
 
+            case "configcheck":
+            {
+                // 三份兼容性配置是否一致；不一致时退出码 3（CI / 发布脚本可以直接用）。
+                var config = new CompatibilityConfig();
+                var issues = config.Validate();
+                Console.WriteLine(ToJson(new
+                {
+                    consistent = issues.Count == 0,
+                    issues,
+                    gate = config.GateEntries.Select(item => new { item.Build, item.Layout, item.AppId, item.PluginVersion, status = item.Status.ToString() }),
+                    registry = config.Registrations.Select(item => new
+                    {
+                        item.Build,
+                        item.Layout,
+                        status = item.Status.ToString(),
+                        item.PluginVersion,
+                        verified = item.VerifiedFields.Count,
+                        upstream = item.UpstreamFields?.Count ?? 0,
+                    }),
+                }));
+                return issues.Count == 0 ? 0 : 3;
+            }
+
             case "foot":
                 Console.WriteLine(ToJson(new
                 {

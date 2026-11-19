@@ -185,6 +185,15 @@ public sealed class VersionGate
     /// <summary>解析清单 JSON（与嵌入资源同构，测试直接复用）。</summary>
     /// <param name="root">JSON 根元素。</param>
     /// <returns>清单条目。</returns>
+    /// <summary>从 JSON 文本解析（配置校验与测试使用）。</summary>
+    /// <param name="json">JSON 文本。</param>
+    /// <returns>条目。</returns>
+    public static IReadOnlyList<BuildEntry> ParseJson(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return Parse(document.RootElement);
+    }
+
     public static IReadOnlyList<BuildEntry> Parse(JsonElement root)
     {
         if (!root.TryGetProperty("layouts", out var layouts) || layouts.ValueKind != JsonValueKind.Array)
