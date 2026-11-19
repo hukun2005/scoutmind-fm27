@@ -27,7 +27,6 @@ public sealed class FM27_1_Layout : LayoutBase
             "PERO_SECOND_NAME",
             "PERO_COMMON_NAME",
             "PERO_DOB",
-            "PLAO_HEIGHT",
             "PLAO_POSITIONS",
             "PERO_NATION",
             "CON_EXPIRY",
