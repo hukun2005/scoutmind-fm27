@@ -28,11 +28,17 @@ public sealed record FmEngineStatus(
     string EngineVersion);
 
 /// <summary>probe 结果：能否安全读取。</summary>
-/// <param name="Passed">是否通过（版本闸门放行且进程可读）。</param>
+/// <param name="Passed">是否通过（诊断报告的整体状态为 Verified）。</param>
 /// <param name="Reason">失败原因；通过时为 <c>null</c>。</param>
 /// <param name="Status">当时的完整状态。</param>
 /// <param name="DurationMs">耗时。</param>
-public sealed record FmProbeResult(bool Passed, string? Reason, FmEngineStatus Status, long DurationMs);
+/// <param name="Report">诊断报告；无法探测时为 <c>null</c>。</param>
+public sealed record FmProbeResult(
+    bool Passed,
+    string? Reason,
+    FmEngineStatus Status,
+    long DurationMs,
+    Probes.DiagnosticReport? Report = null);
 
 /// <summary>扫描结果。</summary>
 /// <param name="PayloadJson">符合 ScoutMind 扫描协议的 JSON 文本；失败时为 <c>null</c>。</param>
@@ -75,6 +81,11 @@ public interface IFmScanEngine
     /// <param name="cancellationToken">取消令牌。</param>
     /// <returns>probe 结果。</returns>
     Task<FmProbeResult> ProbeAsync(CancellationToken cancellationToken);
+
+    /// <summary>执行一次结构化诊断（球员/俱乐部/球队/合同/租借/转会/完整性），返回报告。</summary>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>诊断报告。</returns>
+    Task<Probes.DiagnosticReport> DiagnoseAsync(CancellationToken cancellationToken);
 
     /// <summary>执行一次只读扫描并返回 ScoutMind 协议报文。</summary>
     /// <param name="cancellationToken">取消令牌。</param>

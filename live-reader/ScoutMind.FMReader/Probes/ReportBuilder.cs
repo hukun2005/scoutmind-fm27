@@ -76,7 +76,7 @@ public static class ReportBuilder
         {
             OverallStatus.Verified => "布局已在真实存档上核对：允许正式扫描。",
             OverallStatus.Candidate => "结构探测通过但缺少真实值锚定：仍然禁止正式扫描。",
-            OverallStatus.Rejected => "探测失败或字段被拒绝：布局不匹配，禁止扫描。",
+            OverallStatus.Rejected => "探测失败或字段被拒绝（未加载存档或布局不匹配）：禁止扫描。",
             _ => layout is null
                 ? "构建未登记或游戏未运行：无法判断布局，禁止扫描。"
                 : "证据不足：禁止扫描。",
