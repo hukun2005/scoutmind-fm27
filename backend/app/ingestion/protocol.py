@@ -7,10 +7,11 @@ the facts that decide provenance: source, scan identity, observation time and pl
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 SOURCE_KINDS = (
     "fm27_live_reader",
@@ -109,8 +110,16 @@ class ScanGame(BaseModel):
     app_id: str | None = None
 
 
+SAFE_SCAN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
 class ScanMeta(BaseModel):
-    """Identity and timing of one scan; ``scan_id`` is the idempotency key."""
+    """Identity and timing of one scan; ``scan_id`` is the idempotency key.
+
+    ``scan_id`` also becomes part of a filename on disk, so it is restricted to a safe alphabet:
+    no slashes, no backslashes, no drive letters, no ``..`` segments. The storage layer additionally
+    generates its own filename and verifies the resolved path stays inside the save's raw directory.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
@@ -118,6 +127,16 @@ class ScanMeta(BaseModel):
     observed_at: datetime
     game_date: date | None = None
     user_club_uid: str | None = None
+
+    @field_validator("scan_id")
+    @classmethod
+    def _safe_scan_id(cls, value: str) -> str:
+        """Reject anything that could be interpreted as a path instead of an id."""
+        if not SAFE_SCAN_ID_PATTERN.fullmatch(value) or ".." in value:
+            raise ValueError(
+                "scan_id 只能包含字母、数字、点、下划线和连字符（1-64 位），且不能包含路径分隔符、盘符或 .."
+            )
+        return value
 
     @field_validator("observed_at")
     @classmethod
@@ -426,7 +445,14 @@ def validate_transfer_row(row: dict[str, Any]) -> TransferRecord:
 
 
 def _payload_from_mapping(data: dict[str, Any]) -> ScanPayload:
-    return ScanPayload.model_validate(data)
+    try:
+        return ScanPayload.model_validate(data)
+    except ValidationError as exc:
+        # 字段级校验失败（例如 scan_id 含路径）是"报文不合法"，应返回 400 而不是 500。
+        summary = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}" for error in exc.errors()[:5]
+        )
+        raise ProtocolError(f"扫描报文校验失败：{summary}") from exc
 
 
 def parse_payload(raw: bytes) -> tuple[ScanPayload, list[str]]:
