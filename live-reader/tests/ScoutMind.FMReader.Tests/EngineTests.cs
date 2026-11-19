@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ScoutMind.FMReader.Engine;
+using ScoutMind.FMReader.Probes;
 using ScoutMind.FMReader.Versioning;
 
 namespace ScoutMind.FMReader.Tests;
@@ -99,15 +100,61 @@ internal static class EngineTests
         },
     });
 
+    /// <summary>构造"注册表已验证 + 布局全部字段已验证 + 假内存通过探测"的环境。</summary>
+    private static (FMSuperScoutMemoryEngine Engine, StubDumpProvider Provider, FakeEnvironment Environment) VerifiedEngine(
+        StubDumpProvider? provider = null)
+    {
+        var layout = new ScoutMind.FMReader.Layouts.FM27_1_Layout();
+        var registry = new CompatibilityRegistry(new[]
+        {
+            new BuildRegistration("26620374", "FM27_1", BuildStatus.Verified, "27.1.0+2505117",
+                layout.Offsets.Keys.ToList(), new[] { "unit-test" }, "测试用：已核对"),
+        });
+        var environment = new FakeEnvironment();
+        for (var index = 0; index < 24; index++)
+        {
+            environment.Locator.Players.Add(FakeSave.WritePlayer(environment.Memory, layout, index, name: $"Engine Player {index}"));
+        }
+
+        environment.Locator.Clubs.Add(FakeSave.WriteClub(environment.Memory, layout, 0, "Engine FC"));
+
+        var dumpProvider = provider ?? new StubDumpProvider(MinimalDump());
+        var engine = new FMSuperScoutMemoryEngine(
+            locator: new FixedLocator(4242, InstallDirectory()),
+            gate: new VersionGate(new[] { VerifiedEntry }),
+            registry: registry,
+            dumpProvider: dumpProvider,
+            workingRoot: Path.Combine(AppContext.BaseDirectory, "test-tmp", "engine-work"),
+            buildResolver: _ => "26620374",
+            probeEnvironment: environment);
+        return (engine, dumpProvider, environment);
+    }
+
     public static async Task RunAsync(TestHarness harness)
     {
         await harness.RunAsync("引擎：candidate 构建时 probe 拒绝且不读内存", async () =>
         {
             var provider = new StubDumpProvider(MinimalDump());
-            var engine = Engine(new VersionGate(new[] { CandidateEntry }), provider);
+            var environment = new FakeEnvironment();
+            var layout = new ScoutMind.FMReader.Layouts.FM27_1_Layout();
+            for (var index = 0; index < 24; index++)
+            {
+                environment.Locator.Players.Add(FakeSave.WritePlayer(environment.Memory, layout, index, name: $"Cand {index}"));
+            }
+
+            environment.Locator.Clubs.Add(FakeSave.WriteClub(environment.Memory, layout, 0, "Cand FC"));
+            var engine = new FMSuperScoutMemoryEngine(
+                locator: new FixedLocator(4242, InstallDirectory()),
+                gate: new VersionGate(new[] { CandidateEntry }),
+                dumpProvider: provider,
+                workingRoot: Path.Combine(AppContext.BaseDirectory, "test-tmp", "engine-work"),
+                buildResolver: _ => "26620374",
+                probeEnvironment: environment);
             var probe = await engine.ProbeAsync(CancellationToken.None);
             TestHarness.True(!probe.Passed, "candidate 必须 probe 失败");
-            TestHarness.Contains(probe.Reason ?? string.Empty, "未验证", "应说明未验证");
+            TestHarness.Contains(probe.Reason ?? string.Empty, "禁止", "应说明禁止扫描");
+            TestHarness.True(probe.Report is not null, "probe 应带上诊断报告");
+            TestHarness.Equal(OverallStatus.Candidate, probe.Report!.Overall, "candidate 构建的报告整体状态应为 Candidate");
             TestHarness.Equal(0, provider.Calls, "拒绝时不得读取内存");
         });
 
@@ -124,8 +171,7 @@ internal static class EngineTests
 
         await harness.RunAsync("引擎：verified 构建时读取并映射出协议报文", async () =>
         {
-            var provider = new StubDumpProvider(MinimalDump());
-            var engine = Engine(new VersionGate(new[] { VerifiedEntry }), provider);
+            var (engine, provider, _) = VerifiedEngine();
             var result = await engine.ScanAsync(CancellationToken.None);
             TestHarness.True(result.PayloadJson is not null, "应输出报文");
             TestHarness.Equal(1, provider.Calls, "应读取一次内存");
@@ -147,8 +193,7 @@ internal static class EngineTests
 
         await harness.RunAsync("引擎：上游读取失败时返回失败而不是空数据", async () =>
         {
-            var provider = new StubDumpProvider(failure: new UpstreamReadException("进程打不开"));
-            var engine = Engine(new VersionGate(new[] { VerifiedEntry }), provider);
+            var (engine, _, _) = VerifiedEngine(new StubDumpProvider(failure: new UpstreamReadException("进程打不开")));
             var result = await engine.ScanAsync(CancellationToken.None);
             TestHarness.Equal<string?>(null, result.PayloadJson, "失败时不得输出报文");
             TestHarness.Contains(result.FailureReason ?? string.Empty, "进程打不开", "应冒泡上游原因");

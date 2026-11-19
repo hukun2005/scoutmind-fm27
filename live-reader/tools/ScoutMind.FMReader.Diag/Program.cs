@@ -2,6 +2,8 @@ using System.Text;
 using System.Text.Json;
 using ScoutMind.FMReader.Engine;
 using ScoutMind.FMReader.Integration;
+using ScoutMind.FMReader.Layouts;
+using ScoutMind.FMReader.Versioning;
 
 namespace ScoutMind.FMReader.Diag;
 
@@ -117,6 +119,49 @@ internal static class Program
                     coverage = mapped.Coverage,
                     warnings = mapped.Warnings,
                 }));
+                return 0;
+            }
+
+            case "report":
+            {
+                var report = await engine.DiagnoseAsync(cancellation.Token).ConfigureAwait(false);
+                var target = args.Length > 1 ? args[1] : null;
+                var json = JsonSerializer.Serialize(report, new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                    Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+                });
+                if (!string.IsNullOrWhiteSpace(target))
+                {
+                    File.WriteAllText(target, json);
+                    Console.Error.WriteLine($"报告已写入 {target}");
+                }
+
+                Console.WriteLine(json);
+                return report.ScanAllowed ? 0 : 3;
+            }
+
+            case "layout":
+            {
+                var resolver = new LayoutResolver();
+                var registry = new CompatibilityRegistry();
+                var rows = LayoutResolver.KnownBuildMap().Select(item =>
+                {
+                    var entry = registry.For(item.Key);
+                    var layout = resolver.Resolve(item.Key);
+                    return new
+                    {
+                        build = item.Key,
+                        layout = item.Value,
+                        registry_status = entry?.Status.ToString() ?? "unregistered",
+                        layout_status = layout?.Status.ToString() ?? "n/a",
+                        scan_allowed = registry.AllowsScan(item.Key),
+                        verified_fields = entry?.VerifiedFields.Count ?? 0,
+                        note = entry?.Note,
+                    };
+                });
+                Console.WriteLine(ToJson(new { builds = rows, steam_libraries = SteamPaths.Libraries() }));
                 return 0;
             }
 

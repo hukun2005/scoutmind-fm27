@@ -127,3 +127,58 @@ ScoutMind.FMReader.Diag probe   → passed=false（版本闸门拒绝）
 2. 上游能提供的阵容层级只有整数 `teamType`；即使偏移全部核对通过，梯队仍需阵容 CSV（已有实现）。
 3. 转会历史与逐场统计上游 dump 不含；要补需要另找数据源，不在"整合读取核心"的范围内。
 4. 若后续上游发布 27.1 布局，按 `third_party/FMSuperScout/UPSTREAM.md` 升级并重跑本报告的测试即可。
+
+---
+
+# 追加：27.1 布局隔离与自动化探测（2026-11-19）
+
+在第一阶段报告之后，按"27.1 自动化版本适配"任务补了第二到第五阶段的基础设施，并把第六阶段推进到
+"真实进程探测已跑通、等待加载存档"。
+
+## 新增内容
+
+| 阶段 | 交付 | 状态 |
+| --- | --- | --- |
+| 一 分析 | `docs/FM27-27.1-ANALYSIS.md`：全部布局定义、27.0 关键偏移、四处版本识别、探测逻辑、不可验证字段、27.1 适配清单 | 完成 |
+| 二 布局隔离 | `FM27_0_Layout`、`FM27_1_Layout`、`LayoutResolver`、`CompatibilityRegistry`、`GameBuildDetector` | 完成 |
+| 三 自动探测 | 球员/俱乐部/球队/合同/租借/转会/完整性 7 组只读探测，带时间预算与样本上限 | 完成 |
+| 四 字段校验 | 范围、类型、堆指针合法性、对象关系、跨字段一致性（CA≤PA、到期日与出生日期、球员必须出现在自己球队向量里） | 完成 |
+| 五 诊断报告 | `DiagnosticReport`：构建/插件/布局/逐探测/逐字段/整体状态（Verified/Candidate/Rejected/Unknown） | 完成 |
+| 六 真实验证 | 在真实 FM27 进程（Build 26620374）上跑通探测；游戏停在主菜单，样本不完整，**未通过**，如实记录 | 进行中 |
+
+## 关键设计
+
+- **布局隔离**：27.0 与 27.1 是两份独立对象；27.1 的偏移是"复制假设"，每个字段都是 `Unknown`，
+  只有经 `Mark(field, Verified, evidence)` 才升级。修改 27.1 不影响 27.0（有测试固定）。
+- **两道闸门 + 注册表**：读取器兼容清单、引擎版本闸门、兼容性注册表三者都放行才读内存；
+  注册表里 `verified_fields` 为空就是不放过。
+- **探测不伪造**：租借字段不存在 → `NotApplicable`；转会记录无 vtable → 无样本时 `Inconclusive`；
+  任何 `Failed` 都让整体变 `Rejected`。
+- **单一数值不算成功**：每个探测都是多字段 + 关系 + 跨字段组合；报告明确写"结构自洽不能证明数值正确"。
+
+## 真实运行记录
+
+见 [`docs/acceptance/LIVE-2026-11-19.md`](acceptance/LIVE-2026-11-19.md)：
+
+```
+整体 Rejected（主菜单、未加载存档）
+player 32 样本：CA/PA 范围、俱乐部名称、UID 唯一性全部通过；合同链 24/32 可达
+club 32 样本：通过
+integrity 64 样本：通过
+```
+
+这些数字**不足以**把 27.1 标成 verified，也**不足以**断定布局错误——需要加载存档后重跑。
+
+## 测试
+
+| 套件 | 结果 |
+| --- | --- |
+| `ScoutMind.FMReader.Tests` | **60 项通过**（新增布局隔离、解析器、注册表、7 组探测、报告状态机） |
+| `ScoutMind.Reader.Tests` | 46 项通过 |
+| 后端 | 109 项通过 |
+
+## 下一步（唯一阻塞项）
+
+加载存档后重跑 `Diag report`，然后按 `docs/FM27-VERSION-VERIFICATION.md` 逐类对照游戏内数值；
+把结果写进 `compatibility-registry.json` 的 `verified_fields`，再改 `verified-versions.json` 与
+`config/compatibility.json`。在此之前 27.1 扫描保持禁止。
