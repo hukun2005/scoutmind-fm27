@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..analytics.transfers import (
+    count_transfers,
     TransferFilter,
     club_transfer_profile,
     fetch_transfers,
@@ -96,9 +97,9 @@ def list_transfers(
         min_ca, max_ca,
     )
     target_save = save_id or save.id
-    all_rows = fetch_transfers(db, target_save, filters)
-    total = len(all_rows)
-    rows = all_rows[offset : offset + limit]
+    # 分页在 SQL 层完成（没有位置筛选时是真正的 LIMIT/OFFSET），总数用 COUNT 查询。
+    total = count_transfers(db, target_save, filters)
+    rows = fetch_transfers(db, target_save, filters, limit=limit, offset=offset)
     clubs = {club.id: club for club in db.scalars(select(Club).where(Club.fm_save_id == target_save))}
     items = [serialize_transfer(row, clubs) for row in rows]
     priced = [row for row in all_rows if row.effective_fee is not None]
