@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from collections import Counter
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -20,6 +22,20 @@ from ..ingestion.importer import ScanImporter
 from ..ingestion.protocol import ProtocolError, ScanPayload
 from ..models import FmSave, PlayerInstance
 from .deps import get_active_save, get_current_user
+
+def duplicate_player_ids(players: list[dict]) -> list[str]:
+    """Return player ids that appear more than once, in O(n).
+
+    ``[uid for uid in ids if ids.count(uid) > 1]`` is O(n²): 100k players means ~10^10 comparisons.
+    Missing or non-string ids are skipped here because row validation rejects them earlier.
+    """
+    counts = Counter(
+        row.get("save_local_uid")
+        for row in players
+        if isinstance(row.get("save_local_uid"), str) and row.get("save_local_uid")
+    )
+    return sorted(uid for uid, seen in counts.items() if seen > 1)
+
 
 router = APIRouter()
 
@@ -85,7 +101,7 @@ async def validate_dump(
 
     players = payload["players"]
     ids = [row["save_local_uid"] for row in players]
-    duplicates = sorted({uid for uid in ids if ids.count(uid) > 1})
+    duplicates = duplicate_player_ids(players)
     coverage = report.payload()["coverage"]
     known_counts = _existing_instances(db, save_id or save.id, ids)
     sections = [

@@ -14,8 +14,10 @@ import json
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
+from uuid import uuid4
 
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..analytics.fees import compute_effective_fee
@@ -87,6 +89,14 @@ class ImportOutcome:
     coverage: dict[str, float] = field(default_factory=dict)
 
 
+class DuplicateScanError(Exception):
+    """Raised when a concurrent request already created the job for this (save, scan_id)."""
+
+    def __init__(self, job: ImportJob) -> None:
+        super().__init__(f"scan {job.scan_id} 已经在存档 {job.fm_save_id} 中导入")
+        self.job = job
+
+
 class ScanImporter:
     """Applies a validated scan payload for one save."""
 
@@ -105,22 +115,20 @@ class ScanImporter:
 
     def import_payload(self, save_id: int, payload: ScanPayload, raw: bytes | None = None) -> ImportOutcome:
         """Import an already parsed payload; the caller owns the ``save_id`` existence check."""
-        existing = self.session.scalar(select(ImportJob).where(ImportJob.scan_id == payload.scan.scan_id))
-        if existing is not None and existing.status in {"succeeded", "partial"}:
-            return ImportOutcome(
-                job_id=existing.id,
-                save_id=existing.fm_save_id,
-                scan_id=existing.scan_id,
-                status=existing.status,
-                duplicate=True,
-                players_created=existing.player_count,
-                snapshots_created=0,
-                transfers_created=existing.transfer_count,
-                warnings=_load_json(existing.warnings_json, []),
-                coverage=_load_json(existing.coverage_json, {}),
+        existing = self.session.scalar(
+            select(ImportJob).where(
+                ImportJob.fm_save_id == save_id,
+                ImportJob.scan_id == payload.scan.scan_id,
             )
+        )
+        if existing is not None and existing.status in {"succeeded", "partial"}:
+            return self._duplicate_outcome(existing)
 
-        job = self._begin_job(save_id, payload, existing, raw)
+        try:
+            job = self._begin_job(save_id, payload, existing, raw)
+        except DuplicateScanError as duplicate:
+            # 并发提交同一个 scan_id：另一个请求已经写入，返回它的结果而不是重复应用。
+            return self._duplicate_outcome(duplicate.job)
         try:
             outcome = self._apply(job, payload)
         except Exception as exc:  # keep the failure visible and leave no partial rows behind
@@ -159,14 +167,54 @@ class ScanImporter:
             )
             self.session.add(job)
         if raw is not None:
-            target_dir = self.raw_dir / str(save_id)
-            target_dir.mkdir(parents=True, exist_ok=True)
-            target = target_dir / f"{payload.scan.scan_id}.json"
+            target = self._raw_target(save_id)
             target.write_bytes(raw)
             job.raw_payload_path = str(target)
             job.checksum = payload_checksum(raw)
-        self.session.commit()
+        try:
+            self.session.commit()
+        except IntegrityError as exc:
+            # 同一存档并发提交同一个 scan_id：唯一约束兜底，回滚后交出已有的那份导入。
+            self.session.rollback()
+            existing = self.session.scalar(
+                select(ImportJob).where(
+                    ImportJob.fm_save_id == save_id,
+                    ImportJob.scan_id == payload.scan.scan_id,
+                )
+            )
+            if existing is None:
+                raise
+            raise DuplicateScanError(existing) from exc
         return job
+
+    @staticmethod
+    def _duplicate_outcome(job: ImportJob) -> ImportOutcome:
+        """同一存档里重复提交同一个 scan_id 时的返回体；不会再次写入数据。"""
+        return ImportOutcome(
+            job_id=job.id,
+            save_id=job.fm_save_id,
+            scan_id=job.scan_id,
+            status=job.status,
+            duplicate=True,
+            players_created=job.player_count,
+            snapshots_created=0,
+            transfers_created=job.transfer_count,
+            warnings=_load_json(job.warnings_json, []),
+            coverage=_load_json(job.coverage_json, {}),
+        )
+
+    def _raw_target(self, save_id: int) -> Path:
+        """Return a backend-generated path inside this save's raw directory.
+
+        The filename never comes from the payload: a malicious or malformed ``scan_id`` must not be able
+        to escape the directory, overwrite another save's file, or create a file elsewhere on disk.
+        """
+        root = (self.raw_dir / str(int(save_id))).resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        target = (root / f"{uuid4().hex}.json").resolve()
+        if target.parent != root:
+            raise ValueError(f"拒绝写入 {target}：不在存档 raw 目录 {root} 内")
+        return target
 
     def _mark_failed(self, job_id: int, message: str) -> None:
         job = self.session.get(ImportJob, job_id)

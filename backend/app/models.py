@@ -87,13 +87,19 @@ class DataSource(TimestampMixin, Base):
 
 
 class ImportJob(TimestampMixin, Base):
-    """One accepted scan payload. ``scan_id`` is the idempotency key for the whole import."""
+    """One accepted scan payload. ``(fm_save_id, scan_id)`` is the idempotency key.
+
+    ``scan_id`` alone is not unique: two different saves may legitimately receive a scan that happens
+    to carry the same id (for example a reader restarted with a fixed id). Uniqueness is therefore
+    scoped to the save, matching how the importer looks up duplicates.
+    """
 
     __tablename__ = "import_jobs"
+    __table_args__ = (UniqueConstraint("fm_save_id", "scan_id", name="uq_import_jobs_save_scan"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
-    scan_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    scan_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     schema_version: Mapped[str] = mapped_column(String(16), nullable=False)
     reader_version: Mapped[str | None] = mapped_column(String(32))
