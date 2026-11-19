@@ -1,8 +1,9 @@
 using System.Text;
 using System.Text.Json;
 using ScoutMind.FMReader.Engine;
-using ScoutMind.FMReader.Integration;
 using ScoutMind.FMReader.Layouts;
+using ScoutMind.FMReader.Probes;
+using ScoutMind.FMReader.Integration;
 using ScoutMind.FMReader.Versioning;
 
 namespace ScoutMind.FMReader.Diag;
@@ -165,6 +166,219 @@ internal static class Program
                 return 0;
             }
 
+            case "players":
+            {
+                // 只读抽样：把定位到的球员样本（姓名/CA/PA/身高/生日/合同/俱乐部/号码）打印出来，供人工与游戏内核对。
+                var layout = new LayoutResolver().Resolve("26620374", "27.1");
+                if (layout is null)
+                {
+                    Console.Error.WriteLine("未登记的构建");
+                    return 3;
+                }
+
+                try
+                {
+                    using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
+                    var locator = new ScoutMind.FMReader.Engine.HeapObjectLocator(memory);
+                    var players = locator.FindPlayers(layout, 60, TimeSpan.FromSeconds(20));
+                    var rows = new List<object>();
+                    foreach (var item in players)
+                    {
+                        var ca = memory.UInt16(item.Block + layout["PLAO_CA"]);
+                        var pa = memory.UInt16(item.Block + layout["PLAO_PA"]);
+                        var height = memory.UInt16(item.Block + layout["PLAO_HEIGHT"]);
+                        var birth = FmDate.Decode(memory.UInt32(item.Person + layout["PERO_DOB"]));
+                        var name = memory.NestedString(item.Person + layout["PERO_COMMON_NAME"])
+                                   ?? string.Join(" ", new[]
+                                   {
+                                       memory.NestedString(item.Person + layout["PERO_FIRST_NAME"]),
+                                       memory.NestedString(item.Person + layout["PERO_SECOND_NAME"]),
+                                   }.Where(part => !string.IsNullOrWhiteSpace(part)));
+
+                        int? expiryYear = null;
+                        int? squadNumber = null;
+                        string? clubName = null;
+                        var contract = memory.Pointer(item.Person + layout["PERO_FULL_CONTRACT"]);
+                        if (contract != 0 && memory.IsReadable(contract + layout["CON_EXPIRY"], 4))
+                        {
+                            var expiry = FmDate.Decode(memory.UInt32(contract + layout["CON_EXPIRY"]));
+                            if (expiry.Year != 0)
+                            {
+                                expiryYear = expiry.Year;
+                            }
+
+                            squadNumber = memory.Byte(contract + layout["CON_SQUAD_NUMBER"]);
+                            var team = memory.Pointer(contract + layout["CON_TEAM"]);
+                            if (team != 0 && memory.IsReadable(team + layout["TEAM_CLUB"], 8))
+                            {
+                                var club = memory.Pointer(team + layout["TEAM_CLUB"]);
+                                if (club != 0)
+                                {
+                                    clubName = memory.IndirectString(club + layout["CLUB_NAME"]);
+                                }
+                            }
+                        }
+
+                        rows.Add(new
+                        {
+                            name = string.IsNullOrWhiteSpace(name) ? null : name,
+                            ca,
+                            pa,
+                            height,
+                            birth_year = birth.Year == 0 ? (int?)null : birth.Year,
+                            contract_year = expiryYear,
+                            club = clubName,
+                            squad_number = squadNumber,
+                        });
+                    }
+
+                    Console.WriteLine(ToJson(new { layout = layout.Name, found = players.Count, sample = rows }));
+                    return 0;
+                }
+                catch (ScoutMind.FMReader.Probes.MemoryUnreadableException)
+                {
+                    Console.Error.WriteLine("无法读取进程内存");
+                    return 3;
+                }
+            }
+            case "compare":
+            {
+                // 与已有 FMSuperScout 导出比对同一存档的球员数值（独立实现交叉校验）。
+                // 用「姓名 + 出生年」作键，避免同名球员被误配。
+                var dumpPath = args.Length > 1 ? args[1] : null;
+                if (dumpPath is null || !File.Exists(dumpPath))
+                {
+                    Console.Error.WriteLine("用法：ScoutMind.FMReader.Diag compare <dump.json>");
+                    return 64;
+                }
+
+                var layout = new LayoutResolver().Resolve("26620374", "27.1");
+                if (layout is null)
+                {
+                    Console.Error.WriteLine("未登记的构建");
+                    return 3;
+                }
+
+                using var dump = JsonDocument.Parse(File.ReadAllText(dumpPath));
+                var reference = new Dictionary<string, (int Ca, int Pa, int Height, int BirthYear, int? ExpiryYear, string? Club)>(StringComparer.Ordinal);
+                foreach (var player in dump.RootElement.GetProperty("players").EnumerateArray())
+                {
+                    var name = player.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        continue;
+                    }
+
+                    var birthYear = player.TryGetProperty("birthYear", out var birth) ? birth.GetInt32() : 0;
+                    int? expiryYear = null;
+                    if (player.TryGetProperty("expires", out var expires) && expires.ValueKind == JsonValueKind.String
+                        && expires.GetString() is { Length: >= 4 } expiresText
+                        && int.TryParse(expiresText[..4], out var parsedYear))
+                    {
+                        expiryYear = parsedYear;
+                    }
+
+                    reference[$"{name}|{birthYear}"] = (
+                        player.TryGetProperty("ca", out var ca) ? ca.GetInt32() : 0,
+                        player.TryGetProperty("pa", out var pa) ? pa.GetInt32() : 0,
+                        player.TryGetProperty("height", out var height) ? height.GetInt32() : 0,
+                        birthYear,
+                        expiryYear,
+                        player.TryGetProperty("club", out var club) && club.ValueKind == JsonValueKind.String ? club.GetString() : null);
+                }
+
+                using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
+                var locator = new ScoutMind.FMReader.Engine.HeapObjectLocator(memory);
+                var sample = locator.FindPlayers(layout, 400, TimeSpan.FromSeconds(40));
+                int matched = 0, caOk = 0, paOk = 0, heightOk = 0, birthOk = 0;
+                int expiryOk = 0, expiryApplicable = 0, clubOk = 0, clubApplicable = 0;
+                var mismatches = new List<object>();
+                foreach (var player in sample)
+                {
+                    var name = memory.NestedString(player.Person + layout["PERO_COMMON_NAME"])
+                               ?? string.Join(" ", new[]
+                               {
+                                   memory.NestedString(player.Person + layout["PERO_FIRST_NAME"]),
+                                   memory.NestedString(player.Person + layout["PERO_SECOND_NAME"]),
+                               }.Where(part => !string.IsNullOrWhiteSpace(part)));
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        continue;
+                    }
+
+                    var birth = FmDate.Decode(memory.UInt32(player.Person + layout["PERO_DOB"])).Year;
+                    if (!reference.TryGetValue($"{name}|{birth}", out var expected))
+                    {
+                        continue;
+                    }
+
+                    matched++;
+                    var ca = memory.UInt16(player.Block + layout["PLAO_CA"]);
+                    var pa = memory.UInt16(player.Block + layout["PLAO_PA"]);
+                    var height = memory.UInt16(player.Block + layout["PLAO_HEIGHT"]);
+                    if (ca == expected.Ca) caOk++;
+                    if (pa == expected.Pa) paOk++;
+                    if (height == expected.Height) heightOk++;
+                    if (birth == expected.BirthYear) birthOk++;
+
+                    int? expiryYear = null;
+                    string? clubName = null;
+                    var contract = memory.Pointer(player.Person + layout["PERO_FULL_CONTRACT"]);
+                    if (contract != 0 && memory.IsReadable(contract + layout["CON_EXPIRY"], 4))
+                    {
+                        var expiry = FmDate.Decode(memory.UInt32(contract + layout["CON_EXPIRY"]));
+                        expiryYear = expiry.Year == 0 ? null : expiry.Year;
+                        var team = memory.Pointer(contract + layout["CON_TEAM"]);
+                        if (team != 0 && memory.IsReadable(team + layout["TEAM_CLUB"], 8))
+                        {
+                            var club = memory.Pointer(team + layout["TEAM_CLUB"]);
+                            if (club != 0)
+                            {
+                                clubName = memory.IndirectString(club + layout["CLUB_NAME"]);
+                            }
+                        }
+                    }
+
+                    if (expected.ExpiryYear is not null && expiryYear is not null)
+                    {
+                        expiryApplicable++;
+                        if (expiryYear == expected.ExpiryYear) expiryOk++;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(expected.Club) && !string.IsNullOrWhiteSpace(clubName))
+                    {
+                        clubApplicable++;
+                        if (string.Equals(expected.Club, clubName, StringComparison.Ordinal)) clubOk++;
+                    }
+
+                    if (mismatches.Count < 8 && (ca != expected.Ca || pa != expected.Pa || height != expected.Height))
+                    {
+                        mismatches.Add(new
+                        {
+                            name,
+                            birth,
+                            reader = new { ca, pa, height, expiry_year = expiryYear, club = clubName },
+                            dump = new { ca = expected.Ca, pa = expected.Pa, height = expected.Height, expiry_year = expected.ExpiryYear, club = expected.Club },
+                        });
+                    }
+                }
+
+                Console.WriteLine(ToJson(new
+                {
+                    sampled = sample.Count,
+                    matched,
+                    ca_ok = caOk,
+                    pa_ok = paOk,
+                    height_ok = heightOk,
+                    birth_year_ok = birthOk,
+                    expiry_ok = expiryOk,
+                    expiry_applicable = expiryApplicable,
+                    club_ok = clubOk,
+                    club_applicable = clubApplicable,
+                    mismatches,
+                }));
+                return matched > 0 && caOk == matched && paOk == matched ? 0 : 3;
+            }
             case "foot":
                 Console.WriteLine(ToJson(new
                 {
@@ -178,6 +392,18 @@ internal static class Program
                 Console.Error.WriteLine("用法：ScoutMind.FMReader.Diag [status|probe|scan|foot]");
                 return 64;
         }
+    }
+
+    private static string? ReadNationName(ScoutMind.FMReader.Probes.IMemorySource memory, ScoutMind.FMReader.Layouts.ILayout layout, ulong person)
+    {
+        var nation = memory.Pointer(person + layout["PERO_NATION"]);
+        if (nation == 0)
+        {
+            return null;
+        }
+
+        return memory.IndirectString(nation + layout["NATION_NAME"])
+               ?? memory.IndirectString(nation + layout["NATION_SHORT_NAME"]);
     }
 
     private static string ToJson(object value) =>

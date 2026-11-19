@@ -250,6 +250,7 @@ public sealed class ObjectProbes
         }
 
         int teamReachable = 0, teamTypeSane = 0, clubReachable = 0, playersRangeSane = 0, crossConsistent = 0;
+        int chainApplicable = 0, chainMissing = 0, vectorApplicable = 0, vectorMissing = 0;
         foreach (var player in sample)
         {
             try
@@ -318,6 +319,7 @@ public sealed class ObjectProbes
         }
 
         int pointerValid = 0, expirySane = 0, wageSane = 0, flagsSane = 0, expiryAfterBirth = 0;
+        int applicable = 0, missing = 0;
         foreach (var player in sample)
         {
             try
@@ -512,6 +514,28 @@ public sealed class ObjectProbes
         }
 
         return false;
+    }
+
+    /// <summary>筛出"看起来是球员"的对象：CA 在 1..200。被误分类的职员/垃圾对象不参与关系链检查。</summary>
+    private IEnumerable<LocatedObject> RealPlayers(IReadOnlyList<LocatedObject> players)
+    {
+        foreach (var player in players)
+        {
+            ushort ca;
+            try
+            {
+                ca = _memory.UInt16(player.Block + _layout["PLAO_CA"]);
+            }
+            catch (MemoryUnreadableException)
+            {
+                continue;
+            }
+
+            if (ca is >= 1 and <= 200)
+            {
+                yield return player;
+            }
+        }
     }
 
     /// <summary>堆指针合理性：非空、8 字节对齐、位于用户态地址范围、且 8 字节可读。</summary>
