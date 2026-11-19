@@ -28,6 +28,7 @@ internal static class Program
         var harness = new TestHarness();
         LocatorTests.Run(harness);
         VersionGateTests.Run(harness);
+        LayoutAndProbeTests.Run(harness);
         MapperTests.Run(harness);
         await EngineTests.RunAsync(harness).ConfigureAwait(false);
 

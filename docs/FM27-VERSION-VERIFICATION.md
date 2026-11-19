@@ -105,3 +105,32 @@
 
 `scan` 成功时会把协议报文写到 `scan --output <目录>`，可用
 `backend/app/api/routes_core.py::/imports/scan` 导入验证。
+
+## 6. 自动化支持（2026-11-19 新增）
+
+现在有工具链支撑上面第 3 节的人工核对，仍然**没有**任何绕过开关：
+
+| 组件 | 作用 |
+| --- | --- |
+| `Layouts/FM27_0_Layout`、`FM27_1_Layout` | 27.0 与 27.1 的独立布局表，字段级状态 |
+| `Layouts/LayoutResolver` | 构建号 → 布局；未登记构建返回 `null` |
+| `Versioning/CompatibilityRegistry` | 构建 → 布局 + 已验证字段 + 证据（`compatibility-registry.json`） |
+| `Engine/GameBuildDetector` | 进程/安装目录/插件版本/Steam 构建号 |
+| `Probes/ObjectProbes` | 7 组只读探测：player / club / team / contract / loan / transfer / integrity |
+| `Probes/ReportBuilder` | 汇总为 `Verified / Candidate / Rejected / Unknown` |
+| `ScoutMind.FMReader.Diag report` | 生成 JSON 诊断报告，可归档为验证证据 |
+
+判定规则：**结构自洽最多到 `Candidate`**；只有 `verified_fields` 覆盖全部必填字段、且所有适用探测通过，才是
+`Verified`，`ScanAsync` 才会读内存。
+
+诊断命令：
+
+```powershell
+$diag = ".\live-reader\tools\ScoutMind.FMReader.Diag\bin\Release\net10.0\ScoutMind.FMReader.Diag.exe"
+& $diag layout                       # 构建 → 布局 → 注册状态
+& $diag report .\exports\report.json # 完整诊断报告（含逐字段状态与探测明细）
+& $diag probe                        # 只有 Verified 才会 passed=true
+```
+
+报告里的 `Probes[].Checks[]` 会列出每项检查的实际值与阈值（例如 `ca_range：32/32（100%，阈值 95%）`），
+失败项直接给出原因，便于定位是哪一类偏移不对。
