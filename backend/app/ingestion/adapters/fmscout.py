@@ -223,6 +223,7 @@ class AdapterReport:
     adapter: str = ADAPTER_NAME
     adapter_version: str = ADAPTER_VERSION
     dump_generated: str | None = None
+    dump_game_name: str | None = None
     dump_game: str | None = None
     scan_id: str | None = None
     players_total: int = 0
@@ -247,6 +248,7 @@ class AdapterReport:
             "adapter": self.adapter,
             "adapter_version": self.adapter_version,
             "dump_generated": self.dump_generated,
+            "dump_game_name": self.dump_game_name,
             "dump_game": self.dump_game,
             "scan_id": self.scan_id,
             "players_total": self.players_total,
@@ -326,7 +328,10 @@ def convert_document(
 
     generated = _parse_datetime(meta.get("generated"))
     report.dump_generated = generated.isoformat() if generated else None
-    report.dump_game = _text(meta.get("game")) or _text(meta.get("gameVersion"))
+    # 游戏名（FM27）与游戏版本（27.1.0）是两件事：以前把 game 当成 version，导致
+    # "版本=FM27" 这种错误值。现在分开保存，版本只取 gameVersion。
+    report.dump_game_name = _text(meta.get("game"))
+    report.dump_game = _text(meta.get("gameVersion"))
     observed_at = generated or datetime.now(timezone.utc)
     game_date = _parse_date(meta.get("gameDate"))
 
@@ -414,7 +419,8 @@ def convert_document(
             if str(key) not in KNOWN_PLAYER_FIELDS
         }
     )
-    report.compatibility = _compatibility(report.dump_game, meta)
+    # 版本兼容性判断必须用"游戏名"（FM27/FM31），不能用版本号（27.1.0）。
+    report.compatibility = _compatibility(report.dump_game_name, meta)
     if report.unknown_fields:
         report.warnings.append(
             "上游新增了适配层不认识的字段：" + "、".join(report.unknown_fields) + "（已保留在报告中，未写入数据库）"
@@ -444,8 +450,12 @@ def convert_document(
         "source": "fmsuperscout",
         "reader_version": f"{ADAPTER_NAME}-adapter-{ADAPTER_VERSION}",
         "game": {
+            "name": report.dump_game_name,
             "version": report.dump_game,
-            "build": _text(meta.get("gameDateSource")),
+            # gameDateSource 是"游戏日期来源"，不是 Steam Build ID；上游 dump 没有可靠构建号，
+            # 因此这里保持 None，把 date source 单独暴露，避免把版本信息伪装成构建号。
+            "build": _text(meta.get("build")),
+            "game_date_source": _text(meta.get("gameDateSource")),
             "app_id": None,
         },
         "scan": {
