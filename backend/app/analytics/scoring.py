@@ -208,6 +208,24 @@ def evaluate_player(session: Session, instance_id: int, role_key: str) -> dict[s
     result = score_attributes(attributes, template_weights(template), attribute_names(session))
     import json
 
+    # score 为 None 表示"不可评估"：不写入 player_scores（该表 score 非空），也不伪装成 0 分。
+    if result["score"] is None:
+        return {
+            "instance_id": instance_id,
+            "role_key": role_key,
+            "role_name": template.name,
+            "score": None,
+            "components": result["components"],
+            "template_version": template.version,
+            "algorithm_version": template.algorithm_version,
+            "coverage": 0.0,
+            "evaluable": False,
+            "reason": "该球员没有任何属性数据，无法评分",
+            "strengths": result["strengths"],
+            "weaknesses": result["weaknesses"],
+            "computed_at": iso(utcnow()),
+        }
+
     session.add(
         PlayerScore(
             player_instance_id=instance_id,
@@ -227,6 +245,7 @@ def evaluate_player(session: Session, instance_id: int, role_key: str) -> dict[s
         "template_version": template.version,
         "algorithm_version": template.algorithm_version,
         "coverage": result["coverage"],
+        "evaluable": bool(result.get("evaluable", True)),
         "strengths": result["strengths"],
         "weaknesses": result["weaknesses"],
         "computed_at": iso(utcnow()),
@@ -262,15 +281,19 @@ def score_attributes(
             }
         )
     coverage = available_weight / total_weight
-    score = round(weighted_score / available_weight * 100, 2) if available_weight > 0 else 0.0
+    # 一个属性都没有时不能给 0 分：0 分表示"能力极低"，而这里表示"无法评估"。
+    score = round(weighted_score / available_weight * 100, 2) if available_weight > 0 else None
     scorable = [item for item in components if item["value"] is not None]
     scorable.sort(key=lambda item: float(item["value"] or 0), reverse=True)
     strengths = [f"{item['name']} {item['value']:.0f}/20" for item in scorable[:2]]
     weaknesses = [f"{item['name']} {item['value']:.0f}/20" for item in scorable[-2:] if item not in scorable[:2]]
-    if coverage < 0.7:
-        weaknesses.append("属性覆盖率不足 70%，评分参考价值有限")
+    if available_weight <= 0:
+        weaknesses.append("没有任何属性数据：不可评估")
+    elif coverage < 0.7:
+        weaknesses.append(f"属性覆盖率仅 {coverage:.0%}，评分参考价值有限")
     return {
         "score": score,
+        "evaluable": available_weight > 0,
         "coverage": round(coverage, 4),
         "components": components,
         "strengths": strengths,

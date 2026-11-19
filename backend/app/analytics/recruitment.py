@@ -590,7 +590,7 @@ def _ability_dimension(target: Candidate, attribute_result: dict[str, object] | 
             "evidence": f"CA {target.ca}，按 0-200 能力标度换算",
             "missing": [],
         }
-    if attribute_result is not None:
+    if attribute_result is not None and attribute_result["score"] is not None:
         return {
             "key": "ability",
             "label": DIMENSION_LABELS["ability"],
@@ -640,6 +640,15 @@ def _fit_dimension(target: Candidate, attribute_result: dict[str, object] | None
             "missing": ["缺少位置属性，无法计算战术适配"],
         }
     coverage = float(attribute_result["coverage"])
+    if coverage <= 0 or attribute_result["score"] is None:
+        return {
+            "key": "fit",
+            "label": DIMENSION_LABELS["fit"],
+            "value": None,
+            "source": None,
+            "evidence": "",
+            "missing": ["没有任何属性数据，无法计算战术适配"],
+        }
     return {
         "key": "fit",
         "label": DIMENSION_LABELS["fit"],
