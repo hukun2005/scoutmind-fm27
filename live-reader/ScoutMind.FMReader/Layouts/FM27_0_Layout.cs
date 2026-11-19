@@ -9,11 +9,11 @@ public sealed class FM27_0_Layout : LayoutBase
     /// <summary>布局名。</summary>
     public const string LayoutName = "FM27_0";
 
-    private const string Source = "上游 FMSuperScout 1.7.3 · Fields.FM27 · 02-11-2026 于 FM 27.0 核对";
+    private const string Source = "上游 FMSuperScout 1.7.3 · Fields.FM27 · 上游声明 02-11-2026 于 FM 27.0 核对（ScoutMind 未复现）";
 
     /// <summary>创建布局。</summary>
     public FM27_0_Layout()
-        : base(LayoutName, major: 27, minor: 0, OffsetsTable(), FieldStatus.Verified, Source)
+        : base(LayoutName, major: 27, minor: 0, OffsetsTable(), FieldStatus.Candidate, Source, EvidenceKind.UpstreamAgreement)
     {
         Require(
             "OBJ_DUNI",

@@ -70,7 +70,7 @@ public sealed class CompatibilityRegistry
             {
                 if (layout is LayoutBase mutable)
                 {
-                    mutable.Mark(field, FieldStatus.Verified, string.Join("; ", entry.Evidence), entry.Note);
+                    mutable.Mark(field, FieldStatus.Verified, EvidenceKind.GameUiAgreement, string.Join("; ", entry.Evidence), entry.Note);
                 }
             }
         }

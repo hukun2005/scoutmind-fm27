@@ -23,18 +23,18 @@ internal static class LayoutAndProbeTests
             TestHarness.True(!ReferenceEquals(layout27, layout271), "必须是不同实例");
             TestHarness.Equal("FM27_0", layout27.Name, "27.0 布局名");
             TestHarness.Equal("FM27_1", layout271.Name, "27.1 布局名");
-            TestHarness.Equal(FieldStatus.Verified, layout27.Status, "27.0 的字段来自上游已核对结果");
-            TestHarness.Equal(FieldStatus.Unknown, layout271.Status, "27.1 的字段全部未核对");
+            TestHarness.Equal(FieldStatus.Candidate, layout27.Status, "27.0 只有上游证据，未由 ScoutMind 复现");
+            TestHarness.Equal(FieldStatus.Pending, layout271.Status, "27.1 的字段全部未核对");
         });
 
         harness.Run("布局：修改 27.1 的字段状态不影响 27.0", () =>
         {
             var layout27 = new FM27_0_Layout();
             var layout271 = new FM27_1_Layout();
-            layout271.Mark("PLAO_CA", FieldStatus.Rejected, "test", "模拟 27.1 探测失败");
-            TestHarness.Equal(FieldStatus.Verified, layout27.Verification("PLAO_CA").Status, "27.0 不应受影响");
-            TestHarness.Equal(FieldStatus.Rejected, layout271.Verification("PLAO_CA").Status, "27.1 应更新");
-            TestHarness.Equal(FieldStatus.Rejected, layout271.Status, "27.1 整体状态应为 Rejected");
+            layout271.Mark("PLAO_CA", FieldStatus.Failed, EvidenceKind.InternalCheck, "test", "模拟 27.1 探测失败");
+            TestHarness.Equal(FieldStatus.Candidate, layout27.Verification("PLAO_CA").Status, "27.0 不应受影响");
+            TestHarness.Equal(FieldStatus.Failed, layout271.Verification("PLAO_CA").Status, "27.1 应更新");
+            TestHarness.Equal(FieldStatus.Failed, layout271.Status, "27.1 整体状态应为 Rejected");
         });
 
         harness.Run("布局：27.1 的偏移目前与 27.0 相同（复制假设，不等于已验证）", () =>
@@ -85,7 +85,7 @@ internal static class LayoutAndProbeTests
             var layout = new FM27_1_Layout();
             registry.Apply("1234", layout);
             TestHarness.Equal(FieldStatus.Verified, layout.Verification("PLAO_CA").Status, "列出的字段应 verified");
-            TestHarness.Equal(FieldStatus.Unknown, layout.Verification("CLUB_NAME").Status, "未列出的字段仍为 unknown");
+            TestHarness.Equal(FieldStatus.Pending, layout.Verification("CLUB_NAME").Status, "未列出的字段仍为 pending");
             TestHarness.True(registry.AllowsScan("1234"), "verified 构建允许扫描");
         });
     }
@@ -267,7 +267,7 @@ internal static class LayoutAndProbeTests
             var layout = new FM27_1_Layout();
             foreach (var field in layout.Offsets.Keys)
             {
-                layout.Mark(field, FieldStatus.Verified, "unit-test", "测试");
+                layout.Mark(field, FieldStatus.Verified, EvidenceKind.GameUiAgreement, "unit-test", "测试");
             }
 
             var memory = new FakeMemory();

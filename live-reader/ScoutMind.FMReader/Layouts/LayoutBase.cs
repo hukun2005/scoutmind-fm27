@@ -20,7 +20,8 @@ public abstract class LayoutBase : ILayout
         int minor,
         IReadOnlyDictionary<string, uint> offsets,
         FieldStatus defaultStatus,
-        string defaultNote)
+        string defaultNote,
+        EvidenceKind defaultKind = EvidenceKind.None)
     {
         Name = name;
         Major = major;
@@ -29,7 +30,7 @@ public abstract class LayoutBase : ILayout
         _fields = new Dictionary<string, FieldVerification>(StringComparer.Ordinal);
         foreach (var field in _offsets.Keys)
         {
-            _fields[field] = new FieldVerification(field, defaultStatus, null, defaultNote);
+            _fields[field] = new FieldVerification(field, defaultStatus, defaultKind, null, defaultNote);
         }
     }
 
@@ -61,7 +62,7 @@ public abstract class LayoutBase : ILayout
     public FieldVerification Verification(string field) =>
         _fields.TryGetValue(field, out var verification)
             ? verification
-            : new FieldVerification(field, FieldStatus.NotSupported, null, $"布局 {Name} 没有该字段");
+            : new FieldVerification(field, FieldStatus.NotSupported, EvidenceKind.None, null, $"布局 {Name} 没有该字段");
 
     /// <summary>各字段状态的最弱值：任一 Rejected → Rejected；全部 Verified → Verified；否则 Candidate/Unknown。</summary>
     public FieldStatus Status
@@ -71,25 +72,32 @@ public abstract class LayoutBase : ILayout
             var statuses = _fields.Values.Select(item => item.Status).ToList();
             if (statuses.Count == 0)
             {
-                return FieldStatus.Unknown;
+                return FieldStatus.Pending;
             }
 
-            if (statuses.Contains(FieldStatus.Rejected))
+            if (statuses.Contains(FieldStatus.Failed))
             {
-                return FieldStatus.Rejected;
+                return FieldStatus.Failed;
             }
 
-            if (statuses.All(item => item == FieldStatus.Verified))
+            var supported = statuses.Where(item => item != FieldStatus.NotSupported).ToList();
+            if (supported.Count == 0)
+            {
+                return FieldStatus.NotSupported;
+            }
+
+            if (supported.All(item => item == FieldStatus.Verified))
             {
                 return FieldStatus.Verified;
             }
 
-            if (statuses.Contains(FieldStatus.Verified) || statuses.Contains(FieldStatus.Candidate))
+            if (supported.All(item => item is FieldStatus.Verified or FieldStatus.Candidate)
+                && supported.Any(item => item == FieldStatus.Candidate))
             {
                 return FieldStatus.Candidate;
             }
 
-            return FieldStatus.Unknown;
+            return FieldStatus.Pending;
         }
     }
 
@@ -98,14 +106,14 @@ public abstract class LayoutBase : ILayout
     /// <param name="status">状态。</param>
     /// <param name="evidence">证据。</param>
     /// <param name="note">说明。</param>
-    public void Mark(string field, FieldStatus status, string? evidence = null, string? note = null)
+    public void Mark(string field, FieldStatus status, EvidenceKind kind = EvidenceKind.None, string? evidence = null, string? note = null)
     {
         if (!_offsets.ContainsKey(field))
         {
             throw new ArgumentException($"布局 {Name} 没有字段 {field}", nameof(field));
         }
 
-        _fields[field] = new FieldVerification(field, status, evidence, note);
+        _fields[field] = new FieldVerification(field, status, kind, evidence, note);
     }
 
     /// <summary>声明扫描前必须 Verified 的字段。</summary>
