@@ -134,6 +134,7 @@ internal static class FakeSave
         // 对象在堆上是连续可读的：为各基址写入零块，模拟"该地址可读"。
         memory.Write(block, new byte[0x400]);
         memory.Write(person, new byte[0x120]);
+        memory.Write(db, new byte[0x20]); // 数据库块（OBJ_DUNI、PERO_GENDER 都相对它读取）
 
         memory.WriteUInt32(db + layout["OBJ_DUNI"], (uint)(9000 + index));
         memory.WriteUInt16(block + layout["PLAO_CA"], ca);

@@ -19,16 +19,18 @@ public static class ReportBuilder
         ArgumentNullException.ThrowIfNull(layout);
         ArgumentNullException.ThrowIfNull(probes);
 
+        // 只有"阻塞扫描"的探测失败才判 Rejected；信息性探测（转会记录、数据完整性）失败只记录，不拦门。
+        var blocking = probes.Where(probe => probe.BlocksScan).ToList();
         if (layout.Fields.Values.Any(field => field.Status == FieldStatus.Failed)
-            || probes.Any(probe => probe.Status == ProbeStatus.Failed))
+            || blocking.Any(probe => probe.Status == ProbeStatus.Failed))
         {
             return OverallStatus.Rejected;
         }
 
         var requiredVerified = layout.RequiredFields.All(field =>
             layout.Verification(field).Status == FieldStatus.Verified);
-        var applicable = probes
-            .Where(probe => probe.BlocksScan && probe.Status != ProbeStatus.NotApplicable)
+        var applicable = blocking
+            .Where(probe => probe.Status != ProbeStatus.NotApplicable)
             .ToList();
         var probesPassed = applicable.Count > 0 && applicable.All(probe => probe.Status == ProbeStatus.Passed);
 
