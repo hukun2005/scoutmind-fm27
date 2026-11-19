@@ -37,6 +37,14 @@ class Settings(BaseSettings):
 
     # A real FMSuperScout dump is ~90-150 MB; the scan protocol itself is much smaller.
     max_import_bytes: int = 256 * 1024 * 1024
+    # Hard ceiling applied before any payload is read into memory (Content-Length and chunked reads).
+    max_request_bytes: int = 256 * 1024 * 1024
+    # multipart 上传：文件数、普通字段数、单字段字节数与总字节数上限。
+    max_multipart_files: int = 1
+    max_multipart_fields: int = 32
+    max_multipart_field_bytes: int = 1024 * 1024
+    # 同一时刻允许执行的导入数量；超过的请求排队等待，不并发压垮 SQLite。
+    max_import_concurrency: int = 2
     min_similar_sample: int = 5
     similar_limit: int = 20
 

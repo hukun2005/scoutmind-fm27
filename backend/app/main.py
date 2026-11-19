@@ -52,6 +52,30 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "X-ScoutMind-Token"],
     )
+    @app.middleware("http")
+    async def limit_request_size(request: Request, call_next):
+        """Reject oversized bodies before the application reads them into memory."""
+        length = request.headers.get("content-length")
+        if length is not None:
+            try:
+                declared = int(length)
+            except ValueError:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": {"code": "invalid_content_length", "message": "Content-Length 不是整数"}},
+                )
+            if declared > settings.max_request_bytes:
+                return JSONResponse(
+                    status_code=413,
+                    content={
+                        "error": {
+                            "code": "payload_too_large",
+                            "message": f"请求体 {declared} 字节超过上限 {settings.max_request_bytes}",
+                        }
+                    },
+                )
+        return await call_next(request)
+
     for router in (
         routes_core.router,
         routes_adapters.router,
