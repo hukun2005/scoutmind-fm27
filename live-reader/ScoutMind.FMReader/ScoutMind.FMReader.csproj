@@ -35,6 +35,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Versioning/verified-versions.json" />
     <EmbeddedResource Include="Integration/upstream-attributes.json" />
+    <EmbeddedResource Include="Versioning/compatibility-registry.json" />
   </ItemGroup>
 
   <ItemGroup>

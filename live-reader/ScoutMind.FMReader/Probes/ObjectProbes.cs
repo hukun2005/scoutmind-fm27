@@ -79,7 +79,8 @@ public sealed class ObjectProbes
         {
             return new ProbeOutcome("player", ProbeStatus.Failed, 0,
                 new[] { new FieldCheck("player_objects_found", CheckStatus.Failed, "没有定位到任何球员对象") },
-                "上游分类器没有在堆里认出球员对象：布局很可能不匹配。");
+                "没有在堆里认出球员对象：最常见的两种原因是「游戏还停在主菜单、没有加载存档」与「布局不匹配」。"
+                + "请先进入存档再重试；若已进入存档仍然是 0，就可以判定布局不匹配。");
         }
 
         int caInRange = 0, paInRange = 0, caLePa = 0, heightSane = 0, dobSane = 0, nameSane = 0, positionsSane = 0;
@@ -129,10 +130,10 @@ public sealed class ObjectProbes
 
                 if (attrsSaneHere) attrsSane++;
 
-                if (_memory.InModule(player.Person)) personInModule++;
+                if (IsPlausibleHeapPointer(player.Person)) personInModule++;
 
                 var contract = _memory.Pointer(player.Person + _layout["PERO_FULL_CONTRACT"]);
-                if (contract != 0 && _memory.InModule(contract) && _memory.IsReadable(contract + _layout["CON_EXPIRY"], 4))
+                if (IsPlausibleHeapPointer(contract) && _memory.IsReadable(contract + _layout["CON_EXPIRY"], 4))
                 {
                     contractPointerValid++;
                 }
@@ -152,14 +153,52 @@ public sealed class ObjectProbes
         checks.Add(Ratio("name_string", nameSane, total, "姓名是可打印字符串且含字母"));
         checks.Add(Ratio("positions_bytes", positionsSane, total, "15 个位置字节都 <=20"));
         checks.Add(Ratio("attributes_head", attrsSane, total, "属性块前 20 字节 <=100（存储值×5）"));
-        checks.Add(Ratio("person_in_module", personInModule, total, "个人块地址落在游戏模块内"));
-        checks.Add(Ratio("contract_pointer", contractPointerValid, total, "合同指针可读且指向模块内", 0.9));
+        checks.Add(Ratio("person_in_module", personInModule, total, "个人块地址是合法堆指针（对齐、可读）"));
+        checks.Add(Ratio("contract_pointer", contractPointerValid, total, "合同指针是合法堆指针且可读", 0.9));
 
         var status = checks.Any(item => item.Status == CheckStatus.Failed)
             ? ProbeStatus.Failed
             : ProbeStatus.Passed;
         return new ProbeOutcome("player", status, total, checks,
             "结构自洽只能证明布局没有明显错位，不能证明数值正确；真实值需要与游戏内界面核对。");
+    }
+
+    /// <summary>从球员的合同 → 球队 → 俱乐部链上收集俱乐部地址（避免只靠 vtable 扫描）。</summary>
+    /// <param name="players">定位到的球员对象。</param>
+    /// <returns>去重后的俱乐部地址与对应球队地址。</returns>
+    public IReadOnlyList<(ulong Club, ulong Team)> DeriveClubsFromPlayers(IReadOnlyList<LocatedObject> players)
+    {
+        var result = new List<(ulong Club, ulong Team)>();
+        var seen = new HashSet<ulong>();
+        foreach (var player in players.Take(SampleLimit * 4))
+        {
+            try
+            {
+                var contract = _memory.Pointer(player.Person + _layout["PERO_FULL_CONTRACT"]);
+                if (!IsPlausibleHeapPointer(contract))
+                {
+                    continue;
+                }
+
+                var team = _memory.Pointer(contract + _layout["CON_TEAM"]);
+                if (!IsPlausibleHeapPointer(team))
+                {
+                    continue;
+                }
+
+                var club = _memory.Pointer(team + _layout["TEAM_CLUB"]);
+                if (IsPlausibleHeapPointer(club) && seen.Add(club))
+                {
+                    result.Add((club, team));
+                }
+            }
+            catch (MemoryUnreadableException)
+            {
+                // 跳过不可读样本。
+            }
+        }
+
+        return result;
     }
 
     /// <summary>俱乐部对象探测：名称可读、球队向量区间合理。</summary>
@@ -216,13 +255,13 @@ public sealed class ObjectProbes
             try
             {
                 var contract = _memory.Pointer(player.Person + _layout["PERO_FULL_CONTRACT"]);
-                if (contract == 0 || !_memory.InModule(contract))
+                if (!IsPlausibleHeapPointer(contract))
                 {
                     continue;
                 }
 
                 var team = _memory.Pointer(contract + _layout["CON_TEAM"]);
-                if (team == 0 || !_memory.InModule(team))
+                if (!IsPlausibleHeapPointer(team))
                 {
                     continue;
                 }
@@ -232,7 +271,7 @@ public sealed class ObjectProbes
                 if (teamType <= 20) teamTypeSane++;
 
                 var club = _memory.Pointer(team + _layout["TEAM_CLUB"]);
-                if (club != 0 && _memory.InModule(club) && IsSaneName(_memory.IndirectString(club + _layout["CLUB_NAME"])))
+                if (IsPlausibleHeapPointer(club) && IsSaneName(_memory.IndirectString(club + _layout["CLUB_NAME"])))
                 {
                     clubReachable++;
                 }
@@ -284,7 +323,7 @@ public sealed class ObjectProbes
             try
             {
                 var contract = _memory.Pointer(player.Person + _layout["PERO_FULL_CONTRACT"]);
-                if (contract == 0 || !_memory.InModule(contract))
+                if (!IsPlausibleHeapPointer(contract))
                 {
                     continue;
                 }
@@ -368,12 +407,12 @@ public sealed class ObjectProbes
                 var sentinel2 = _memory.UInt32(deal + _layout["DEAL_SENT2"]);
                 if (sentinel1 == 0xFFFFFFFF && sentinel2 == 0x076C0001) sentinelSane++;
 
-                var status = _memory.Byte(deal + _layout["DEAL_STATUS"]);
-                if (status is 0x13 or 0x14 or 0x0F or (>= 0x00 and <= 0x20)) statusSane++;
+                var dealStatus = _memory.Byte(deal + _layout["DEAL_STATUS"]);
+                if (dealStatus is 0x13 or 0x14 or 0x0F or (>= 0x00 and <= 0x20)) statusSane++;
 
                 var toTeam = _memory.Pointer(deal + _layout["DEAL_TO_TEAM"]);
                 var fromTeam = _memory.Pointer(deal + _layout["DEAL_FROM_TEAM"]);
-                if (toTeam != 0 && fromTeam != 0 && _memory.InModule(toTeam) && _memory.InModule(fromTeam)) teamsSane++;
+                if (IsPlausibleHeapPointer(toTeam) && IsPlausibleHeapPointer(fromTeam)) teamsSane++;
 
                 var (year, doy) = FmDate.Decode(_memory.UInt32(deal + _layout["DEAL_DATE"]));
                 if (year is >= 1990 and <= 2060 && doy is >= 1 and <= 366) dateSane++;
@@ -473,6 +512,24 @@ public sealed class ObjectProbes
         }
 
         return false;
+    }
+
+    /// <summary>堆指针合理性：非空、8 字节对齐、位于用户态地址范围、且 8 字节可读。</summary>
+    private bool IsPlausibleHeapPointer(ulong address)
+    {
+        if (address < 0x10000 || address > 0x7FFF_FFFF_FF00 || (address & 0x7) != 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            return _memory.IsReadable(address, 8);
+        }
+        catch (MemoryUnreadableException)
+        {
+            return false;
+        }
     }
 
     private static bool IsSaneName(string? value)

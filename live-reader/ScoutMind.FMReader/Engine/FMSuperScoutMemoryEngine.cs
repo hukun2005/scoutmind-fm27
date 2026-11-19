@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using FMSuperScout;
 using ScoutMind.FMReader.Integration;
+using ScoutMind.FMReader.Layouts;
+using ScoutMind.FMReader.Probes;
 using ScoutMind.FMReader.Versioning;
 
 namespace ScoutMind.FMReader.Engine;
@@ -165,41 +167,50 @@ internal static class FmProcessBridge
 /// <summary>
 /// 基于 FMSuperScout 内核的只读扫描引擎。
 ///
-/// 流程：定位进程 → 版本闸门（清单里只有 <c>verified</c> 才放行）→ 上游读取 → 协议映射。
+/// 流程：识别构建 → 解析布局（构建未登记即拒绝）→ 诊断探测（结构自洽性）→ 注册表判决 → （全部 Verified 才）上游读取 → 协议映射。
 /// 任何一步失败都返回失败结果，绝不回落到演示数据。
 /// </summary>
 public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
 {
-    private const string DefaultAppId = "4530370";
-
-    private readonly IFmProcessLocator _locator;
+    private readonly GameBuildDetector _detector;
     private readonly VersionGate _gate;
+    private readonly LayoutResolver _layouts;
+    private readonly CompatibilityRegistry _registry;
     private readonly IUpstreamDumpProvider _dumpProvider;
     private readonly UpstreamDumpMapper _mapper;
-    private readonly Func<GameIdentity, string?> _buildResolver;
     private readonly string _workingRoot;
+    private readonly Func<GameIdentity, string?> _buildResolver;
+    private readonly IProbeEnvironment _probeEnvironment;
 
     /// <summary>创建引擎。</summary>
     /// <param name="locator">进程定位器。</param>
-    /// <param name="gate">版本闸门。</param>
+    /// <param name="gate">版本闸门（构建允许清单）。</param>
+    /// <param name="layouts">布局解析器。</param>
+    /// <param name="registry">兼容性注册表。</param>
     /// <param name="dumpProvider">上游读取实现。</param>
     /// <param name="mapper">协议映射。</param>
-    /// <param name="workingRoot">临时目录根；默认在 <c>%TEMP%\scoutmind\fmreader</c>。</param>
-    /// <param name="buildResolver">构建号解析（可注入，测试用）。</param>
+    /// <param name="workingRoot">临时目录根。</param>
+    /// <param name="buildResolver">构建号解析（测试用）。</param>
     public FMSuperScoutMemoryEngine(
         IFmProcessLocator? locator = null,
         VersionGate? gate = null,
+        LayoutResolver? layouts = null,
+        CompatibilityRegistry? registry = null,
         IUpstreamDumpProvider? dumpProvider = null,
         UpstreamDumpMapper? mapper = null,
         string? workingRoot = null,
-        Func<GameIdentity, string?>? buildResolver = null)
+        Func<GameIdentity, string?>? buildResolver = null,
+        IProbeEnvironment? probeEnvironment = null)
     {
-        _locator = locator ?? new FmProcessLocator();
+        _probeEnvironment = probeEnvironment ?? new WinMemoryEnvironment();
+        _buildResolver = buildResolver ?? SteamBuildResolver.Resolve;
+        _detector = new GameBuildDetector(locator, _buildResolver);
         _gate = gate ?? new VersionGate();
+        _layouts = layouts ?? new LayoutResolver();
+        _registry = registry ?? new CompatibilityRegistry();
         _dumpProvider = dumpProvider ?? new FMSuperScoutDumpProvider();
         _mapper = mapper ?? new UpstreamDumpMapper();
         _workingRoot = workingRoot ?? Path.Combine(Path.GetTempPath(), "scoutmind", "fmreader");
-        _buildResolver = buildResolver ?? SteamBuildResolver.Resolve;
     }
 
     /// <inheritdoc />
@@ -209,35 +220,33 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
     public Task<FmEngineStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var location = _locator.Locate();
-        var diagnostics = new List<string>(location.Diagnostics);
-        // 游戏没启动时也要能判断版本：从 Steam 库目录反查安装目录，而不是直接放弃。
-        var installDirectory = location.InstallDirectory;
-        if (installDirectory is null)
-        {
-            installDirectory = SteamBuildResolver.FindInstallDirectory();
-            if (installDirectory is not null)
-            {
-                diagnostics.Add($"进程未运行，但按 Steam 库定位到安装目录：{installDirectory}。");
-            }
-        }
-
-        var (pluginPath, pluginVersion) = FmProcessLocator.ReadPlugin(installDirectory);
-        var appId = FmProcessLocator.ReadAppId(installDirectory);
-        var identity = new GameIdentity(Version: null, Build: null, AppId: appId);
-        var build = _buildResolver(identity);
-        var gate = _gate.Evaluate(appId, build, pluginVersion);
+        var detected = _detector.Detect();
+        var diagnostics = new List<string>(detected.Diagnostics);
+        var gate = _gate.Evaluate(detected.AppId, detected.Build, detected.PluginVersion);
         diagnostics.Add(gate.Message);
 
+        var layout = _layouts.Resolve(detected.Build, detected.PluginVersion);
+        if (layout is null)
+        {
+            diagnostics.Add(detected.Build is null
+                ? "没有构建号，无法解析布局。"
+                : $"构建 {detected.Build} 未在 LayoutResolver 中登记。");
+        }
+        else
+        {
+            _registry.Apply(detected.Build, layout);
+            diagnostics.Add($"布局 {layout.Name}（状态 {layout.Status}）。");
+        }
+
         return Task.FromResult(new FmEngineStatus(
-            ProcessId: location.ProcessId,
-            ProcessPath: location.ProcessPath,
-            InstallDirectory: installDirectory,
-            AppId: appId,
-            Build: build,
-            PluginPath: pluginPath,
-            PluginVersion: pluginVersion,
-            AccessDenied: location.ProcessId is null && location.Diagnostics.Any(text => text.Contains("权限", StringComparison.Ordinal)),
+            ProcessId: detected.ProcessId,
+            ProcessPath: detected.ProcessPath,
+            InstallDirectory: detected.InstallDirectory,
+            AppId: detected.AppId,
+            Build: detected.Build,
+            PluginPath: detected.PluginPath,
+            PluginVersion: detected.PluginVersion,
+            AccessDenied: detected.ProcessId is null && detected.Diagnostics.Any(text => text.Contains("权限", StringComparison.Ordinal)),
             Diagnostics: diagnostics,
             Gate: gate,
             EngineVersion: Version));
@@ -247,37 +256,111 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
     public async Task<FmProbeResult> ProbeAsync(CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
+        var report = await DiagnoseAsync(cancellationToken).ConfigureAwait(false);
+        var passed = report.Overall == OverallStatus.Verified;
+        var reason = passed
+            ? null
+            : string.Join("；", new[]
+            {
+                report.Summary,
+                report.Probes.FirstOrDefault(probe => probe.Status == ProbeStatus.Failed) is { } failed
+                    ? $"探测 {failed.Name} 失败：{failed.Note ?? failed.Checks.FirstOrDefault(item => item.Status == CheckStatus.Failed)?.Detail}"
+                    : null,
+            }.Where(item => !string.IsNullOrWhiteSpace(item)));
+
         var status = await GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        if (status.Gate is null || !status.Gate.AllowScan)
+        return new FmProbeResult(passed, reason, status, stopwatch.ElapsedMilliseconds, report);
+    }
+
+    /// <inheritdoc />
+    public Task<DiagnosticReport> DiagnoseAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var detected = _detector.Detect();
+        var layout = _layouts.Resolve(detected.Build, detected.PluginVersion);
+        if (layout is not null)
         {
-            return new FmProbeResult(
-                false,
-                status.Gate?.Message ?? "版本闸门未给出结论，拒绝读取。",
-                status,
-                stopwatch.ElapsedMilliseconds);
+            _registry.Apply(detected.Build, layout);
         }
 
-        if (status.ProcessId is null)
+        var diagnostics = new List<string>(detected.Diagnostics);
+        var limitations = new List<string>
         {
-            return new FmProbeResult(
-                false,
-                "FM27 未运行：请启动游戏并加载存档后再 probe。",
-                status,
-                stopwatch.ElapsedMilliseconds);
+            "结构化探测只能发现明显错位（范围、指针、关系），不能证明数值与游戏内一致。",
+            "租借与所有权关系不在内存布局中，只能来自阵容 CSV。",
+            "转会记录没有 vtable，只能按形状识别；本次未做全量枚举。",
+        };
+
+        if (detected.ProcessId is null || layout is null)
+        {
+            var reason = layout is null
+                ? detected.Build is null ? "没有读到构建号" : $"构建 {detected.Build} 未登记布局"
+                : "FM27 未运行";
+            diagnostics.Add($"{reason}：无法执行内存探测。");
+            var empty = ReportBuilder.Build(
+                Version,
+                detected.Build,
+                detected.PluginVersion,
+                detected.AppId,
+                layout,
+                Array.Empty<ProbeOutcome>(),
+                diagnostics,
+                limitations);
+            return Task.FromResult(empty with { Summary = $"{reason}：禁止扫描。" });
         }
 
-        // 版本放行后仍要确认进程可打开：管理员权限、反作弊保护都会让读取失败。
         try
         {
-            using var game = FmProcessBridge.OpenSelected();
-            _ = game.Process.Id;
-        }
-        catch (UpstreamReadException ex)
-        {
-            return new FmProbeResult(false, ex.Message, status, stopwatch.ElapsedMilliseconds);
-        }
+            var memory = _probeEnvironment.Open();
+            var locator = _probeEnvironment.CreateLocator(memory);
+            var probes = new ObjectProbes(memory, layout);
+            var players = locator.FindPlayers(layout, 64, TimeSpan.FromSeconds(20));
+            var clubs = locator.FindClubs(layout, 16, TimeSpan.FromSeconds(10)).ToList();
+            // 俱乐部对象不一定能被 vtable 扫描命中；从球员的合同链上补一批。
+            foreach (var (club, _) in probes.DeriveClubsFromPlayers(players))
+            {
+                if (clubs.All(item => item.Address != club))
+                {
+                    clubs.Add(new LocatedObject(club, 0, 0, 0));
+                }
+            }
+            var outcomes = new List<ProbeOutcome>
+            {
+                probes.ProbePlayers(players),
+                probes.ProbeClubs(clubs),
+                probes.ProbeTeams(players),
+                probes.ProbeContracts(players),
+                probes.ProbeLoans(),
+                probes.ProbeTransfers(Array.Empty<ulong>()),
+                probes.ProbeIntegrity(players, clubs),
+            };
 
-        return new FmProbeResult(true, null, status, stopwatch.ElapsedMilliseconds);
+            diagnostics.Add($"定位到球员对象 {players.Count} 个、俱乐部对象 {clubs.Count} 个。");
+            var report = ReportBuilder.Build(
+                Version,
+                detected.Build,
+                detected.PluginVersion,
+                detected.AppId,
+                layout,
+                outcomes,
+                diagnostics,
+                limitations);
+            return Task.FromResult(report);
+        }
+        catch (MemoryUnreadableException)
+        {
+            diagnostics.Add("无法打开 fm.exe 读取内存（权限不足或进程已退出）。");
+            var report = ReportBuilder.Build(
+                Version,
+                detected.Build,
+                detected.PluginVersion,
+                detected.AppId,
+                layout,
+                Array.Empty<ProbeOutcome>(),
+                diagnostics,
+                limitations);
+            return Task.FromResult(report with { Summary = "无法读取进程内存：禁止扫描。" });
+        }
     }
 
     /// <inheritdoc />
@@ -287,6 +370,20 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
         if (status.Gate is null || !status.Gate.AllowScan)
         {
             return Failed(status, status.Gate?.Message ?? "版本闸门未放行，拒绝扫描。");
+        }
+
+        if (!_registry.AllowsScan(status.Build))
+        {
+            var entry = _registry.For(status.Build);
+            return Failed(status, entry is null
+                ? $"构建 {status.Build} 未在兼容性注册表中登记：拒绝扫描。"
+                : $"构建 {status.Build} 的注册状态为 {entry.Status}：拒绝扫描（需要 verified）。");
+        }
+
+        var layout = _layouts.Resolve(status.Build, status.PluginVersion);
+        if (layout is null || layout.Status != FieldStatus.Verified)
+        {
+            return Failed(status, $"布局 {layout?.Name ?? "(未解析)"} 尚未通过真实核对：拒绝扫描。");
         }
 
         if (status.ProcessId is null)
@@ -313,7 +410,7 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
 
         warnings.AddRange(dump.Diagnostics);
         var identity = new GameIdentity(
-            Version: ReadDumpGameVersion(dump.Json) ?? null,
+            Version: ReadDumpGameVersion(dump.Json),
             Build: status.Build,
             AppId: status.AppId);
 
@@ -327,8 +424,7 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
             return Failed(status, $"上游 dump 不是合法 JSON：{ex.Message}");
         }
 
-        var gateNote = status.Gate.Message;
-        var allWarnings = new List<string> { $"版本闸门：{gateNote}" };
+        var allWarnings = new List<string> { $"版本闸门：{status.Gate.Message}", $"布局：{layout.Name}（已验证）" };
         allWarnings.AddRange(mapped.Warnings);
         allWarnings.AddRange(warnings);
 
@@ -422,7 +518,7 @@ public static partial class SteamBuildResolver
         return null;
     }
 
-    /// <summary>按 Steam 库目录查找 FM27 安装目录（不依赖游戏是否在运行）。</summary>
+    /// <summary>按 Steam 库目录查找 FM27 安装目录。</summary>
     /// <returns>安装目录或 <c>null</c>。</returns>
     public static string? FindInstallDirectory()
     {
@@ -437,6 +533,10 @@ public static partial class SteamBuildResolver
 
         return null;
     }
+
+    /// <summary>Steam 库根目录（诊断用）。</summary>
+    /// <returns>库根目录列表。</returns>
+    public static IReadOnlyList<string> SteamLibraryRootsPublic() => SteamLibraryRoots().ToList();
 
     private static IEnumerable<string> SteamLibraryRoots()
     {
@@ -457,12 +557,23 @@ public static partial class SteamBuildResolver
             libraries.AddRange(ReadLibraryFolders(root));
         }
 
-        return libraries.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        // 同一库目录可能以 "d:/steam" 与 "D:\steam" 两种写法出现：先规范化再去重。
+        return libraries
+            .Select(path =>
+            {
+                try
+                {
+                    return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
+                }
+                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+                {
+                    return path;
+                }
+            })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
-    /// <summary>读取 steamapps/libraryfolders.vdf，返回所有库目录（Steam 可能装在别的盘）。</summary>
-    /// <param name="steamRoot">Steam 安装根目录。</param>
-    /// <returns>库目录列表。</returns>
     private static IEnumerable<string> ReadLibraryFolders(string steamRoot)
     {
         var vdf = Path.Combine(steamRoot, "steamapps", "libraryfolders.vdf");
@@ -494,6 +605,7 @@ public static partial class SteamBuildResolver
 
         return result;
     }
+
     private static string? ReadSteamPathFromRegistry()
     {
         try
