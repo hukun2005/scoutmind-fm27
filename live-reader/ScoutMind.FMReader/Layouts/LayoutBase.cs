@@ -101,6 +101,26 @@ public abstract class LayoutBase : ILayout
         }
     }
 
+    /// <inheritdoc />
+    public FieldStatus BlockingStatus
+    {
+        get
+        {
+            var statuses = _required.Select(name => Verification(name).Status).ToList();
+            if (statuses.Count == 0)
+            {
+                return FieldStatus.Pending;
+            }
+
+            if (statuses.Any(item => item is FieldStatus.Failed or FieldStatus.NotSupported or FieldStatus.Pending))
+            {
+                return statuses.Any(item => item == FieldStatus.Failed) ? FieldStatus.Failed : FieldStatus.Pending;
+            }
+
+            return statuses.All(item => item == FieldStatus.Verified) ? FieldStatus.Verified : FieldStatus.Candidate;
+        }
+    }
+
     /// <summary>标记字段状态（供验证流程与测试使用；不会写回磁盘文件）。</summary>
     /// <param name="field">字段名。</param>
     /// <param name="status">状态。</param>

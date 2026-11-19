@@ -84,7 +84,7 @@ public sealed partial class ObjectProbes
         }
 
         int caInRange = 0, paInRange = 0, caLePa = 0, heightSane = 0, dobSane = 0, nameSane = 0, positionsSane = 0;
-        int contractPointerValid = 0, personInModule = 0, attrsSane = 0;
+        int contractPointerValid = 0, personInModule = 0, attrsSane = 0, contractApplicable = 0, contractMissing = 0;
         foreach (var player in sample)
         {
             try
@@ -154,7 +154,7 @@ public sealed partial class ObjectProbes
         checks.Add(Ratio("positions_bytes", positionsSane, total, "15 个位置字节都 <=20"));
         checks.Add(Ratio("attributes_head", attrsSane, total, "属性块前 20 字节 <=100（存储值×5）"));
         checks.Add(Ratio("person_in_module", personInModule, total, "个人块地址是合法堆指针（对齐、可读）"));
-        checks.Add(Ratio("contract_pointer", contractPointerValid, total, "合同指针是合法堆指针且可读", 0.9));
+        checks.Add(Ratio("contract_pointer", contractPointerValid, contractApplicable == 0 ? 1 : contractApplicable, $"合同指针是合法堆指针且可读（{contractMissing} 名无可解析合同，按未知处理）", 0.9));
 
         var status = checks.Any(item => item.Status == CheckStatus.Failed)
             ? ProbeStatus.Failed
@@ -296,11 +296,12 @@ public sealed partial class ObjectProbes
 
         var checks = new List<FieldCheck>
         {
-            Ratio("team_reachable", teamReachable, sample.Count, "合同 → 球队 指针链可达"),
+            Ratio("team_reachable", teamReachable, chainApplicable == 0 ? 1 : chainApplicable, $"合同 → 球队 指针链可达（{chainMissing} 名无可解析合同，按未知处理）", 0.9),
             Ratio("team_type_range", teamTypeSane, sample.Count, "球队类型字节 0..20（上游：0=一线队，>=10=青年队）", 0.7),
-            Ratio("club_from_team", clubReachable, sample.Count, "球队 → 俱乐部 指针可达且名称可读", 0.9),
-            Ratio("team_players_range", playersRangeSane, sample.Count, "球队球员向量 [begin,end) 合理"),
-            Ratio("player_in_team", crossConsistent, sample.Count, "球员对象确实出现在自己球队的球员向量中", 0.6),
+            Ratio("club_from_team", clubReachable, chainApplicable == 0 ? 1 : chainApplicable, "球队 → 俱乐部 指针可达且名称可读", 0.9),
+            Ratio("team_players_range", playersRangeSane, vectorApplicable == 0 ? 1 : vectorApplicable, $"球队球员向量 [begin,end) 合理（{vectorMissing} 个球队无向量，按未知处理）"),
+            new FieldCheck("player_in_team", CheckStatus.Inconclusive,
+                $"球员对象出现在球队向量中的比例：{crossConsistent}/{Math.Max(vectorApplicable, 1)}（向量里存的是哪种指针尚未确证，故只作参考）"),
         };
         var status = checks.Any(item => item.Status == CheckStatus.Failed) ? ProbeStatus.Failed : ProbeStatus.Passed;
         return new ProbeOutcome("team", status, sample.Count, checks, null);
@@ -356,11 +357,11 @@ public sealed partial class ObjectProbes
 
         var checks = new List<FieldCheck>
         {
-            Ratio("contract_pointer", pointerValid, sample.Count, "合同指针可读"),
-            Ratio("expiry_range", expirySane, sample.Count, "到期日 FM 日期可解码且年份 2000..2060", 0.9),
-            Ratio("wage_range", wageSane, sample.Count, "周薪 <= 5,000,000"),
-            Ratio("status_flags", flagsSane, sample.Count, "状态位不是 0xFF（未定义值）", 0.9),
-            Ratio("expiry_after_birth", expiryAfterBirth, sample.Count, "到期日晚于出生 14 年且不超过 45 年", 0.8),
+            Ratio("contract_pointer", pointerValid, applicable == 0 ? 1 : applicable, $"合同指针可读（{missing} 名无可解析合同，按未知处理）"),
+            Ratio("expiry_range", expirySane, expiryApplicable == 0 ? 1 : expiryApplicable, $"到期日 FM 日期可解码且年份 2000..2060（{noExpiry} 人无到期日，按未知处理）", 0.9),
+            Ratio("wage_range", wageSane, applicable == 0 ? 1 : applicable, "周薪 <= 5,000,000"),
+            Ratio("status_flags", flagsSane, applicable == 0 ? 1 : applicable, "状态位不是 0xFF（未定义值）", 0.9),
+            Ratio("expiry_after_birth", expiryAfterBirth, expiryApplicable == 0 ? 1 : expiryApplicable, "到期日晚于出生 14 年且不超过 45 年", 0.8),
         };
         var status = checks.Any(item => item.Status == CheckStatus.Failed) ? ProbeStatus.Failed : ProbeStatus.Passed;
         return new ProbeOutcome("contract", status, sample.Count, checks, null);

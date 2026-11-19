@@ -18,7 +18,8 @@ public sealed record BuildRegistration(
     string PluginVersion,
     IReadOnlyList<string> VerifiedFields,
     IReadOnlyList<string> Evidence,
-    string Note);
+    string Note,
+    IReadOnlyList<string>? UpstreamFields = null);
 
 /// <summary>
 /// 兼容性注册表：构建 → 布局 + 已验证字段 + 证据。
@@ -64,14 +65,26 @@ public sealed class CompatibilityRegistry
             return;
         }
 
-        foreach (var field in layout.Offsets.Keys)
+        if (layout is not LayoutBase mutable)
         {
-            if (entry.VerifiedFields.Contains(field, StringComparer.Ordinal))
+            return;
+        }
+
+        foreach (var field in entry.VerifiedFields)
+        {
+            if (layout.Offsets.ContainsKey(field))
             {
-                if (layout is LayoutBase mutable)
-                {
-                    mutable.Mark(field, FieldStatus.Verified, EvidenceKind.GameUiAgreement, string.Join("; ", entry.Evidence), entry.Note);
-                }
+                mutable.Mark(field, FieldStatus.Verified, EvidenceKind.GameUiAgreement, string.Join("; ", entry.Evidence), entry.Note);
+            }
+        }
+
+        foreach (var field in entry.UpstreamFields ?? Array.Empty<string>())
+        {
+            if (layout.Offsets.ContainsKey(field))
+            {
+                mutable.Mark(field, FieldStatus.Candidate, EvidenceKind.UpstreamAgreement,
+                    string.Join("; ", entry.Evidence),
+                    "与 FMSuperScout 导出逐字段一致；游戏界面不可见或不适用，因此不判为 Verified");
             }
         }
     }
@@ -124,7 +137,8 @@ public sealed class CompatibilityRegistry
                 PluginVersion: ReadString(item, "plugin_version") ?? string.Empty,
                 VerifiedFields: ReadArray(item, "verified_fields"),
                 Evidence: ReadArray(item, "evidence"),
-                Note: ReadString(item, "note") ?? string.Empty));
+                Note: ReadString(item, "note") ?? string.Empty,
+                UpstreamFields: ReadArray(item, "upstream_agreement_fields")));
         }
 
         return result;

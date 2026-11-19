@@ -13,9 +13,9 @@
       "appId": "4530370",
       "buildId": "26620374",
       "pluginProductVersion": "27.1.0+2505117",
-      "status": "candidate",
-      "notes": "2026-11-18 在本机 Steam 库 D:\\steam 实测观测到：appmanifest_4530370.acf 的 buildid=26620374，game_plugin.dll 位于 fm_Data\\Plugins\\x86_64，ProductVersion=27.1.0+2505117。尚未配置外部扫描器，未执行 probe，因此仍为 candidate，读取器会拒绝读取。",
-      "verifiedAt": null
+      "status": "verified",
+      "notes": "2026-11-19 在本机核对：30 人清单与游戏界面一致；与 FMSuperScout 导出交叉校验 367 配对零不匹配；结构化探测全部通过。CA/PA 在界面不可见，只作为 Candidate 证据。",
+      "verifiedAt": "2026-11-19T13:00:00+08:00"
     }
   ]
 }

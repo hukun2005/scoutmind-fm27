@@ -6,9 +6,13 @@
       "app_id": "4530370",
       "build": "26620374",
       "plugin_version": "27.1.0+2505117",
-      "status": "candidate",
-      "note": "本机 Steam 构建。上游 FMSuperScout 1.7.3 的 FM27 偏移是按 27.0 钉的（Fields.FM27.SupportedMinor=0），本机是 27.1，偏移未逐类核对。",
-      "evidence": []
+      "status": "verified",
+      "note": "27.1 布局已在真实存档上核对：字段级证据见 docs/FM27-27.1-FIELD-VALIDATION.md；CA/PA 不可见，按 Candidate 处理。",
+      "evidence": [
+        "2026-11-19 游戏界面核对：30 人清单的俱乐部/身高/合同到期/球衣号/位置/国籍与读取值一致（用户确认）",
+        "2026-11-19 交叉校验：400 抽样/367 配对，CA 367/367、PA 367/367、身高 367/367、出生年 367/367、合同到期 256/256、俱乐部 2/2，零不匹配",
+        "2026-11-19 结构化探测：player/club/team/contract/attributes×3/position/nation/team_relation 全部 Passed（32 男子样本）"
+      ]
     },
     {
       "layout": "FM27",

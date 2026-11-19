@@ -553,15 +553,21 @@ class ScanImporter:
         instance_ids = list(instance_by_record.values())
         if not instance_ids:
             return
-        rows = self.session.execute(
-            select(
-                PlayerSnapshot.player_instance_id,
-                PlayerSnapshot.club_id,
-                PlayerSnapshot.observed_at,
+        # SQLite 的绑定参数上限是 32766，全量扫描（4.8 万球员）必须分批查询。
+        rows = []
+        for start in range(0, len(instance_ids), 500):
+            chunk = instance_ids[start : start + 500]
+            rows.extend(
+                self.session.execute(
+                    select(
+                        PlayerSnapshot.player_instance_id,
+                        PlayerSnapshot.club_id,
+                        PlayerSnapshot.observed_at,
+                    )
+                    .where(PlayerSnapshot.player_instance_id.in_(chunk))
+                    .order_by(PlayerSnapshot.player_instance_id, PlayerSnapshot.observed_at)
+                ).all()
             )
-            .where(PlayerSnapshot.player_instance_id.in_(instance_ids))
-            .order_by(PlayerSnapshot.player_instance_id, PlayerSnapshot.observed_at)
-        ).all()
         history: dict[int, list[tuple[int | None, object]]] = {}
         for instance_id, club_id, observed_at in rows:
             history.setdefault(instance_id, []).append((club_id, observed_at))

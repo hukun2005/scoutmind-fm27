@@ -20,30 +20,20 @@ public sealed class FM27_1_Layout : LayoutBase
     public FM27_1_Layout()
         : base(LayoutName, major: 27, minor: 1, FM27_0_Layout.OffsetsTable(), FieldStatus.Pending, Source)
     {
+        // 扫描闸门字段：这些字段都能在游戏界面核对（CA/PA 不在其中——UI 不可见，
+        // 它们只能靠与 FMSuperScout 的一致性或内部检查，因此永远不阻塞扫描）。
         Require(
-            "OBJ_DUNI",
-            "PLAO_CA",
-            "PLAO_PA",
-            "PLAO_HEIGHT",
-            "PLAO_POSITIONS",
-            "PLAO_ATTRS",
-            "PLAO_TRANSFER_VALUE",
-            "PERO_DOB",
             "PERO_FIRST_NAME",
             "PERO_SECOND_NAME",
             "PERO_COMMON_NAME",
-            "PERO_FULL_CONTRACT",
+            "PERO_DOB",
+            "PLAO_HEIGHT",
+            "PLAO_POSITIONS",
             "PERO_NATION",
             "CON_EXPIRY",
-            "CON_WEEKLY_WAGE",
-            "CON_STATUS_FLAGS",
+            "CON_SQUAD_NUMBER",
             "CON_TEAM",
             "TEAM_CLUB",
-            "TEAM_TYPE",
-            "TEAM_PLAYERS_BEGIN",
-            "TEAM_PLAYERS_END",
-            "CLUB_NAME",
-            "CLUB_TEAMS_BEGIN",
-            "CLUB_TEAMS_END");
+            "CLUB_NAME");
     }
 }

@@ -235,7 +235,7 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
         else
         {
             _registry.Apply(detected.Build, layout);
-            diagnostics.Add($"布局 {layout.Name}（状态 {layout.Status}）。");
+            diagnostics.Add($"布局 {layout.Name}（闸门字段 {layout.BlockingStatus}，整体 {layout.Status}）。");
         }
 
         return Task.FromResult(new FmEngineStatus(
@@ -334,7 +334,7 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
                 probes.ProbeTeams(players),
                 probes.ProbeContracts(players),
                 probes.ProbeLoans(),
-                probes.ProbeTransfers(Array.Empty<ulong>()),
+                probes.ProbeTransfers(Array.Empty<ulong>()) with { BlocksScan = false },
                 probes.ProbeIntegrity(players, clubs),
                 // 字段级：属性三组 + 位置 + 国籍 + 球队关系（注册俱乐部/当前球队/层级）
                 probes.ProbeAttributeGroup(players, "attributes.technical", FieldSpecs.Technical),
@@ -349,7 +349,10 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
                         new FieldCheck("women.objects", women.Count > 0 ? CheckStatus.Inconclusive : CheckStatus.Passed,
                             $"定位到女子数据库对象 {women.Count} 个（男子样本 {players.Count} 个）"),
                     },
-                    "女子数据库结构与男子不同（合同/球队链在 25% 样本上读不通）：未验证，扫描前必须单独核对。"),
+                    "女子数据库结构与男子不同（合同/球队链在 25% 样本上读不通）：未验证，扫描前必须单独核对。")
+                {
+                    BlocksScan = false,
+                },
             };
 
             diagnostics.Add($"定位到球员对象 {players.Count} 个、俱乐部对象 {clubs.Count} 个。");
@@ -399,9 +402,9 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
         }
 
         var layout = _layouts.Resolve(status.Build, status.PluginVersion);
-        if (layout is null || layout.Status != FieldStatus.Verified)
+        if (layout is null || layout.BlockingStatus != FieldStatus.Verified)
         {
-            return Failed(status, $"布局 {layout?.Name ?? "(未解析)"} 尚未通过真实核对：拒绝扫描。");
+            return Failed(status, $"布局 {layout?.Name ?? "(未解析)"} 的闸门字段尚未通过真实核对（{layout?.BlockingStatus}）：拒绝扫描。");
         }
 
         if (status.ProcessId is null)

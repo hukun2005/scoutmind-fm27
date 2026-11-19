@@ -491,6 +491,39 @@ internal static class Program
                 return sample.Count > 0 ? 0 : 3;
             }
 
+            case "protocol":
+            {
+                // 把读取器信封（camelCase）转成后端要求的协议报文（snake_case），供离线验证/手动投递。
+                var source = args.Length > 1 ? args[1] : null;
+                if (source is null || !File.Exists(source))
+                {
+                    Console.Error.WriteLine("用法：ScoutMind.FMReader.Diag protocol <envelope.json> [out.json]");
+                    return 64;
+                }
+
+                var envelope = System.Text.Json.JsonSerializer.Deserialize<ScoutMind.Contracts.ScanEnvelope>(
+                    File.ReadAllText(source), ScoutMind.Contracts.ScoutMindJson.Options);
+                if (envelope is null)
+                {
+                    Console.Error.WriteLine("无法按读取器信封结构解析");
+                    return 3;
+                }
+
+                var bytes = ScoutMind.Contracts.ScanProtocolSerializer.ToProtocolJson(envelope);
+                var target = args.Length > 2 ? args[2] : Path.ChangeExtension(source, ".protocol.json");
+                File.WriteAllBytes(target, bytes);
+                Console.WriteLine(ToJson(new
+                {
+                    output = target,
+                    bytes = bytes.Length,
+                    scan_id = envelope.Scan.ScanId,
+                    players = envelope.Players.Count,
+                    clubs = envelope.Clubs.Count,
+                    schema = envelope.SchemaVersion,
+                }));
+                return 0;
+            }
+
             case "foot":
                 Console.WriteLine(ToJson(new
                 {
