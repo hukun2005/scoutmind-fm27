@@ -85,7 +85,7 @@ internal static class VersionGateTests
             TestHarness.True(gate.Entries.Count >= 1, "嵌入清单不应为空");
             var entry = gate.Entries.FirstOrDefault(item => item.Build == "26620374");
             TestHarness.True(entry is not null, "清单应包含本机构建 26620374");
-            TestHarness.Equal(BuildStatus.Candidate, entry!.Status, "本机 27.1 目前必须是 candidate");
+            TestHarness.Equal(BuildStatus.Verified, entry!.Status, "本机 27.1 已在 2026-11-19 核对通过 → verified");
             TestHarness.Equal("27.1.0+2505117", entry.PluginVersion, "插件版本应记录下来");
         });
 

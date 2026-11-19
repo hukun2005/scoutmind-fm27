@@ -27,7 +27,9 @@ public static class ReportBuilder
 
         var requiredVerified = layout.RequiredFields.All(field =>
             layout.Verification(field).Status == FieldStatus.Verified);
-        var applicable = probes.Where(probe => probe.Status != ProbeStatus.NotApplicable).ToList();
+        var applicable = probes
+            .Where(probe => probe.BlocksScan && probe.Status != ProbeStatus.NotApplicable)
+            .ToList();
         var probesPassed = applicable.Count > 0 && applicable.All(probe => probe.Status == ProbeStatus.Passed);
 
         if (requiredVerified && probesPassed)
@@ -90,7 +92,7 @@ public static class ReportBuilder
             PluginVersion: pluginVersion,
             AppId: appId,
             LayoutName: layout?.Name,
-            LayoutStatus: layout?.Status ?? FieldStatus.Pending,
+            LayoutStatus: layout?.BlockingStatus ?? FieldStatus.Pending,
             Probes: probes,
             Fields: layout is null
                 ? Array.Empty<FieldVerification>()

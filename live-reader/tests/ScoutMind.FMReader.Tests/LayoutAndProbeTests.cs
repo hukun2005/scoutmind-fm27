@@ -64,13 +64,13 @@ internal static class LayoutAndProbeTests
             TestHarness.True(!LayoutResolver.IsRegistered("99999999"), "未登记构建 IsRegistered 应为 false");
         });
 
-        harness.Run("注册表：默认清单里本机构建是 candidate，不允许扫描", () =>
+        harness.Run("注册表：默认清单里本机构建已核对 → 允许扫描", () =>
         {
             var registry = new CompatibilityRegistry();
             var entry = registry.For("26620374");
             TestHarness.True(entry is not null, "本机构建应在注册表中");
-            TestHarness.Equal(BuildStatus.Candidate, entry!.Status, "状态必须是 candidate");
-            TestHarness.True(!registry.AllowsScan("26620374"), "candidate 不允许扫描");
+            TestHarness.Equal(BuildStatus.Verified, entry!.Status, "2026-11-19 已核对 → verified");
+            TestHarness.True(registry.AllowsScan("26620374"), "verified 允许扫描");
             TestHarness.True(!registry.AllowsScan("99999999"), "未登记构建不允许扫描");
             TestHarness.Equal("FM27_1", entry.Layout, "应指向 27.1 布局");
         });
@@ -166,8 +166,8 @@ internal static class LayoutAndProbeTests
             }
 
             var outcome = new ObjectProbes(memory, layout).ProbeTeams(players);
-            TestHarness.True(outcome.Checks.Any(item => item.Name == "player_in_team" && item.Status == CheckStatus.Failed),
-                "player_in_team 应失败");
+            TestHarness.True(outcome.Checks.Any(item => item.Name == "player_in_team" && item.Status == CheckStatus.Inconclusive),
+                "player_in_team 现在是信息性检查（Inconclusive）");
         });
 
         harness.Run("合同探测：到期日/工资/状态位合法时通过", () =>

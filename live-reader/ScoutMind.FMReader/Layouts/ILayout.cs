@@ -36,4 +36,7 @@ public interface ILayout
 
     /// <summary>扫描前必须具备 <see cref="FieldStatus.Verified"/> 的字段。</summary>
     IReadOnlyList<string> RequiredFields { get; }
+
+    /// <summary>只统计闸门字段的状态（其余字段仍可能是 Pending，不影响判定的可读性）。</summary>
+    FieldStatus BlockingStatus { get; }
 }

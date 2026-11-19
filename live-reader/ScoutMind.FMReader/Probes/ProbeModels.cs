@@ -51,6 +51,9 @@ public sealed record ProbeOutcome(
     IReadOnlyList<FieldCheck> Checks,
     string? Note = null)
 {
+    /// <summary>该探测是否参与"能否扫描"的判定。信息性探测（转会记录、女子库）不阻塞。</summary>
+    public bool BlocksScan { get; init; } = true;
+
     /// <summary>失败检查数。</summary>
     public int FailedChecks => Checks.Count(item => item.Status == CheckStatus.Failed);
 
