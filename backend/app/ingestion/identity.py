@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import IdentityMatch, Player, PlayerInstance
+from ..models import IdentityConflict, IdentityMatch, Player, PlayerInstance
 from ..utils import normalize_name, utcnow
 from .protocol import PlayerRecord
 
@@ -75,6 +75,58 @@ def resolve_player_instance(
     )
     if base is not None:
         player = base.player
+        # 缺出生日期时不能"凭 UID 就合并"：同名才认为是同一人，异名则保留为冲突。
+        if record.birth_date is None and normalize_name(record.name) != player.normalized_name:
+            occurrence = (
+                session.scalar(
+                    select(func.max(PlayerInstance.uid_occurrence)).where(
+                        PlayerInstance.fm_save_id == save_id,
+                        PlayerInstance.save_local_uid == record.save_local_uid,
+                    )
+                )
+                or 0
+            ) + 1
+            incoming = _new_player(record)
+            session.add(incoming)
+            session.flush()
+            instance = PlayerInstance(
+                player_id=incoming.id,
+                fm_save_id=save_id,
+                save_local_uid=record.save_local_uid,
+                uid_occurrence=occurrence,
+                game_unique_id=record.game_unique_id,
+                club_id=None,
+                position=record.position,
+                last_seen_at=utcnow(),
+            )
+            session.add(instance)
+            session.flush()
+            warnings.append(
+                f"球员 UID {record.save_local_uid} 缺少出生日期且姓名与既有身份不同（{player.full_name} ≠ {record.name}），"
+                "已保留为两个身份并记录冲突，未做合并"
+            )
+            _record_conflict(
+                session,
+                save_id,
+                record,
+                existing=player,
+                incoming=incoming,
+                reason="missing_birth_date_name_mismatch",
+                resolution="kept_both",
+            )
+            _record_match(
+                session,
+                save_id,
+                incoming,
+                "uid_reuse_missing_birthdate",
+                0.4,
+                uid=record.save_local_uid,
+                occurrence=occurrence,
+                name=record.name,
+                existing_name=player.full_name,
+            )
+            return ResolvedInstance(instance, True, True, "uid_reuse_missing_birthdate", 0.4, "缺出生日期的 UID 复用")
+
         if record.birth_date and player.birth_date and record.birth_date != player.birth_date:
             occurrence = (
                 session.scalar(
@@ -102,6 +154,15 @@ def resolve_player_instance(
             session.flush()
             warnings.append(
                 f"球员 UID {record.save_local_uid} 的出生日期与既有身份不一致，已按 ID 复用处理并新建实例"
+            )
+            _record_conflict(
+                session,
+                save_id,
+                record,
+                existing=base.player,
+                incoming=player,
+                reason="birth_date_mismatch",
+                resolution="uid_occurrence",
             )
             _record_match(
                 session,
@@ -188,6 +249,41 @@ def resolve_player_instance(
         uid=record.save_local_uid,
     )
     return ResolvedInstance(instance, True, True, "new_identity", confidence)
+
+
+def _record_conflict(
+    session: Session,
+    save_id: int,
+    record: PlayerRecord,
+    *,
+    existing: Player,
+    incoming: Player,
+    reason: str,
+    resolution: str,
+) -> None:
+    """Persist one identity conflict with both sides of the evidence."""
+    session.add(
+        IdentityConflict(
+            fm_save_id=save_id,
+            save_local_uid=record.save_local_uid,
+            reason=reason,
+            existing_player_id=existing.id,
+            incoming_player_id=incoming.id,
+            existing_name=existing.full_name,
+            incoming_name=record.name,
+            existing_birth_date=existing.birth_date,
+            incoming_birth_date=record.birth_date,
+            resolution=resolution,
+            evidence_json=_dumps(
+                {
+                    "uid": record.save_local_uid,
+                    "reason": reason,
+                    "existing_player_id": existing.id,
+                    "incoming_player_id": incoming.id,
+                }
+            ),
+        )
+    )
 
 
 def _refresh_instance(instance: PlayerInstance, record: PlayerRecord) -> None:
