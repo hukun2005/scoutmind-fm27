@@ -181,6 +181,7 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
     private readonly string _workingRoot;
     private readonly Func<GameIdentity, string?> _buildResolver;
     private readonly IProbeEnvironment _probeEnvironment;
+    private readonly CompatibilityConfig _compatibilityConfig;
 
     /// <summary>创建引擎。</summary>
     /// <param name="locator">进程定位器。</param>
@@ -203,6 +204,7 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
         IProbeEnvironment? probeEnvironment = null)
     {
         _probeEnvironment = probeEnvironment ?? new WinMemoryEnvironment();
+        _compatibilityConfig = new CompatibilityConfig();
         _buildResolver = buildResolver ?? SteamBuildResolver.Resolve;
         _detector = new GameBuildDetector(locator, _buildResolver);
         _gate = gate ?? new VersionGate();
@@ -224,6 +226,10 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
         var diagnostics = new List<string>(detected.Diagnostics);
         var gate = _gate.Evaluate(detected.AppId, detected.Build, detected.PluginVersion);
         diagnostics.Add(gate.Message);
+        var configIssues = _compatibilityConfig.Validate();
+        diagnostics.Add(configIssues.Count == 0
+            ? "兼容性配置一致（verified-versions / compatibility-registry / LayoutResolver）"
+            : "兼容性配置冲突：" + CompatibilityConfig.Describe(configIssues));
 
         var layout = _layouts.Resolve(detected.Build, detected.PluginVersion);
         if (layout is null)
@@ -405,6 +411,12 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
         if (status.Gate is null || !status.Gate.AllowScan)
         {
             return Failed(status, status.Gate?.Message ?? "版本闸门未放行，拒绝扫描。");
+        }
+
+        var configIssues = _compatibilityConfig.Validate();
+        if (configIssues.Count > 0)
+        {
+            return Failed(status, "兼容性配置冲突：" + CompatibilityConfig.Describe(configIssues) + "；拒绝扫描。");
         }
 
         if (!_registry.AllowsScan(status.Build))

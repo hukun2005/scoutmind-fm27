@@ -2,7 +2,7 @@
   "$comment": "ScoutMind 自己验证过的 FM 构建。只有 status=verified 的条目允许扫描；candidate 表示上游声称支持但 ScoutMind 尚未在真实存档上核对；unsupported 表示已知不兼容。新增条目必须附带验证记录（见 docs/FM27-VERSION-VERIFICATION.md）。",
   "layouts": [
     {
-      "layout": "FM27",
+      "layout": "FM27_1",
       "app_id": "4530370",
       "build": "26620374",
       "plugin_version": "27.1.0+2505117",
@@ -15,7 +15,7 @@
       ]
     },
     {
-      "layout": "FM27",
+      "layout": "FM27_0",
       "app_id": "4530370",
       "build": "26577676",
       "plugin_version": "27.0.1+2503222",
