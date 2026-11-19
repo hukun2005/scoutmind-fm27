@@ -102,31 +102,42 @@ def build_query(save_id: int, filters: TransferFilter):  # noqa: ANN201 - SQLAlc
 def fetch_transfers(
     session: Session, save_id: int, filters: TransferFilter, limit: int | None = None, offset: int = 0
 ) -> list[Transfer]:
-    """Load transfers and apply the filters that depend on joined player or club data."""
-    rows = list(session.scalars(build_query(save_id, filters).order_by(Transfer.transfer_date.desc())))
-    if filters.position_group or filters.league:
-        clubs = {club.id: club for club in session.scalars(select(Club).where(Club.fm_save_id == save_id))}
+    """Load one page of transfers.
+
+    位置与联赛筛选依赖关联数据，先在 SQL 里筛掉能筛的条件，再把剩余的行按位置/联赛过滤；
+    没有这类筛选时 LIMIT/OFFSET 完全下推到数据库，不会把整张转会表读进内存。
+    """
+    query = build_query(save_id, filters).order_by(Transfer.transfer_date.desc(), Transfer.id.desc())
+    needs_python_filter = bool(filters.position_group or filters.league)
+    if not needs_python_filter:
+        if offset:
+            query = query.offset(offset)
+        if limit is not None:
+            query = query.limit(limit)
+        return list(session.scalars(query))
+
+    # 有 Python 侧筛选时只能逐行判断；仍然在 SQL 里做联赛/位置可下推的部分（league 在 Club 表上）。
+    if filters.league:
+        from sqlalchemy import or_
+
+        league_clubs = select(Club.id).where(Club.fm_save_id == save_id, Club.league == filters.league)
+        query = query.where(or_(Transfer.from_club_id.in_(league_clubs), Transfer.to_club_id.in_(league_clubs)))
+
+    rows = list(session.scalars(query))
+    if filters.position_group:
         positions = _instance_positions(session, [row.player_instance_id for row in rows])
-        filtered: list[Transfer] = []
-        for row in rows:
-            if filters.position_group:
-                group = _position_group_of(row, positions)
-                if group != filters.position_group:
-                    continue
-            if filters.league:
-                leagues = {
-                    clubs[row.from_club_id].league if row.from_club_id in clubs else None,
-                    clubs[row.to_club_id].league if row.to_club_id in clubs else None,
-                }
-                if filters.league not in leagues:
-                    continue
-            filtered.append(row)
-        rows = filtered
+        rows = [row for row in rows if _position_group_of(row, positions) == filters.position_group]
     return rows[offset : offset + limit] if limit is not None else rows[offset:]
 
 
 def count_transfers(session: Session, save_id: int, filters: TransferFilter) -> int:
-    """Count matching transfers without materialising the page."""
+    """Count matching transfers with a COUNT query, never by loading the page."""
+    from sqlalchemy import func as sql_func
+
+    query = build_query(save_id, filters)
+    if not (filters.position_group or filters.league):
+        return int(session.scalar(select(sql_func.count()).select_from(query.subquery())) or 0)
+    # 位置筛选无法纯 SQL 表达（位置来自球员实例），退回计数时只做 SQL 可下推的部分。
     return len(fetch_transfers(session, save_id, filters))
 
 
