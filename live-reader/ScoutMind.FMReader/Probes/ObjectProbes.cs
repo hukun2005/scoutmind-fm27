@@ -297,7 +297,7 @@ public sealed partial class ObjectProbes
         var checks = new List<FieldCheck>
         {
             Ratio("team_reachable", teamReachable, chainApplicable == 0 ? 1 : chainApplicable, $"合同 → 球队 指针链可达（{chainMissing} 名无可解析合同，按未知处理）", 0.9),
-            Ratio("team_type_range", teamTypeSane, sample.Count, "球队类型字节 0..20（上游：0=一线队，>=10=青年队）", 0.7),
+            Ratio("team_type_range", teamTypeSane, chainApplicable == 0 ? 1 : chainApplicable, "球队类型字节 0..20（上游：0=一线队，>=10=青年队）", 0.7),
             Ratio("club_from_team", clubReachable, chainApplicable == 0 ? 1 : chainApplicable, "球队 → 俱乐部 指针可达且名称可读", 0.9),
             Ratio("team_players_range", playersRangeSane, vectorApplicable == 0 ? 1 : vectorApplicable, $"球队球员向量 [begin,end) 合理（{vectorMissing} 个球队无向量，按未知处理）"),
             new FieldCheck("player_in_team", CheckStatus.Inconclusive,
@@ -326,15 +326,29 @@ public sealed partial class ObjectProbes
             try
             {
                 var contract = _memory.Pointer(player.Person + _layout["PERO_FULL_CONTRACT"]);
-                if (!IsPlausibleHeapPointer(contract))
+                if (contract == 0 || !IsPlausibleHeapPointer(contract))
                 {
+                    // 退役/自由身：没有可解析的合同对象，按"未知"处理，不计入分母。
+                    missing++;
                     continue;
                 }
 
+                applicable++;
                 pointerValid++;
 
                 var (expiryYear, expiryDoy) = FmDate.Decode(_memory.UInt32(contract + _layout["CON_EXPIRY"]));
-                if (expiryYear is >= 2000 and <= 2060 && expiryDoy is >= 1 and <= 366) expirySane++;
+                if (expiryYear == 0)
+                {
+                    noExpiry++;
+                }
+                else
+                {
+                    expiryApplicable++;
+                    if (expiryYear is >= 2000 and <= 2060 && expiryDoy is >= 1 and <= 366)
+                    {
+                        expirySane++;
+                    }
+                }
 
                 var wage = _memory.UInt32(contract + _layout["CON_WEEKLY_WAGE"]);
                 if (wage <= 5_000_000) wageSane++;
@@ -364,7 +378,9 @@ public sealed partial class ObjectProbes
             Ratio("expiry_after_birth", expiryAfterBirth, expiryApplicable == 0 ? 1 : expiryApplicable, "到期日晚于出生 14 年且不超过 45 年", 0.8),
         };
         var status = checks.Any(item => item.Status == CheckStatus.Failed) ? ProbeStatus.Failed : ProbeStatus.Passed;
-        return new ProbeOutcome("contract", status, sample.Count, checks, null);
+        return new ProbeOutcome("contract", status, sample.Count, checks,
+            "合同探测是数据质量信号：无合同/到期日异常会在个别样本上出现，属于数据完整性问题，不代表布局错位；"
+            + "布局正确性由 execution_layout、player、club、position、attributes、nation 与 integrity 共同判定。");
     }
 
     /// <summary>

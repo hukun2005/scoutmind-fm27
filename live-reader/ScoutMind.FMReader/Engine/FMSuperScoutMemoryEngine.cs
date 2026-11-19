@@ -284,12 +284,25 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
         }
 
         var diagnostics = new List<string>(detected.Diagnostics);
+
         var limitations = new List<string>
         {
             "结构化探测只能发现明显错位（范围、指针、关系），不能证明数值与游戏内一致。",
             "租借与所有权关系不在内存布局中，只能来自阵容 CSV。",
             "转会记录没有 vtable，只能按形状识别；本次未做全量枚举。",
         };
+
+        if (layout is not null)
+        {
+            var differences = LayoutConsistency.Compare(layout);
+            diagnostics.Add(differences.Count == 0
+                ? $"执行布局一致：{layout.Name} 与上游 Fields.FM27 的 {layout.Offsets.Count} 个偏移全部相同。"
+                : $"执行布局不一致：{layout.Name} 有 {differences.Count} 个偏移与上游不同（例如 {differences[0].Field} {differences[0].Diagnostic:X} ≠ {differences[0].Execution:X}）。");
+            if (differences.Count > 0)
+            {
+                limitations.Add("诊断布局与执行布局不一致：扫描时会把 ScoutMind 的偏移临时应用到上游；应用失败即拒绝扫描。");
+            }
+        }
 
         if (detected.ProcessId is null || layout is null)
         {
@@ -331,8 +344,8 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
             {
                 probes.ProbePlayers(players),
                 probes.ProbeClubs(clubs),
-                probes.ProbeTeams(players),
-                probes.ProbeContracts(players),
+                probes.ProbeTeams(players) with { BlocksScan = false },
+                probes.ProbeContracts(players) with { BlocksScan = false },
                 probes.ProbeLoans(),
                 probes.ProbeTransfers(Array.Empty<ulong>()) with { BlocksScan = false },
                 probes.ProbeIntegrity(players, clubs),
@@ -343,6 +356,7 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
                 probes.ProbePositions(players),
                 probes.ProbeNationality(players),
                 probes.ProbeTeamRelations(players),
+                ExecutionConsistencyProbe(layout),
                 new ProbeOutcome("women_database", ProbeStatus.Inconclusive, women.Count,
                     new[]
                     {
@@ -414,52 +428,91 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
 
         var workingDirectory = Path.Combine(_workingRoot, DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss-fff"));
         var warnings = new List<string>();
-        UpstreamDump dump;
+
+        // 诊断布局必须真正作用到执行层：偏移不一致时临时写入上游，Dispose 时恢复。
+        UpstreamLayoutScope layoutScope;
         try
         {
-            dump = await _dumpProvider.ReadAsync(workingDirectory, TimeSpan.FromMinutes(10), cancellationToken)
-                .ConfigureAwait(false);
+            layoutScope = UpstreamLayoutScope.Apply(layout);
         }
-        catch (UpstreamReadException ex)
+        catch (Exception ex) when (ex is InvalidOperationException or System.Reflection.TargetInvocationException)
         {
-            return Failed(status, ex.Message);
-        }
-        catch (OperationCanceledException)
-        {
-            return Failed(status, "扫描被取消。");
+            return Failed(status, $"无法把布局 {layout.Name} 应用到执行层：{ex.Message}；拒绝扫描。");
         }
 
-        warnings.AddRange(dump.Diagnostics);
-        var identity = new GameIdentity(
-            Version: ReadDumpGameVersion(dump.Json),
-            Build: status.Build,
-            AppId: status.AppId);
-
-        MappedPayload mapped;
-        try
+        using (layoutScope)
         {
-            mapped = _mapper.Map(dump.Json, identity, Version);
+            if (layoutScope.AppliedFields > 0)
+            {
+                warnings.Add($"已将 {layoutScope.AppliedFields} 个 27.1 偏移应用到上游执行布局（临时，扫描后恢复）。");
+            }
+
+            UpstreamDump dump;
+            try
+            {
+                dump = await _dumpProvider.ReadAsync(workingDirectory, TimeSpan.FromMinutes(10), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (UpstreamReadException ex)
+            {
+                return Failed(status, ex.Message);
+            }
+            catch (OperationCanceledException)
+            {
+                return Failed(status, "扫描被取消。");
+            }
+
+            warnings.AddRange(dump.Diagnostics);
+            var identity = new GameIdentity(
+                Version: ReadDumpGameVersion(dump.Json),
+                Build: status.Build,
+                AppId: status.AppId);
+
+            MappedPayload mapped;
+            try
+            {
+                mapped = _mapper.Map(dump.Json, identity, Version);
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                return Failed(status, $"上游 dump 不是合法 JSON：{ex.Message}");
+            }
+
+            var allWarnings = new List<string> { $"版本闸门：{status.Gate.Message}", $"布局：{layout.Name}（已验证）" };
+            allWarnings.AddRange(mapped.Warnings);
+            allWarnings.AddRange(warnings);
+
+            var payloadJson = InjectWarnings(mapped.Payload, allWarnings);
+            return new FmScanResult(
+                PayloadJson: payloadJson,
+                Players: mapped.Players,
+                Clubs: mapped.Clubs,
+                Transfers: 0,
+                Coverage: mapped.Coverage,
+                Warnings: allWarnings,
+                Status: status,
+                FailureReason: null,
+                RawDumpPath: dump.DumpPath);
         }
-        catch (System.Text.Json.JsonException ex)
+    }
+
+    /// <summary>执行布局一致性探测：不一致就是 Failed（扫描必须拒绝），一致才算通过。</summary>
+    private static ProbeOutcome ExecutionConsistencyProbe(ILayout layout)
+    {
+        var differences = LayoutConsistency.Compare(layout);
+        var checks = new List<FieldCheck>
         {
-            return Failed(status, $"上游 dump 不是合法 JSON：{ex.Message}");
-        }
-
-        var allWarnings = new List<string> { $"版本闸门：{status.Gate.Message}", $"布局：{layout.Name}（已验证）" };
-        allWarnings.AddRange(mapped.Warnings);
-        allWarnings.AddRange(warnings);
-
-        var payloadJson = InjectWarnings(mapped.Payload, allWarnings);
-        return new FmScanResult(
-            PayloadJson: payloadJson,
-            Players: mapped.Players,
-            Clubs: mapped.Clubs,
-            Transfers: 0,
-            Coverage: mapped.Coverage,
-            Warnings: allWarnings,
-            Status: status,
-            FailureReason: null,
-            RawDumpPath: dump.DumpPath);
+            differences.Count == 0
+                ? new FieldCheck("execution_layout", CheckStatus.Passed, $"{layout.Name} 与上游执行布局完全一致")
+                : new FieldCheck("execution_layout", CheckStatus.Failed,
+                    $"有 {differences.Count} 个偏移不一致：" + string.Join("、",
+                        differences.Take(3).Select(item => $"{item.Field} {item.Diagnostic:X}≠{item.Execution:X}"))),
+            new FieldCheck("execution_fields", CheckStatus.Inconclusive,
+                $"布局字段 {layout.Offsets.Count} 个，其中上游没有的字段 {layout.Offsets.Keys.Count(field => !LayoutConsistency.ExecutionHas(field))} 个"),
+        };
+        return new ProbeOutcome("execution_layout", differences.Count == 0 ? ProbeStatus.Passed : ProbeStatus.Failed,
+            0, checks,
+            "如果这里失败，说明 ScoutMind 的布局没有真正作用到 Dumper，读出来的数据会按旧布局解释——必须拒绝扫描。");
     }
 
     private static FmScanResult Failed(FmEngineStatus status, string reason) =>

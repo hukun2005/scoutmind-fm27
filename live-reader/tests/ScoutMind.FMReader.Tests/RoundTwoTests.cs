@@ -205,7 +205,8 @@ internal static class RoundTwoTests
             var women = Enumerable.Range(10, 3).Select(index => FakeSave.WritePlayer(memory, layout, index, name: $"W{index}")).ToList();
             foreach (var player in women)
             {
-                memory.Write(player.Person + layout["PERO_GENDER"], new byte[] { 0x10 });
+                // 性别位相对数据库块（上游 Dumper 读 db + PERO_GENDER），不是 person。
+                memory.Write(player.Db + layout["PERO_GENDER"], new byte[] { 0x10 });
             }
 
             var (menSplit, womenSplit) = new ObjectProbes(memory, layout).SplitByGender(men.Concat(women).ToList());

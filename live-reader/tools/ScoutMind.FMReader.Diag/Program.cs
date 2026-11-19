@@ -423,7 +423,7 @@ internal static class Program
                                    memory.NestedString(player.Person + layout["PERO_SECOND_NAME"]),
                                }.Where(part => !string.IsNullOrWhiteSpace(part)));
                     var birthYear = FmDate.Decode(memory.UInt32(player.Person + layout["PERO_DOB"])).Year;
-                    var gender = memory.Byte(player.Person + layout["PERO_GENDER"]);
+                    var gender = memory.Byte(player.Db + layout["PERO_GENDER"]);
                     rows.Add(new MatchDiagnostics.ReaderRow(name, birthYear, (gender & 0x10) != 0));
                 }
 

@@ -17,7 +17,7 @@ public sealed partial class ObjectProbes
         {
             try
             {
-                var gender = _memory.Byte(player.Person + _layout["PERO_GENDER"]);
+                var gender = _memory.Byte(player.Db + _layout["PERO_GENDER"]);
                 ((gender & 0x10) != 0 ? women : men).Add(player);
             }
             catch (MemoryUnreadableException)

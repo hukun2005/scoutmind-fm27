@@ -30,6 +30,7 @@ internal static class Program
         VersionGateTests.Run(harness);
         LayoutAndProbeTests.Run(harness);
         RoundTwoTests.Run(harness);
+        ExecutionLayoutTests.Run(harness);
         MapperTests.Run(harness);
         await EngineTests.RunAsync(harness).ConfigureAwait(false);
 
