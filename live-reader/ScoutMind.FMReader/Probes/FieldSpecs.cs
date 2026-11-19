@@ -93,8 +93,8 @@ public static class FieldSpecs
         specs.Add(new FieldSpec(
             "position.familiarity", "position", "PLAO_POSITIONS", "block", "15 × u8",
             "0..20（上游注释：0 表示不熟悉）", "逐字节范围 + 至少一个位置 ≥15（自然位置）",
-            layout.Offsets.ContainsKey("PLAO_POSITIONS") ? FieldStatus.Pending : FieldStatus.NotSupported,
-            EvidenceKind.InternalCheck,
+            layout.Verification("PLAO_POSITIONS").Status,
+            layout.Verification("PLAO_POSITIONS").Kind,
             "位置字节的含义来自上游注释，尚未在游戏内逐项核对"));
 
         // 明确不支持的字段：布局里没有对应偏移，不能编造。
@@ -137,6 +137,7 @@ public static class FieldSpecs
         string method)
     {
         var exists = layout.Offsets.ContainsKey(layoutKey);
+        var verification = exists ? layout.Verification(layoutKey) : null;
         return new FieldSpec(
             field,
             group,
@@ -145,12 +146,16 @@ public static class FieldSpecs
             dataType,
             range,
             method,
-            exists ? FieldStatus.Pending : FieldStatus.NotSupported,
-            exists ? EvidenceKind.InternalCheck : EvidenceKind.None);
+            exists ? verification!.Status : FieldStatus.NotSupported,
+            exists ? verification!.Kind : EvidenceKind.None,
+            exists ? verification!.Note : null);
     }
 
-    private static FieldSpec Attribute(ILayout layout, string key, string group) =>
-        new(
+    private static FieldSpec Attribute(ILayout layout, string key, string group)
+    {
+        var exists = layout.Offsets.ContainsKey("PLAO_ATTRS");
+        var verification = exists ? layout.Verification("PLAO_ATTRS") : null;
+        return new FieldSpec(
             "attr." + key,
             group,
             "PLAO_ATTRS",
@@ -158,7 +163,8 @@ public static class FieldSpecs
             "u8（存储值 = 实际值 ×5）",
             "0..20（÷5 之后）",
             "÷5 后范围检查；分组按 FM 惯例，分组本身不是数据",
-            layout.Offsets.ContainsKey("PLAO_ATTRS") ? FieldStatus.Pending : FieldStatus.NotSupported,
-            layout.Offsets.ContainsKey("PLAO_ATTRS") ? EvidenceKind.InternalCheck : EvidenceKind.None,
+            exists ? verification!.Status : FieldStatus.NotSupported,
+            exists ? verification!.Kind : EvidenceKind.None,
             "属性值来自偏移表 " + key);
+    }
 }

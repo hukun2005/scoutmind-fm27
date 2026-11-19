@@ -117,8 +117,12 @@ internal static class RoundTwoTests
         {
             var layout = new FM27_0_Layout();
             var specs = FieldSpecs.Build(layout);
-            TestHarness.True(specs.All(spec => spec.Kind is EvidenceKind.InternalCheck or EvidenceKind.None),
-                "27.0 未在游戏界面核对过，证据只能是内部检查");
+            // 27.0 的字段带的是**上游**证据（UpstreamAgreement），ScoutMind 自己没在界面上核对过，
+            // 所以状态必须是 Candidate，而不是 Verified。
+            TestHarness.True(specs.All(spec => spec.Kind is EvidenceKind.UpstreamAgreement or EvidenceKind.None or EvidenceKind.InternalCheck),
+                "27.0 的证据只能是上游/内部，不能是游戏界面");
+            TestHarness.True(specs.All(spec => spec.Status is not FieldStatus.Verified),
+                "27.0 没有被 ScoutMind 界面核对过，不允许出现 Verified");
             TestHarness.True(Enum.GetValues<EvidenceKind>().Contains(EvidenceKind.GameUiAgreement), "必须存在游戏界面证据档");
         });
 

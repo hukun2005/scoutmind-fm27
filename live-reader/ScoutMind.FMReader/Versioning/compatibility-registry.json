@@ -11,7 +11,6 @@
         "PERO_FIRST_NAME",
         "PERO_SECOND_NAME",
         "PERO_DOB",
-        "PLAO_HEIGHT",
         "PLAO_POSITIONS",
         "PERO_NATION",
         "CON_EXPIRY",
@@ -21,6 +20,7 @@
         "CLUB_NAME"
       ],
       "upstream_agreement_fields": [
+        "PLAO_HEIGHT",
         "PLAO_CA",
         "PLAO_PA",
         "PLAO_ATTRS",
@@ -32,7 +32,7 @@
         "游戏界面核对 2026-11-19：30 人清单（docs/acceptance 与 exports/verification/fm27-27.1-sample.md）中的俱乐部、身高、合同到期、球衣号、位置、国籍与读取值一致（用户确认）",
         "与 FMSuperScout 1.7.3 导出同存档交叉校验（2026-11-19）：400 抽样 / 367 配对，CA 367/367、PA 367/367、身高 367/367、出生年 367/367、合同到期 256/256、俱乐部 2/2，零不匹配"
       ],
-      "note": "CA/PA 在游戏界面不可见，按任务要求不得标为 Verified，只能作为 Candidate（一致性证据）。TEAM_TYPE 的 0/3/≥10 语义尚未在界面确认，同为 Candidate。"
+      "note": "CA/PA 在游戏界面不可见，按任务要求不得标为 Verified，只能作为 Candidate（一致性证据）。PLAO_HEIGHT：全量比对 48,058/48,089 与导出一致，但有 31 人差 1–6cm（2026-11-19 晚间发现，原因未解释），因此从 Verified 降为 Candidate，并从扫描闸门字段中移除。TEAM_TYPE 的 0/3/≥10 语义尚未在界面确认，同为 Candidate。"
     },
     {
       "build": "26577676",
