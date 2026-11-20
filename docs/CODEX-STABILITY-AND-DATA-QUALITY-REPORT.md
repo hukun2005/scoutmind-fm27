@@ -129,11 +129,21 @@
 | Frontend | `cd frontend; npm run build` | 成功 |
 | 迁移 | `alembic upgrade head` / `downgrade -1` / `upgrade head` | 通过 |
 
-## 六、FM27.1 真实环境验收 — NOT_RUN
+## 六、FM27.1 真实环境验收 — PASS（含 1 项 PARTIAL）
 
-本轮未执行真实游戏扫描：执行时 Football Manager 2027 进程未运行，为避免伪造结果，标记为 `NOT_RUN`。
+执行记录：`docs/acceptance/VERIFY-2026-11-20-PHASE1.md`。
 
-已有的历史证据（2026-11-19，Build 26620374 / 插件 27.1.0+2505117，50,839 球员扫描成功）**未被覆盖**，仍保留在 `docs/acceptance/VERIFY-2026-11-19-EVENING.md`；本轮代码改动只影响上传、身份与转会统计，不改变读取层。
+| 验收项 | 状态 |
+| --- | --- |
+| 版本 / Build / 插件 / 闸门 | PASS（26620374 / 27.1.0+2505117 / Verified） |
+| 配置一致性 / 执行布局一致性 | PASS（configcheck 一致；50 字段 0 差异） |
+| 真实扫描 | PASS：50,365 球员 / 55 俱乐部，ScanCompleted |
+| 确定性 | PASS：同一状态连续两次扫描零差异 |
+| 导入（active save 2） | PASS：50,365 快照，新增 7,538 身份，重复 UID=0 |
+| 转会历史可用性 | PASS：`transfer_history.available=false`，agreed 单独表达 |
+| 合同到期日探测 | PARTIAL：17 个可解析合同中 12 个到期日异常（数据完整性，非阻塞） |
+
+**验收中发现并修复的问题**：跨数据源导入时，FMSuperScout 的推导生日与 native 精确生日相差几天到几个月，旧规则把它当成 UID 复用，produced 1,143 条冲突。已加入"同名 + 同 UID + 生日差 ≤ 366 天 = 生日精度差异"规则（同身份、修正生日、不建重复），并在真实存档上做了 dry-run 统计（1,085 个历史重复身份可合并），等待用户批准后再执行修复脚本。
 
 ## 七、遗留风险
 

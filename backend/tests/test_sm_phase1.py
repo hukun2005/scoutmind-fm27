@@ -474,3 +474,33 @@ def test_history_unavailable_when_only_agreed_rows(db, save) -> None:
     assert stats["sample_size"] == 0
     assert stats["availability"]["transfer_history"] is False
     assert stats["availability"]["agreed"] == 1
+
+def test_same_uid_same_name_small_dob_drift_is_one_identity(db, save) -> None:
+    """同名 + 同 UID + 生日差几个月：数据源精度差异，不是 UID 复用。"""
+    from datetime import date
+
+    first = player_row("U10", "Precision Drift", age=22)  # 生日 2004-05-01
+    _import(db, save.id, scan_document(scan_id="drift-1", players=[first]))
+
+    drifted = player_row("U10", "Precision Drift", age=22)
+    drifted["birth_date"] = date(2004, 8, 14).isoformat()
+    _import(db, save.id, scan_document(scan_id="drift-2", players=[drifted]))
+
+    players = db.scalars(select(Player)).all()
+    assert len(players) == 1, "同名且生日接近时不得创建第二个身份"
+    assert players[0].birth_date == date(2004, 8, 14), "应用新观测修正生日"
+    assert db.scalar(select(func.count()).select_from(IdentityConflict)) == 0
+    strategies = {row.strategy for row in db.scalars(select(IdentityMatch)).all()}
+    assert "uid_name_dob_drift" in strategies
+
+
+def test_same_uid_different_name_and_dob_still_conflicts(db, save) -> None:
+    """异名 + 生日不同：仍然按 UID 复用建新身份并记录冲突。"""
+    _import(db, save.id, scan_document(scan_id="hard-1", players=[player_row("U11", "Person One", age=20)]))
+    _import(db, save.id, scan_document(scan_id="hard-2", players=[player_row("U11", "Person Two", age=35)]))
+    assert db.scalar(select(func.count()).select_from(PlayerInstance)) == 2
+    conflict = db.scalars(select(IdentityConflict)).first()
+    assert conflict is not None
+    assert conflict.reason == "birth_date_mismatch"
+    assert conflict.conflict_fields == "birth_date"
+    assert conflict.confidence == pytest.approx(0.9)

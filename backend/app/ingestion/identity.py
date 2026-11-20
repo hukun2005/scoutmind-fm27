@@ -140,6 +140,32 @@ def resolve_player_instance(
                 )
                 .limit(1)
             )
+            # 同名 + 同 UID + 生日只差不到一年：几乎总是数据源精度差异（按年龄/年积日推导的生日 vs 精确生日），
+            # 不是 UID 复用。按同一身份处理，并用新观测修正生日，避免制造重复身份。
+            near_match = (
+                normalize_name(record.name) == player.normalized_name
+                and player.birth_date is not None
+                and abs((record.birth_date - player.birth_date).days) <= 366
+            )
+            if near_match:
+                old_birth_date = player.birth_date
+                player.birth_date = record.birth_date
+                resolve_open_conflicts(session, save_id, record.save_local_uid, player.id, resolution="birth_date_precision")
+                _record_match(
+                    session,
+                    save_id,
+                    player,
+                    "uid_name_dob_drift",
+                    0.8,
+                    uid=record.save_local_uid,
+                    name=record.name,
+                    previous_birth_date=old_birth_date,
+                    new_birth_date=record.birth_date,
+                    days=abs((record.birth_date - old_birth_date).days),
+                )
+                _refresh_instance(base, record)
+                return ResolvedInstance(base, False, False, "uid_name_dob_drift", 0.8, "生日精度差异")
+
             if existing_occurrence is not None:
                 resolve_open_conflicts(session, save_id, record.save_local_uid, existing_occurrence.player_id)
                 _record_match(
@@ -191,6 +217,8 @@ def resolve_player_instance(
                 incoming=player,
                 reason="birth_date_mismatch",
                 resolution="uid_occurrence",
+                fields="birth_date",
+                confidence=0.9,
             )
             _record_match(
                 session,
