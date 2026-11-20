@@ -71,6 +71,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'AI 体育总监' },
   },
   {
+    path: '/identity',
+    name: 'identity',
+    component: () => import('../views/IdentityResolutionView.vue'),
+    meta: { title: '身份复核中心' },
+  },
+  {
     path: '/data',
     name: 'data',
     component: () => import('../views/DataView.vue'),

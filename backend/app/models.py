@@ -235,6 +235,23 @@ class IdentityConflict(TimestampMixin, Base):
     )
 
 
+class IdentityConflictAction(TimestampMixin, Base):
+    """人工复核身份冲突的操作审计（追加写，不更新、不删除）。"""
+
+    __tablename__ = "identity_conflict_actions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    conflict_id: Mapped[int] = mapped_column(ForeignKey("identity_conflicts.id"), nullable=False, index=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(512))
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+    __table_args__ = (Index("ix_conflict_actions_conflict", "conflict_id", "created_at"),)
+
+
 class PlayerAttribute(TimestampMixin, Base):
     """Attribute dictionary. Values are the FM 1-20 scale unless the source says otherwise."""
 

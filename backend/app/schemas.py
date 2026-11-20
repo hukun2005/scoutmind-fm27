@@ -142,3 +142,11 @@ class DealRequest(BaseModel):
     budget: int | None = Field(default=None, ge=0)
     wage_period: str = Field(default="week", pattern="^(week|month|year)$")
     contract_years: float | None = Field(default=None, gt=0, le=20)
+
+
+class IdentityConflictResolve(BaseModel):
+    """人工处理一条身份冲突。"""
+
+    decision: str = Field(pattern="^(same|different|defer)$")
+    keep: str = Field(default="existing", pattern="^(existing|incoming)$")
+    note: str | None = Field(default=None, max_length=512)
