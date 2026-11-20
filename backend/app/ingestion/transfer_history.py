@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Club, Player, PlayerInstance, Transfer, TransferFeeComponent, TransferImportRun, TransferSource
 from ..utils import normalize_name, utcnow
+from .amounts import parse_amount
 
 TRANSFER_STATUSES = ("completed", "agreed", "pending", "cancelled", "failed", "unknown")
 TRANSFER_TYPES = (
@@ -136,15 +137,14 @@ def _text(value: Any) -> str | None:
     return text or None
 
 
-def _float(value: Any) -> float | None:
-    text = _text(value)
-    if text is None:
+def _float_optional(value: Any) -> float | None:
+    """工资分摊/二转分成等非转会费字段：只接受纯数字，失败返回 None（不猜测）。"""
+    text_value = _text(value)
+    if text_value is None:
         return None
-    cleaned = re.sub(r"[^0-9.\-]", "", text.replace(",", ""))
-    if not cleaned or cleaned in {"-", "."}:
-        return None
+    cleaned = re.sub(r"[^0-9.\-]", "", text_value.replace(",", ""))
     try:
-        return float(cleaned)
+        return float(cleaned) if cleaned not in {"", "-", "."} else None
     except ValueError:
         return None
 
@@ -263,6 +263,32 @@ def _validate(row: dict[str, Any], line: int, report: TransferImportReport) -> d
     if _text(row.get("to_club_name")) is None and transfer_type != "release":
         report.errors.append(RowError(line, "missing_to_club", "缺少转入俱乐部（release 除外）"))
         return None
+    currency_hint = _text(row.get("currency"))
+    fees: dict[str, object] = {}
+    for field, label in (("base_fee", "转会费"), ("add_on_fee", "附加条款"), ("loan_fee", "租借费")):
+        parsed = parse_amount(row.get(field), currency_hint)
+        if parsed.error:
+            code = "missing_currency" if "缺少币种" in parsed.error else "invalid_amount"
+            report.errors.append(RowError(line, code, f"{label}：{parsed.error}"))
+            return None
+        fees[field] = parsed
+    if currency_hint is None and (fees["base_fee"].amount is not None or fees["add_on_fee"].amount is not None or fees["loan_fee"].amount is not None):
+        report.errors.append(RowError(line, "missing_currency", "金额存在但没有 currency 列或货币符号"))
+        return None
+
+    currencies = {parsed.currency for parsed in fees.values() if parsed.currency}
+    if currency_hint and currencies and currency_hint.upper() not in currencies:
+        report.errors.append(
+            RowError(line, "mixed_currency", f"currency 列是 {currency_hint}，但金额带 {sorted(currencies)} 符号")
+        )
+        return None
+    if len(currencies) > 1:
+        report.errors.append(RowError(line, "mixed_currency", f"同一行出现多个币种：{sorted(currencies)}"))
+        return None
+    currency = next(iter(currencies), None)
+    if currency is None:
+        currency = (currency_hint or "").upper()[: FIELD_LIMITS["currency"]] or None
+
     return {
         "player_name": player[: FIELD_LIMITS["player_name"]],
         "status": status,
@@ -272,13 +298,17 @@ def _validate(row: dict[str, Any], line: int, report: TransferImportReport) -> d
         "effective_date": _date(row.get("effective_date")),
         "from_club_name": _text(row.get("from_club_name")),
         "to_club_name": _text(row.get("to_club_name")),
-        "base_fee": _float(row.get("base_fee")),
-        "add_on_fee": _float(row.get("add_on_fee")),
-        "loan_fee": _float(row.get("loan_fee")),
-        "wage_contribution": _float(row.get("wage_contribution")),
-        "sell_on_pct": _float(row.get("sell_on_pct")),
+        "base_fee": fees["base_fee"].amount,
+        "add_on_fee": fees["add_on_fee"].amount,
+        "loan_fee": fees["loan_fee"].amount,
+        "base_fee_raw": fees["base_fee"].raw,
+        "add_on_fee_raw": fees["add_on_fee"].raw,
+        "loan_fee_raw": fees["loan_fee"].raw,
+        "currency_original": currency_hint or (fees["base_fee"].currency if fees["base_fee"].currency else None),
+        "wage_contribution": _float_optional(row.get("wage_contribution")),
+        "sell_on_pct": _float_optional(row.get("sell_on_pct")),
         "addon_status": (_text(row.get("addon_status")) or "pending").lower(),
-        "currency": (_text(row.get("currency")) or "EUR")[: FIELD_LIMITS["currency"]],
+        "currency": currency or ("EUR" if currency_hint is None else currency_hint.upper())[: FIELD_LIMITS["currency"]],
         "source_record_id": _text(row.get("source_record_id")),
     }
 
@@ -364,7 +394,11 @@ def import_transfer_rows(
             effective_date=valid["effective_date"],
             season=_season(valid["transfer_date"]),
             currency=valid["currency"],
+            currency_original=valid["currency_original"],
             base_fee=valid["base_fee"],
+            fee_raw=valid["base_fee_raw"],
+            addons_raw=valid["add_on_fee_raw"],
+            loan_fee_raw=valid["loan_fee_raw"],
             effective_fee=effective_fee,
             addons_potential=valid["add_on_fee"],
             loan_fee=valid["loan_fee"],
