@@ -15,7 +15,10 @@ layers:
 
 from __future__ import annotations
 
+import time
+
 import json
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from datetime import date
 
@@ -231,13 +234,39 @@ class Candidate:
 # -- pool -------------------------------------------------------------------------------------------------------
 
 
-def candidate_pool(session: Session, save_id: int) -> list[Candidate]:
-    """Every player of one save with its newest snapshot, attributes and newest season statistics."""
+def candidate_pool(
+    session: Session,
+    save_id: int,
+    *,
+    min_age: int | None = None,
+    max_age: int | None = None,
+    max_value: int | None = None,
+    max_wage: int | None = None,
+    positions: list[str] | None = None,
+) -> list[Candidate]:
+    """Every player of one save with its newest snapshot, attributes and newest season statistics.
+
+    Optional filters run in SQL before attributes/statistics are loaded, so a 50k-player save does
+    not have to materialise every row for a position+age+budget query.
+    """
     base = latest_snapshot_subquery()
     club_ids = {row.id: row for row in session.scalars(select(Club).where(Club.fm_save_id == save_id))}
-    rows = session.execute(select(base).where(base.c.fm_save_id == save_id)).all()
-    readings = _attributes_by_snapshot(session, [int(row.snapshot_id) for row in rows if row.snapshot_id])
-    stats = _statistics_by_instance(session, [int(row.instance_id) for row in rows])
+    query = select(base).where(base.c.fm_save_id == save_id)
+    if min_age is not None:
+        query = query.where(base.c.age >= min_age)
+    if max_age is not None:
+        query = query.where(base.c.age <= max_age)
+    if max_value is not None:
+        query = query.where(base.c.market_value <= max_value)
+    if max_wage is not None:
+        query = query.where(base.c.wage <= max_wage)
+    if positions:
+        query = query.where(base.c.position.in_(positions))
+    rows = session.execute(query).all()
+    snapshot_ids = query.with_only_columns(base.c.snapshot_id).subquery()
+    instance_ids = query.with_only_columns(base.c.instance_id).subquery()
+    readings = _attributes_for_snapshot_query(session, snapshot_ids)
+    stats = _statistics_for_instance_query(session, instance_ids)
     pool: list[Candidate] = []
     for row in rows:
         club = club_ids.get(row.club_id) if row.club_id else None
@@ -279,13 +308,14 @@ def player_score(
     target = next((item for item in pool if item.instance_id == instance_id), None)
     if target is None:
         raise ValueError("player instance not found in this save")
-    return _score_candidate(session, target, pool)
+    return _score_candidate(session, target, pool, build_score_context(session, pool))
 
 
 def compare_players(session: Session, save_id: int, instance_ids: list[int]) -> dict[str, object]:
     """Score several players with the same weights so the comparison is apples to apples."""
     pool = candidate_pool(session, save_id)
-    items = [_score_candidate(session, item, pool) for item in pool if item.instance_id in set(instance_ids)]
+    context = build_score_context(session, pool)
+    items = [_score_candidate(session, item, pool, context) for item in pool if item.instance_id in set(instance_ids)]
     items.sort(key=lambda row: -(row["score"] or 0))
     shared = _shared_dimensions(items)
     return {
@@ -308,9 +338,23 @@ def search_recruitment(
     min_score: float | None = None,
     exclude_own_club: bool = True,
     limit: int = 25,
+    with_stats: bool = False,
 ) -> dict[str, object]:
     """Rank candidates for a slot with the six-dimensional score applied inside each position group."""
-    pool = candidate_pool(session, save_id)
+    started = time.perf_counter()
+    from ..ingestion.attributes import POSITION_TO_SLOT
+
+    slot_codes = sorted(code for code, mapped in POSITION_TO_SLOT.items() if mapped == slot) if slot else None
+    pool = candidate_pool(
+        session,
+        save_id,
+        min_age=min_age,
+        max_age=max_age,
+        max_value=max_value,
+        max_wage=max_wage,
+        positions=slot_codes,
+    )
+    context = build_score_context(session, pool)
     own_club = _own_club_id(session, save_id)
     scored: list[dict[str, object]] = []
     for item in pool:
@@ -326,15 +370,24 @@ def search_recruitment(
             continue
         if max_wage is not None and (item.wage is None or item.wage > max_wage):
             continue
-        result = _score_candidate(session, item, pool)
+        result = _score_candidate(session, item, pool, context)
         if min_score is not None and (result["score"] is None or float(result["score"]) < min_score):
             continue
         scored.append(result)
-    scored.sort(key=lambda row: -(row["score"] or 0))
-    return {
+    scored.sort(key=lambda row: (-(row["score"] or 0), int(row["player"]["instance_id"])))
+    elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+    payload = {
         "items": scored[:limit],
         "total": len(scored),
         "algorithm_version": ALGORITHM_VERSION,
+        "performance": {
+            "pool_size": len(pool),
+            "scored": len(scored),
+            "elapsed_ms": elapsed_ms,
+            "filters_pushed_to_sql": ["min_age", "max_age", "max_value", "max_wage", "slot_positions"],
+        }
+        if with_stats
+        else None,
         "criteria": {
             "slot": slot,
             "min_age": min_age,
@@ -346,6 +399,7 @@ def search_recruitment(
         },
         "data_gaps": _pool_gaps(scored),
     }
+    return payload
 
 
 def hidden_value(
@@ -528,10 +582,46 @@ def shortlist_detail(session: Session, shortlist_id: int) -> dict[str, object]:
 # -- scoring ----------------------------------------------------------------------------------------------------
 
 
-def _score_candidate(session: Session, target: Candidate, pool: list[Candidate]) -> dict[str, object]:
+@dataclass
+class ScoreContext:
+    """One pool's shared scoring inputs: computed once instead of once per candidate."""
+
+    attribute_names: dict[str, str]
+    value_percentiles: dict[int, float]
+    form_values: dict[str, list[float]]
+
+
+def build_score_context(session: Session, pool: list[Candidate]) -> ScoreContext:
+    """Precompute attribute labels, value percentiles and form peer lists for a pool."""
+    form_values: dict[str, list[float]] = {}
+    for item in pool:
+        stats = item.statistics
+        minutes = stats.get("minutes_played") or item.minutes_played
+        if not stats or not minutes or float(minutes) <= 0:
+            continue
+        metric = _form_metric(item, stats, float(minutes))
+        if metric is None:
+            continue
+        form_values.setdefault(item.position_group or "UNKNOWN", []).append(float(metric))
+    for values in form_values.values():
+        values.sort()
+    return ScoreContext(
+        attribute_names=_attribute_names(session),
+        value_percentiles=_value_percentiles(pool),
+        form_values=form_values,
+    )
+
+
+def _score_candidate(
+    session: Session,
+    target: Candidate,
+    pool: list[Candidate],
+    context: ScoreContext | None = None,
+) -> dict[str, object]:
     group = target.position_group or "MF"
     weights = DIMENSION_WEIGHTS.get(group, DIMENSION_WEIGHTS["MF"])
-    names = _attribute_names(session)
+    context = context or build_score_context(session, pool)
+    names = context.attribute_names
     template = POSITION_TEMPLATES.get((target.position or "").upper())
     if template is None:
         template = POSITION_TEMPLATES.get(str(target.slot or ""), {})
@@ -542,8 +632,8 @@ def _score_candidate(session: Session, target: Candidate, pool: list[Candidate])
         _ability_dimension(target, attribute_result),
         _potential_dimension(target),
         _fit_dimension(target, attribute_result),
-        _form_dimension(target, pool),
-        _value_dimension(target, pool),
+        _form_dimension(target, pool, context.form_values),
+        _value_dimension(target, pool, context.value_percentiles),
         _room_dimension(target),
     ]
     for dimension in dimensions:
@@ -659,7 +749,11 @@ def _fit_dimension(target: Candidate, attribute_result: dict[str, object] | None
     }
 
 
-def _form_dimension(target: Candidate, pool: list[Candidate]) -> dict[str, object]:
+def _form_dimension(
+    target: Candidate,
+    pool: list[Candidate],
+    form_values: dict[str, list[float]] | None = None,
+) -> dict[str, object]:
     stats = target.statistics
     minutes = stats.get("minutes_played") or target.minutes_played
     if not stats or not minutes or minutes <= 0:
@@ -681,14 +775,17 @@ def _form_dimension(target: Candidate, pool: list[Candidate]) -> dict[str, objec
             "evidence": "",
             "missing": ["该位置的统计指标缺失，无法评估比赛表现"],
         }
-    peers = [
-        _form_metric(item, item.statistics, float(item.statistics.get("minutes_played") or item.minutes_played or 0))
-        for item in pool
-        if item.position_group == target.position_group
-        and item.statistics
-        and (item.statistics.get("minutes_played") or item.minutes_played or 0) > 0
-    ]
-    peer_values = sorted(float(value) for value in peers if value is not None)
+    if form_values is not None:
+        peer_values = form_values.get(target.position_group or "UNKNOWN", [])
+    else:
+        peers = [
+            _form_metric(item, item.statistics, float(item.statistics.get("minutes_played") or item.minutes_played or 0))
+            for item in pool
+            if item.position_group == target.position_group
+            and item.statistics
+            and (item.statistics.get("minutes_played") or item.minutes_played or 0) > 0
+        ]
+        peer_values = sorted(float(value) for value in peers if value is not None)
     if len(peer_values) < MIN_PERCENTILE_PEERS:
         return {
             "key": "form",
@@ -709,8 +806,12 @@ def _form_dimension(target: Candidate, pool: list[Candidate]) -> dict[str, objec
     }
 
 
-def _value_dimension(target: Candidate, pool: list[Candidate]) -> dict[str, object]:
-    percentiles = _value_percentiles(pool)
+def _value_dimension(
+    target: Candidate,
+    pool: list[Candidate],
+    percentiles: dict[int, float] | None = None,
+) -> dict[str, object]:
+    percentiles = percentiles if percentiles is not None else _value_percentiles(pool)
     entry = percentiles.get(target.instance_id)
     if entry is None:
         return {
@@ -805,9 +906,9 @@ def _value_percentiles(pool: list[Candidate]) -> dict[int, float]:
     for members in groups.values():
         if len(members) < MIN_PERCENTILE_PEERS:
             continue
-        values = sorted(value for _, value in members)
+        values = sorted(float(value) for _, value in members)
         for instance_id, value in members:
-            result[instance_id] = _percentile([float(item) for item in values], float(value))
+            result[instance_id] = _percentile(values, float(value))
     return result
 
 
@@ -1031,11 +1132,15 @@ def _months_until(target: date) -> int | None:
 
 
 def _percentile(sorted_values: list[float], value: float) -> float:
-    """Share of the sample strictly below ``value``; ties count as half so a median lands at 0.5."""
+    """Share of the sample strictly below ``value``; ties count as half so a median lands at 0.5.
+
+    Uses binary search (``bisect``) so a 50k pool does not degrade to O(n²) when every candidate
+    asks for its percentile.
+    """
     if not sorted_values:
         return 0.0
-    below = sum(1 for item in sorted_values if item < value)
-    equal = sum(1 for item in sorted_values if item == value)
+    below = bisect_left(sorted_values, value)
+    equal = bisect_right(sorted_values, value) - below
     return (below + 0.5 * equal) / len(sorted_values)
 
 
@@ -1061,13 +1166,17 @@ def _attribute_names(session: Session) -> dict[str, str]:
     return {row.key: row.name_zh for row in session.scalars(select(PlayerAttribute))}
 
 
-def _attributes_by_snapshot(session: Session, snapshot_ids: list[int]) -> dict[int, dict[str, float]]:
-    if not snapshot_ids:
-        return {}
+def _batches(values: list[int], size: int = 800) -> list[list[int]]:
+    """Split IN(...) arguments; SQLite builds may cap SQL variables at 999."""
+    return [values[start : start + size] for start in range(0, len(values), size)]
+
+
+def _attributes_for_snapshot_query(session: Session, snapshot_ids) -> dict[int, dict[str, float]]:
+    """Load attributes for every selected snapshot in one query (no IN list, no N+1)."""
     rows = session.execute(
         select(PlayerAttributeValue.player_snapshot_id, PlayerAttribute.key, PlayerAttributeValue.value)
         .join(PlayerAttribute, PlayerAttribute.id == PlayerAttributeValue.attribute_id)
-        .where(PlayerAttributeValue.player_snapshot_id.in_(snapshot_ids))
+        .where(PlayerAttributeValue.player_snapshot_id.in_(select(snapshot_ids.c.snapshot_id)))
     ).all()
     result: dict[int, dict[str, float]] = {}
     for snapshot_id, key, value in rows:
@@ -1075,17 +1184,74 @@ def _attributes_by_snapshot(session: Session, snapshot_ids: list[int]) -> dict[i
     return result
 
 
-def _statistics_by_instance(session: Session, instance_ids: list[int]) -> dict[int, dict[str, float | None]]:
-    if not instance_ids:
-        return {}
+def _statistics_for_instance_query(session: Session, instance_ids) -> dict[int, dict[str, float | None]]:
+    """Load the latest season statistics for every selected instance in one query."""
     rows = session.scalars(
         select(PlayerStatistic)
         .where(
-            PlayerStatistic.player_instance_id.in_(instance_ids),
+            PlayerStatistic.player_instance_id.in_(select(instance_ids.c.instance_id)),
             PlayerStatistic.scope == "season",
         )
         .order_by(PlayerStatistic.observed_at.desc())
     )
+    result: dict[int, dict[str, float | None]] = {}
+    for row in rows:
+        if row.player_instance_id in result:
+            continue
+        result[row.player_instance_id] = {
+            "period": row.period,
+            "appearances": row.appearances,
+            "minutes_played": row.minutes_played,
+            "goals": row.goals,
+            "assists": row.assists,
+            "shots": row.shots,
+            "shots_on_target": row.shots_on_target,
+            "xg": row.xg,
+            "key_passes": row.key_passes,
+            "passes_attempted": row.passes_attempted,
+            "passes_completed": row.passes_completed,
+            "dribbles": row.dribbles,
+            "tackles": row.tackles,
+            "interceptions": row.interceptions,
+            "clearances": row.clearances,
+            "aerials_won": row.aerials_won,
+            "saves": row.saves,
+            "conceded": row.conceded,
+            "clean_sheets": row.clean_sheets,
+        }
+    return result
+
+
+def _attributes_by_snapshot(session: Session, snapshot_ids: list[int]) -> dict[int, dict[str, float]]:
+    if not snapshot_ids:
+        return {}
+    result: dict[int, dict[str, float]] = {}
+    for batch in _batches(snapshot_ids):
+        rows = session.execute(
+            select(PlayerAttributeValue.player_snapshot_id, PlayerAttribute.key, PlayerAttributeValue.value)
+            .join(PlayerAttribute, PlayerAttribute.id == PlayerAttributeValue.attribute_id)
+            .where(PlayerAttributeValue.player_snapshot_id.in_(batch))
+        ).all()
+        for snapshot_id, key, value in rows:
+            result.setdefault(int(snapshot_id), {})[str(key)] = float(value)
+    return result
+
+
+def _statistics_by_instance(session: Session, instance_ids: list[int]) -> dict[int, dict[str, float | None]]:
+    if not instance_ids:
+        return {}
+    rows = []
+    for batch in _batches(instance_ids):
+        rows.extend(
+            session.scalars(
+                select(PlayerStatistic)
+                .where(
+                    PlayerStatistic.player_instance_id.in_(batch),
+                    PlayerStatistic.scope == "season",
+                )
+                .order_by(PlayerStatistic.observed_at.desc())
+            )
+        )
     result: dict[int, dict[str, float | None]] = {}
     for row in rows:
         if row.player_instance_id in result:
