@@ -14,6 +14,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .api import (
     routes_adapters,
     routes_compat,
+    routes_identity,
     routes_agent,
     routes_clubs,
     routes_core,
@@ -38,6 +39,53 @@ logger = logging.getLogger("scoutmind")
 API_PREFIX = "/api/v1"
 
 
+class _BodyTooLarge(Exception):
+    """请求体超过 ASGI 层上限。"""
+
+
+class BodySizeLimitMiddleware:
+    """在 ASGI receive 层限制真实请求体字节数。
+
+    为什么不用 BaseHTTPMiddleware + request.body()：那已经在读完之后才判断。
+    这里直接包装 receive，每一块 ``http.request`` 都累计；超限抛内部异常并返回 413，
+    后续的解析器（JSON / multipart）不会再收到数据。
+    """
+
+    def __init__(self, app, max_bytes: int) -> None:  # noqa: ANN001 - ASGI app
+        self.app = app
+        self.max_bytes = max(1, int(max_bytes))
+
+    async def __call__(self, scope, receive, send):  # noqa: ANN001, ANN201 - ASGI 协议
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        total = 0
+
+        async def limited_receive():  # noqa: ANN202
+            nonlocal total
+            message = await receive()
+            if message["type"] == "http.request":
+                total += len(message.get("body", b""))
+                if total > self.max_bytes:
+                    raise _BodyTooLarge
+            return message
+
+        try:
+            await self.app(scope, limited_receive, send)
+        except _BodyTooLarge:
+            response = JSONResponse(
+                status_code=413,
+                content={
+                    "error": {
+                        "code": "payload_too_large",
+                        "message": f"请求体超过 {self.max_bytes} 字节上限",
+                    }
+                },
+            )
+            await response(scope, receive, send)
+
+
 def create_app() -> FastAPI:
     """Build the ASGI application; used by uvicorn and by the tests."""
     app = FastAPI(
@@ -46,6 +94,8 @@ def create_app() -> FastAPI:
         description="FM27 球员成长、球探与转会决策后端。所有统计数字均由确定性算法产生。",
         docs_url="/docs",
     )
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_bytes)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
@@ -91,6 +141,7 @@ def create_app() -> FastAPI:
         routes_agent.router,
         routes_ops.router,
         routes_compat.router,
+        routes_identity.router,
     ):
         app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(require_token)])
 

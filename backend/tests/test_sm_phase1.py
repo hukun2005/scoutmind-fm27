@@ -123,54 +123,106 @@ def test_multiple_files_are_rejected(client: TestClient, save: object, monkeypat
     assert response.status_code in {400, 413, 422}, response.text
 
 
-def test_upload_form_is_closed_after_success() -> None:
+def test_upload_form_is_closed_after_success(monkeypatch: pytest.MonkeyPatch) -> None:
     """读取成功后表单被关闭：底层文件不会留在临时目录。"""
     import asyncio
-    from starlette.datastructures import UploadFile
 
-    class FakeForm:
-        def __init__(self, upload: UploadFile) -> None:
-            self.upload = upload
-            self.closed = False
+    from starlette.requests import Request
 
-        def get(self, name: str):
-            return self.upload if name == "file" else None
+    from app.api import uploads
 
-        def multi_items(self):
-            return [("file", self.upload)]
+    boundary = "test-boundary"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="scan.json"\r\n'
+        "Content-Type: application/json\r\n\r\n"
+        '{"ok": true}\r\n'
+        f"--{boundary}--\r\n"
+    ).encode("utf-8")
 
-        async def close(self) -> None:
-            self.closed = True
-            await self.upload.close()
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/",
+        "headers": [(b"content-type", f"multipart/form-data; boundary={boundary}".encode())],
+    }
+    state = {"used": False}
 
-    class FakeRequest:
-        headers = {"content-type": "multipart/form-data"}
+    async def receive():
+        if state["used"]:
+            return {"type": "http.request", "body": b"", "more_body": False}
+        state["used"] = True
+        return {"type": "http.request", "body": body, "more_body": False}
 
-        def __init__(self, form: FakeForm) -> None:
-            self.form_obj = form
+    closed = {"value": False}
+    original_close = uploads.UploadForm.close
 
-        async def form(self, **kwargs):
-            return self.form_obj
+    async def tracking_close(self) -> None:
+        closed["value"] = True
+        await original_close(self)
 
-    handle = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
-    handle.write(b"{}" + b" " * 32)
-    handle.close()
-    upload = UploadFile(file=open(handle.name, "rb"), filename="x.json")
-    form = FakeForm(upload)
+    monkeypatch.setattr(uploads.UploadForm, "close", tracking_close)
 
-    async def run() -> None:
-        raw = await read_request_payload(FakeRequest(form), limit=10_000)
-        assert raw
-        assert form.closed is True
-        assert upload.file.closed is True
+    async def run() -> bytes:
+        request = Request(scope, receive)
+        return await uploads.read_request_payload(request, what="测试上传")
+
+    raw = asyncio.run(run())
+    assert raw == b'{"ok": true}'
+    assert closed["value"] is True, "读取完成后必须关闭表单"
+
+
+def test_missing_file_still_closes_form(monkeypatch: pytest.MonkeyPatch) -> None:
+    """缺少 file 字段的异常路径也要关闭表单。"""
+    import asyncio
+
+    from starlette.requests import Request
+
+    from app.api import uploads
+
+    boundary = "b2"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="note"\r\n\r\n'
+        "hello\r\n"
+        f"--{boundary}--\r\n"
+    ).encode("utf-8")
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/",
+        "headers": [(b"content-type", f"multipart/form-data; boundary={boundary}".encode())],
+    }
+    state = {"used": False}
+
+    async def receive():
+        if state["used"]:
+            return {"type": "http.request", "body": b"", "more_body": False}
+        state["used"] = True
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    closed = {"value": False}
+    original_close = uploads.UploadForm.close
+
+    async def tracking_close(self) -> None:
+        closed["value"] = True
+        await original_close(self)
+
+    monkeypatch.setattr(uploads.UploadForm, "close", tracking_close)
+
+    async def run():
+        request = Request(scope, receive)
+        with pytest.raises(Exception):
+            await uploads.read_request_payload(request)
 
     asyncio.run(run())
-    Path(handle.name).unlink(missing_ok=True)
+    assert closed["value"] is True, "异常路径同样要关闭表单"
 
 
 def test_upload_semaphore_limits_concurrency() -> None:
     """上传解析受信号量限制（同时只允许 max_upload_concurrency 个）。"""
     import asyncio
+
     from app.api import uploads
 
     async def run() -> None:

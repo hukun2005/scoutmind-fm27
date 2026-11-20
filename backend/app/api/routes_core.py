@@ -21,10 +21,9 @@ from ..schemas import SaveCreate
 from ..utils import iso, payload_checksum, utcnow
 from .deps import get_active_save, get_current_user
 from .routes_adapters import maybe_adapt
-from .uploads import read_request_payload, upload_slot
+from .uploads import import_slot, read_request_payload, upload_slot
 
-# 导入写库限流：SQLite 并发写入过高会锁表；上传解析另有自己的限流（见 uploads.py）。
-_IMPORT_SEMAPHORE = asyncio.Semaphore(settings.max_import_concurrency)
+# 导入写库限流统一由 uploads.import_slot() 提供（按事件循环惰性创建，避免跨循环复用）。
 
 
 router = APIRouter()
@@ -238,12 +237,12 @@ async def import_scan(
             validated = ScanPayload.model_validate(payload)
         except ValueError as exc:  # pydantic raises ValidationError, a ValueError subclass
             raise ProtocolError(f"FMSuperScout 适配结果不符合扫描协议：{exc}") from exc
-        async with upload_slot(), _IMPORT_SEMAPHORE:
+        async with upload_slot(), import_slot():
             outcome = importer.import_payload(target_save.id, validated, raw)
         body = _outcome_payload(outcome)
         body["adapted_by"] = report
         return body
-    async with upload_slot(), _IMPORT_SEMAPHORE:
+    async with upload_slot(), import_slot():
         outcome = importer.import_bytes(target_save.id, raw)
     return _outcome_payload(outcome)
 
