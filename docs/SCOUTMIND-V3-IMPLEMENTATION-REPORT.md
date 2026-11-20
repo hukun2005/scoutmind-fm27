@@ -18,6 +18,10 @@
 | SM-014 | 职业轨迹 | PASS | 见下 |
 | SM-015 | 俱乐部转会情报 | PASS | 见下 |
 | SM-016 | 转会投资回报 | PASS（真实历史数据缺失，仅确定性样本） | 见下 |
+| SM-017 | 转会决策模拟器 | PASS | 见下 |
+| SM-018 | AI Sporting Director 2.0 | PARTIAL（工具与假客户端通过；真实 LLM 未联调） | 见下 |
+| SM-019 | 球员成长预测 | PASS（回测在真实存档 NOT_RUN） | 见下 |
+| SM-020 | 自动引援推荐 | PASS | 见下 |
 
 ## 二、SM-010 上传安全与资源保护加固
 
@@ -211,11 +215,46 @@ FMReader 测试：**104 / 104** 通过；Reader 集成测试 46 / 46。
 
 | 套件 | 命令 | 结果 |
 | --- | --- | --- |
-| Backend | `cd backend; .\.venv\Scripts\python.exe -m pytest` | **221 passed** |
+| Backend | `cd backend; .\.venv\Scripts\python.exe -m pytest` | **232 passed** |
 | FMReader | `dotnet run -c Release`（live-reader/tests/ScoutMind.FMReader.Tests） | **104 / 104** |
 | Reader | `dotnet run -c Release`（live-reader/tests/ScoutMind.Reader.Tests） | **46 / 46** |
 | Frontend | `cd frontend; npm run build` | 成功 |
 | 迁移 | `a4d8e1f63c09`、`b6e2f4a70d15` upgrade/downgrade/upgrade | 通过 |
+
+## 五之三、第三阶段（SM-017 / SM-018 / SM-019 / SM-020）
+
+### SM-017 转会决策模拟器 — PASS
+
+- `POST /transfers/simulate`：输入球员/位置/报价/工资/年限/预算/出场时间/交易类型；
+  输出成本、合理报价区间（P25/中位/P75 或估值区间）、阵容前后对比、乐观/基准/悲观三情景、
+  预算判断、风险清单、3 个替代方案与推荐结论。
+- 确定性：相同输入两次结果完全一致（测试断言 JSON 相等）；不引入随机数或训练模型。
+- 缺失数据（CA/PA/身价/工资）列入 `data_gaps` 与风险，不填 0；区间给不出来时明确 unknown。
+- 测试：确定性、预算超支、缺少球员 404。
+
+### SM-018 AI Sporting Director 2.0 — PARTIAL
+
+- 工具白名单从 9 个扩到 **14 个**：新增 `simulate_transfer`、`player_forecast`、
+  `club_transfer_intelligence`、`transfer_roi`、`recruitment_recommend`、`career_timeline`；
+  全部只调用确定性分析函数，`save_id` 仍由服务端注入并被禁止出现在参数里。
+- 工具调用上限、Schema 校验、降级、`llm_fallback` 原因、数字校验逻辑沿用 SM-009。
+- 测试：白名单包含新工具、`save_id` 注入被拒、假客户端驱动模拟器、工具执行失败降级。
+- **未接真实 LLM**（无 API Key）：真实模型规划质量未验证，故 PARTIAL。
+
+### SM-019 球员成长预测 — PASS
+
+- `GET /players/{id}/forecast`：最小二乘成长速率 + 年龄曲线回退；预测按 PA 封顶；
+  区间由分区间速率标准差决定；快照 <3 时置信度 low 且不给 3 年预测。
+- `GET /development/forecast-backtest`：滚动回测（前 N-1 个快照预测最后一点），输出 MAE/RMSE/区间覆盖率。
+- 测试：观测速率、PA 封顶、单快照低置信、回测指标。
+- **真实存档回测 NOT_RUN**：真实存档中没有任何球员拥有 ≥2 个带 CA 的历史快照（重复扫描被去重），
+  回测需要时间序列，等累积多轮扫描后再跑；不用合成数据冒充。
+
+### SM-020 自动引援推荐 — PASS
+
+- `POST /recruitment/recommend`：位置/年龄/预算/工资/联赛/国籍过滤，`prefer=ready|potential|balanced`，
+  用户可覆盖六维权重；缺失维度不参与加权并计入 `missing_dimensions`；分页；每条带分维解释与风险。
+- 测试：超预算过滤、潜力权重改变排序、未知权重 422。
 
 ## 六、下一阶段依赖（SM-013 起）
 
