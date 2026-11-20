@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -181,18 +181,33 @@ def test_roi_distinguishes_cash_accounting_and_valuation(client: TestClient, db,
     db.add(instance)
     db.commit()
     buy.player_instance_id = instance.id
-    snapshot = PlayerSnapshot(
-        player_instance_id=instance.id,
-        observed_at=utcnow(),
-        game_date=date(2026, 11, 1),
-        ca=150,
-        pa=170,
-        market_value=18_000_000,
-        wage=50_000,
-        contract_end=date(2031, 6, 30),
-        source="manual",
+    # 买入当时（2026-07-01 之前）与当前各一条快照：成本只能用买入当时的数据。
+    db.add(
+        PlayerSnapshot(
+            player_instance_id=instance.id,
+            observed_at=datetime(2026, 6, 1, 12, 0),
+            game_date=date(2026, 6, 1),
+            ca=150,
+            pa=170,
+            market_value=8_000_000,
+            wage=30_000,
+            contract_end=date(2030, 6, 30),
+            source="manual",
+        )
     )
-    db.add(snapshot)
+    db.add(
+        PlayerSnapshot(
+            player_instance_id=instance.id,
+            observed_at=utcnow(),
+            game_date=date(2026, 11, 1),
+            ca=150,
+            pa=170,
+            market_value=18_000_000,
+            wage=50_000,
+            contract_end=date(2031, 6, 30),
+            source="manual",
+        )
+    )
     db.commit()
 
     body = client.get(f"/api/v1/transfers/{buy.id}/roi").json()
