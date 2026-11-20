@@ -148,7 +148,7 @@
 6. **回测**：只用预测时点之前的数据（train=前 N-1 条），同日去重；输出 MAE/RMSE/区间覆盖率；
    无满足样本时 `available=false` + 原因。
 
-### 新增测试（8 项）
+### 新增测试（7 项）
 
 - 单快照无预测；
 - 两快照无三年预测；
@@ -164,7 +164,7 @@
 
 | 项目 | 命令 | 结果 |
 | --- | --- | --- |
-| 后端 | `cd backend; python -m pytest` | **269 passed**（本轮新增 25 项 + SM-021 10 项） |
+| 后端 | `cd backend; python -m pytest` | **267 passed**（本轮新增 35 项） |
 | 前端 | `cd frontend; npm ci; npm run build` | PASS |
 | .NET | `dotnet build ScoutMind.sln -c Release` | PASS（0 error） |
 | 迁移 | SQLite `upgrade → downgrade -1 → upgrade` | 新迁移 `d2f7a91b64e0` 通过；全库 `downgrade base` 在历史迁移 `992f85fb22b8` 失败（见遗留） |
@@ -173,7 +173,7 @@
 ### CI
 
 推送分支后通过 `gh run list --branch codex/scoutmind-v3.1-hardening` 检查云端实际结果，记录在此：
-（待推送后填写）
+推送后运行 `gh run watch`（见交付说明），记录最终结论。
 
 ## 未解决问题
 
@@ -194,5 +194,5 @@
 | SM-021 | PASS | 权限隔离 + 10 项测试 |
 | SM-022 | PASS | 解析/币种/原始值/多币种统计 + 13 项测试 |
 | SM-023 | PASS | 历史成本/确定性卖出/币种 + 5 项测试 |
-| SM-024 | PASS | 证据门槛/同日去重/CA-PA/回测 + 8 项测试 |
+| SM-024 | PASS | 证据门槛/同日去重/CA-PA/回测 + 7 项测试 |
 | SM-025+ | NOT_RUN | 本轮未授权 |
