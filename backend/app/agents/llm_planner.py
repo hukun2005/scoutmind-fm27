@@ -101,6 +101,80 @@ TOOL_SPECS: dict[str, dict[str, Any]] = {
         },
         "execute": lambda session, save_id, args: tools.get_player_growth_history(session, int(args["instance_id"])),
     },
+    "simulate_transfer": {
+        "description": "模拟一笔引援（成本、报价区间、阵容提升、三情景、风险、替代方案）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "instance_id": {"type": "integer", "minimum": 1},
+                "fee": {"type": "number", "minimum": 0},
+                "wage": {"type": "number", "minimum": 0},
+                "budget": {"type": "number", "minimum": 0},
+                "contract_years": {"type": "number", "minimum": 0.5, "maximum": 8},
+                "transfer_type": {"type": "string", "enum": ["permanent", "loan", "loan_with_option", "free_transfer"]},
+            },
+            "required": ["instance_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: _simulate_call(session, save_id, args),
+    },
+    "player_forecast": {
+        "description": "球员成长预测（1 年/3 年区间、置信度、回测口径）",
+        "parameters": {
+            "type": "object",
+            "properties": {"instance_id": {"type": "integer", "minimum": 1}},
+            "required": ["instance_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: _forecast_call(session, args),
+    },
+    "club_transfer_intelligence": {
+        "description": "俱乐部长期转会策略（买卖现金、净支出、类型/赛季分布）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "club_id": {"type": "integer", "minimum": 1},
+                "season": {"type": "string", "minLength": 7, "maxLength": 7},
+            },
+            "required": ["club_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: _club_intel_call(session, save_id, args),
+    },
+    "transfer_roi": {
+        "description": "单笔买入的现金/会计/估值/已实现收益（口径分开）",
+        "parameters": {
+            "type": "object",
+            "properties": {"transfer_id": {"type": "integer", "minimum": 1}},
+            "required": ["transfer_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: _roi_call(session, args),
+    },
+    "recruitment_recommend": {
+        "description": "按位置/预算/偏好推荐引援目标（可解释加权）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "slot": {"type": "string", "minLength": 1, "maxLength": 8},
+                "budget": {"type": "number", "minimum": 0},
+                "prefer": {"type": "string", "enum": ["balanced", "ready", "potential"]},
+                "page_size": {"type": "integer", "minimum": 1, "maximum": 20},
+            },
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: _recommend_call(session, save_id, args),
+    },
+    "career_timeline": {
+        "description": "球员职业轨迹（跨存档、按全局身份）",
+        "parameters": {
+            "type": "object",
+            "properties": {"instance_id": {"type": "integer", "minimum": 1}},
+            "required": ["instance_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: _career_call(session, save_id, args),
+    },
     "player_evaluation": {
         "description": "按存档与球员实例计算评分（需要 instance_id）",
         "parameters": {
@@ -178,6 +252,86 @@ def _validate_arguments(spec: dict[str, Any], arguments: dict[str, Any]) -> dict
         if key not in cleaned:
             raise PlannerError(f"缺少必需参数 {key}")
     return cleaned
+
+
+
+# -- 第三阶段工具：模拟、预测、俱乐部情报、ROI、推荐、职业轨迹 --------------------------------
+
+
+def _tool_call(name: str, result: dict[str, Any], summary: str) -> ToolCall:
+    return ToolCall(name=name, arguments={}, result=result, summary=summary)
+
+
+def _simulate_call(session, save_id: int, args: dict[str, Any]) -> ToolCall:
+    from ..analytics.simulator import simulate_transfer
+
+    result = simulate_transfer(
+        session,
+        save_id,
+        int(args["instance_id"]),
+        fee=args.get("fee"),
+        wage=args.get("wage"),
+        budget=args.get("budget"),
+        contract_years=float(args.get("contract_years", 4.0)),
+        transfer_type=str(args.get("transfer_type", "permanent")),
+    )
+    return _tool_call("simulate_transfer", result, result["recommendation"]["reason"])
+
+
+def _forecast_call(session, args: dict[str, Any]) -> ToolCall:
+    from ..analytics.forecast import forecast_player
+
+    result = forecast_player(session, int(args["instance_id"]))
+    one_year = result["forecast"]["one_year"]
+    summary = (
+        f"1 年预测 CA {one_year['low']}–{one_year['high']}（中值 {one_year['mid']}），"
+        f"依据：{result['basis']['method']}"
+        if one_year
+        else "快照不足，无法给出 1 年预测"
+    )
+    return _tool_call("player_forecast", result, summary)
+
+
+def _club_intel_call(session, save_id: int, args: dict[str, Any]) -> ToolCall:
+    from ..analytics.club_intelligence import club_transfer_intelligence
+
+    result = club_transfer_intelligence(session, save_id, int(args["club_id"]), season=args.get("season"))
+    buy = result["completed"]["buy"]
+    return _tool_call(
+        "club_transfer_intelligence",
+        result,
+        f"{result['club_name']}：买入 {buy['count']} 笔、现金 {buy['cash']}，净支出 {result['completed']['net_cash']}",
+    )
+
+
+def _roi_call(session, args: dict[str, Any]) -> ToolCall:
+    from ..analytics.roi import transfer_roi
+
+    result = transfer_roi(session, int(args["transfer_id"]))
+    realized = result["cash"]["realized_profit"]
+    return _tool_call("transfer_roi", result, f"已实现收益 {realized}（None 表示尚未卖出或成本未知）")
+
+
+def _recommend_call(session, save_id: int, args: dict[str, Any]) -> ToolCall:
+    from ..analytics.recruitment_recommend import recommend
+
+    result = recommend(
+        session,
+        save_id,
+        slot=args.get("slot"),
+        budget=args.get("budget"),
+        prefer=str(args.get("prefer", "balanced")),
+        page_size=int(args.get("page_size", 10)),
+    )
+    top = result["items"][0]["name"] if result["items"] else "无"
+    return _tool_call("recruitment_recommend", result, f"共 {result['total']} 名候选，首位 {top}")
+
+
+def _career_call(session, save_id: int, args: dict[str, Any]) -> ToolCall:
+    from ..analytics.career import player_career
+
+    result = player_career(session, int(args["instance_id"]), allowed_save_ids={save_id})
+    return _tool_call("career_timeline", result, f"{result['full_name']}：{result['coverage']['snapshots']} 次观测")
 
 
 def parse_plan(payload: dict[str, Any], *, allow: set[str] | None = None) -> list[tuple[str, dict[str, Any]]]:
