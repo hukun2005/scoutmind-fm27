@@ -16,9 +16,9 @@
 | SM-001 | 统一文件上传限制与资源保护 | PASS | 见下 |
 | SM-002 | 修复球员身份冲突与 UID 复用 | PASS | 见下 |
 | SM-003 | 分离历史转会与未来已达成转会 | PASS | 见下 |
-| SM-004 | 统一 FM27 兼容性配置与字段证据 | NOT_RUN | — |
-| SM-005 | 历史转会查询与统计性能 | NOT_RUN | — |
-| SM-006 | Reader 超时与资源释放 | NOT_RUN | — |
+| SM-004 | 统一 FM27 兼容性配置与字段证据 | PASS | d6dfc84 |
+| SM-005 | 历史转会查询与统计性能 | PASS | c23520c |
+| SM-006 | Reader 超时与资源释放 | PASS | 7d91855 |
 | SM-007 | AI 会话与存档隔离 | NOT_RUN | — |
 | SM-008 | CI 与自动化回归流水线 | NOT_RUN | — |
 | SM-009 | LLM 工具规划器 | NOT_RUN | — |
@@ -151,6 +151,33 @@
 2. **转会历史来源**：当前 FMSuperScout 导出没有历史转会数组，`transfer_history.available=false` 是正确结果；真实历史交易仍需独立通道导入。
 3. **身份冲突人工复核**：冲突已持久化并可自动关闭，但尚无前端列表页面；建议下一阶段补一个只读接口。
 4. **上传限制并发值**：`max_upload_concurrency=2` 为默认值，超大数据量部署时可按内存调整。
+
+## 七之二、第二阶段（SM-004 / SM-005 / SM-006）
+
+### SM-004 统一兼容性事实源 — PASS
+
+- 新增 `GET /api/v1/compatibility/evidence`：合并 `verified-versions.json`、`compatibility-registry.json`、
+  `config/compatibility.json`，返回构建、字段证据分层与配置冲突。
+- 旧 `GET /api/v1/compatibility` 改为读配置；数据库 `reader_compatibility` 行若与配置冲突，报
+  `stale_db_status` 而不是当事实返回（本轮真实发现该表把 26620374 记成 candidate）。
+- 字段状态只来自字段列表，整体允许扫描不会升级字段。
+- 文档：`docs/FM27-COMPATIBILITY.md` 为唯一当前说明；旧字段验证文档标记为历史快照。
+- 测试：一致视图、字段分层、布局冲突、注册表无闸门、缺配置 503。
+
+### SM-005 历史转会统计性能 — PASS
+
+- `transfer_price_stats` 只 SELECT `effective_fee` 一列，completed/类型过滤下推 SQL，分类计数用一条 GROUP BY；
+  `transaction_summary` 用 GROUP BY + SUM 聚合，口径不变。
+- 迁移 `f3a9c57e21d8`：`(fm_save_id, status, transfer_type)` 与 `(fm_save_id, transfer_type, transfer_date)` 索引，
+  SQLite 往返通过。
+- 测试：50k / 100k / 500k 行均在 5 秒内返回且均值正确；取消交易不计支出。
+
+### SM-006 Reader 超时与资源释放 — PASS
+
+- 并发闸门：同一进程第二个扫描被拒绝（不再争抢 dump 目录）。
+- 超时可配置（`SCOUTMIND_READER_SCAN_TIMEOUT_SECONDS`，默认 10 分钟）并真正传给读取器；状态里显示生效值。
+- 失败/取消/JSON 损坏路径删除临时目录；成功保留 dump 供 `RawDumpPath` 使用。
+- 测试：超时传参、取消失败、并发拒绝、失败后目录清理（FMReader 96/96）。
 
 ## 八、后续建议
 
