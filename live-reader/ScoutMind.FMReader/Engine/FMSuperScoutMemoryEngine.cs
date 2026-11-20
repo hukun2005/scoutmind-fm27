@@ -445,6 +445,13 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
     /// <inheritdoc />
     public async Task<FmScanResult> ScanAsync(CancellationToken cancellationToken)
     {
+        // 已取消的请求直接给出可读原因，而不是抛 TaskCanceledException。
+        if (cancellationToken.IsCancellationRequested)
+        {
+            var cancelledStatus = await GetStatusAsync(CancellationToken.None).ConfigureAwait(false);
+            return Failed(cancelledStatus, "扫描已取消。");
+        }
+
         // 同一进程只允许一个扫描：两个并发扫描会争抢 Dumper 的 dump 目录与游戏读取。
         if (!await _scanGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
         {
@@ -455,6 +462,11 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
         try
         {
             return await ScanCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            var cancelledStatus = await GetStatusAsync(CancellationToken.None).ConfigureAwait(false);
+            return Failed(cancelledStatus, "扫描已取消。");
         }
         finally
         {
