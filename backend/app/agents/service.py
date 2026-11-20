@@ -28,12 +28,21 @@ def answer_question(
     question: str,
     instance_id: int | None = None,
     club_id: int | None = None,
+    user_id: int | None = None,
 ) -> tuple[dict[str, object], list[ToolCall]]:
     """Answer one question and return the structured answer plus the tool calls behind it.
 
     如果配置了 LLM，先让它规划工具调用（数字仍只来自确定性工具）；任何失败都退回规则规划器，
     并在回答里说明降级原因，绝不把规则结果伪装成 LLM 结果。
     """
+    if user_id is not None:
+        # AI 工具同样受存档归属约束：调用方传入用户时，先在数据层拦一次。
+        from ..models import FmSave
+
+        owner = session.get(FmSave, save_id)
+        if owner is None or owner.user_id != user_id:
+            raise ValueError("save not found for this user")
+
     intent = planner.parse(question, instance_id=instance_id, club_id=club_id)
     if llm_planner.llm_enabled():
         try:

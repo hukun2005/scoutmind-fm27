@@ -21,7 +21,7 @@ from ..analytics.recruitment import (
 from ..db import get_db
 from ..models import FmSave
 from ..schemas import CompareRequest, RecruitmentSearchRequest, ShortlistRequest
-from .deps import get_active_save
+from .deps import get_active_save, instance_in_save_or_404, shortlist_in_save_or_404
 
 router = APIRouter()
 
@@ -65,8 +65,9 @@ def player(
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """Full scout report for one player: score, dimensions, strengths, risks and cost."""
+    instance_in_save_or_404(db, instance_id, save)
     try:
-        return player_score(db, save_id or save.id, instance_id)
+        return player_score(db, save.id, instance_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail={"code": "player_not_found", "message": str(exc)}) from exc
 
@@ -105,8 +106,13 @@ def shortlists(
 
 
 @router.get("/recruitment/shortlists/{shortlist_id}")
-def shortlist(shortlist_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
-    """One stored shortlist with its ranked candidates."""
+def shortlist(
+    shortlist_id: int,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    """One stored shortlist with its ranked candidates; only the owning save may read it."""
+    shortlist_in_save_or_404(db, shortlist_id, save)
     try:
         return shortlist_detail(db, shortlist_id)
     except ValueError as exc:

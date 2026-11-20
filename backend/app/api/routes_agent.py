@@ -153,6 +153,7 @@ def ask(
             body.question,
             instance_id=body.instance_id,
             club_id=body.club_id,
+            user_id=user.id,
         )
     except ValueError as exc:
         db.rollback()
