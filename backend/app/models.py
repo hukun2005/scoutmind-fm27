@@ -355,10 +355,49 @@ class Transfer(TimestampMixin, Base):
     contract_remaining_months: Mapped[int | None] = mapped_column(Integer)
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     confidence: Mapped[float | None] = mapped_column(Float)
+    # 历史转会管道（SM-013）：官宣/生效日期、二转分成、工资分摊、来源与原始行。
+    announcement_date: Mapped[date | None] = mapped_column(Date)
+    effective_date: Mapped[date | None] = mapped_column(Date)
+    sell_on_clause_pct: Mapped[float | None] = mapped_column(Float)
+    wage_contribution: Mapped[float | None] = mapped_column(Float)
+    loan_fee: Mapped[float | None] = mapped_column(Float)
+    source_id: Mapped[int | None] = mapped_column(ForeignKey("transfer_sources.id"), index=True)
+    raw_payload_json: Mapped[str | None] = mapped_column(Text)
 
     components: Mapped[list[TransferFeeComponent]] = relationship(
         back_populates="transfer", cascade="all, delete-orphan"
     )
+
+
+class TransferSource(TimestampMixin, Base):
+    """转会数据来源登记：名称、获取方式、许可与是否支持历史交易。"""
+
+    __tablename__ = "transfer_sources"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    license: Mapped[str | None] = mapped_column(String(128))
+    supports_history: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class TransferImportRun(TimestampMixin, Base):
+    """一次历史转会导入的批次报告（行数、导入、重复、拒绝、原始哈希）。"""
+
+    __tablename__ = "transfer_import_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("transfer_sources.id"), nullable=False, index=True)
+    source_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    content_sha256: Mapped[str | None] = mapped_column(String(64), index=True)
+    total_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    imported: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    duplicates: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    rejected: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    report_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="completed", nullable=False)
 
 
 class TransferFeeComponent(TimestampMixin, Base):
