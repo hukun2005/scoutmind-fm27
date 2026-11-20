@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     max_multipart_fields: int = 32
     max_multipart_field_bytes: int = 1024 * 1024
     upload_chunk_size: int = 1024 * 1024
+    # 单块上传数据的最长等待时间：慢速/挂起的上传不能一直占用工作进程。
+    max_upload_read_seconds: int = 120
     # 并发：导入写库与上传解析分别限流，避免 SQLite 锁表或内存峰值。
     max_import_concurrency: int = 2
     max_upload_concurrency: int = 2
@@ -59,6 +61,7 @@ class Settings(BaseSettings):
             "max_multipart_fields": self.max_multipart_fields,
             "max_multipart_field_bytes": self.max_multipart_field_bytes,
             "upload_chunk_size": self.upload_chunk_size,
+            "max_upload_read_seconds": self.max_upload_read_seconds,
             "max_import_concurrency": self.max_import_concurrency,
             "max_upload_concurrency": self.max_upload_concurrency,
         }
