@@ -34,6 +34,9 @@ WAGE_PERIOD_FACTOR: dict[str, float] = {"week": 52.0, "month": 12.0, "year": 1.0
 
 DEFAULT_CONTRACT_YEARS = 5
 
+#: 不进入价格统计的 transfer_type（与 TRANSACTION_CATEGORIES.counts_in_stats 对应）
+NON_STAT_TYPES: tuple[str, ...] = ("loan", "loan_with_option", "free", "end_of_contract", "swap", "youth_promotion")
+
 #: (transfer_type, status) -> accounting treatment. A category only enters price statistics when ``counts_in_stats``.
 TRANSACTION_CATEGORIES: dict[str, dict[str, object]] = {
     "completed_permanent": {
@@ -147,7 +150,9 @@ def classify_transfer(transfer: Transfer) -> dict[str, object]:
 
 def transaction_summary(session: Session, save_id: int) -> dict[str, object]:
     """Every transaction category with its count, known spend and the rules that exclude it from statistics."""
-    rows = fetch_transfers(session, save_id, TransferFilter(status="all"))
+    # 聚合下推到 SQL：GROUP BY (status, transfer_type)，不再把每一行转会加载成 ORM 对象。
+    from sqlalchemy import func as sql_func
+
     buckets: dict[str, dict[str, object]] = {
         key: {
             "key": key,
@@ -159,25 +164,30 @@ def transaction_summary(session: Session, save_id: int) -> dict[str, object]:
         }
         for key, meta in TRANSACTION_CATEGORIES.items()
     }
-    for row in rows:
-        key = category_of(row)
+    groups = session.execute(
+        select(Transfer.status, Transfer.transfer_type, sql_func.count(), sql_func.sum(Transfer.effective_fee))
+        .where(Transfer.fm_save_id == save_id)
+        .group_by(Transfer.status, Transfer.transfer_type)
+    )
+    total = 0
+    for status, transfer_type, count, fee_sum in groups:
+        key = category_of(Transfer(status=status, transfer_type=transfer_type))
         bucket = buckets[key]
-        bucket["count"] = int(bucket["count"]) + 1
-        if not row.effective_fee:
-            continue
-        # Money actually paid: an unfinished or cancelled deal is a record, not spend.
-        if row.status == "completed":
-            bucket["known_amount"] = round(float(bucket["known_amount"]) + float(row.effective_fee), 2)
-        # Money inside the transfer-fee statistics: only the categories that count.
-        if TRANSACTION_CATEGORIES[key]["counts_in_stats"]:
-            bucket["known_spend"] = round(float(bucket["known_spend"]) + float(row.effective_fee), 2)
+        bucket["count"] = int(bucket["count"]) + int(count)
+        total += int(count)
+        known = float(fee_sum or 0.0)
+        if known and status == "completed":
+            bucket["known_amount"] = round(float(bucket["known_amount"]) + known, 2)
+        if known and TRANSACTION_CATEGORIES[key]["counts_in_stats"]:
+            bucket["known_spend"] = round(float(bucket["known_spend"]) + known, 2)
+    rows = None  # 旧实现需要全量行；现在只保留 total 计数
     return {
         "categories": [
             {**buckets[key], "counts_in_stats": TRANSACTION_CATEGORIES[key]["counts_in_stats"]}
             for key in TRANSACTION_CATEGORIES
             if int(buckets[key]["count"]) > 0
         ],
-        "total": len(rows),
+        "total": total,
         "currency": "EUR",
         "algorithm_version": DEAL_ALGORITHM_VERSION,
     }
