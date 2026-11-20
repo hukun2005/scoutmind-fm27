@@ -363,6 +363,11 @@ class Transfer(TimestampMixin, Base):
     loan_fee: Mapped[float | None] = mapped_column(Float)
     source_id: Mapped[int | None] = mapped_column(ForeignKey("transfer_sources.id"), index=True)
     raw_payload_json: Mapped[str | None] = mapped_column(Text)
+    # 原始金额字符串（SM-022）：解析后的金额与本值同时保留，便于审计。
+    fee_raw: Mapped[str | None] = mapped_column(Text)
+    addons_raw: Mapped[str | None] = mapped_column(Text)
+    loan_fee_raw: Mapped[str | None] = mapped_column(Text)
+    currency_original: Mapped[str | None] = mapped_column(String(16))
 
     components: Mapped[list[TransferFeeComponent]] = relationship(
         back_populates="transfer", cascade="all, delete-orphan"

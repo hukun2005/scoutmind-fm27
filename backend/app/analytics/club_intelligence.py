@@ -58,7 +58,7 @@ def club_transfer_intelligence(
     sells = [row for row in completed if row.from_club_id == club_id]
 
     def side_stats(items: list[Transfer], *, buying: bool) -> dict[str, Any]:
-        cash = 0.0
+        by_currency: dict[str, float] = {}
         known = 0
         unknown = 0
         ages: list[int] = []
@@ -69,14 +69,20 @@ def club_transfer_intelligence(
                 unknown += 1
             else:
                 known += 1
-                cash += float(row.effective_fee)
+                by_currency[row.currency] = by_currency.get(row.currency, 0.0) + float(row.effective_fee)
             if row.player_age_at_transfer is not None:
                 ages.append(row.player_age_at_transfer)
+        currencies = sorted(by_currency)
+        mixed = len(currencies) > 1
         return {
             "count": len(items),
             "known_fee_count": known,
             "unknown_fee_count": unknown,
-            "cash": fee_round(cash),
+            "cash": None if mixed else fee_round(next(iter(by_currency.values()), 0.0)),
+            "cash_by_currency": {key: fee_round(value) for key, value in by_currency.items()},
+            "currencies": currencies,
+            "mixed_currency": mixed,
+            "mixed_currency_note": "多种币种，未配置汇率时不汇总；见 cash_by_currency" if mixed else None,
             "average_age": round(sum(ages) / len(ages), 2) if ages else None,
             "average_age_note": None if ages else "没有带年龄的成交记录",
             "direction": "buy" if buying else "sell",
@@ -85,7 +91,12 @@ def club_transfer_intelligence(
     buy_stats = side_stats(buys, buying=True)
     sell_stats = side_stats(sells, buying=False)
     net = None
-    if buy_stats["cash"] is not None and sell_stats["cash"] is not None:
+    net_note = None
+    if buy_stats["mixed_currency"] or sell_stats["mixed_currency"]:
+        net_note = "买卖涉及多种币种，未配置汇率时不计算净支出"
+    elif buy_stats["currencies"] != sell_stats["currencies"] and buy_stats["currencies"] and sell_stats["currencies"]:
+        net_note = "买卖币种不同，未配置汇率时不计算净支出"
+    elif buy_stats["cash"] is not None and sell_stats["cash"] is not None:
         net = fee_round(float(buy_stats["cash"]) - float(sell_stats["cash"]))
 
     def group(key) -> dict[str, Any]:
@@ -182,6 +193,7 @@ def club_transfer_intelligence(
             "buy": buy_stats,
             "sell": sell_stats,
             "net_cash": net,
+            "net_cash_note": net_note,
             "note": "只统计 completed；租借费单列；附加条款不计入现金",
         },
         "agreed": {

@@ -205,12 +205,21 @@ def transfer_price_stats(session: Session, save_id: int, filters: TransferFilter
     fee_column = base.with_only_columns(Transfer.effective_fee, maintain_column_froms=True)
 
     # 计入价格统计的类别：completed 且类型不是"不计入统计"的那些。
-    stat_fee_query = fee_column.where(
-        Transfer.status == "completed",
-        Transfer.transfer_type.not_in(NON_STAT_TYPES),
+    stat_fee_query = (
+        build_query(save_id, replace(filters, status="all"))
+        .with_only_columns(Transfer.effective_fee, Transfer.currency)
+        .where(
+            Transfer.status == "completed",
+            Transfer.transfer_type.not_in(NON_STAT_TYPES),
+        )
     )
-    values = [float(value) for (value,) in session.execute(stat_fee_query) if value is not None]
-    summary = summarize(values)
+    currency_values: dict[str, list[float]] = {}
+    for fee, currency in session.execute(stat_fee_query):
+        if fee is not None:
+            currency_values.setdefault(currency or "UNKNOWN", []).append(float(fee))
+    values = [value for group in currency_values.values() for value in group]
+    mixed_currency = len(currency_values) > 1
+    summary = summarize(values if not mixed_currency else [])
 
     # 分类计数：一条 GROUP BY，避免逐行 category_of。
     group_query = (
@@ -244,6 +253,10 @@ def transfer_price_stats(session: Session, save_id: int, filters: TransferFilter
         if not _counts_in_price_stats(key) and count
     }
     warnings: list[str] = []
+    if mixed_currency:
+        warnings.append(
+            "样本包含多种币种，未配置汇率时不混合统计；请按币种分别查看（见 currencies）"
+        )
     if not values:
         warnings.append("当前筛选条件下没有带成交金额的已完成交易，无法给出价格统计")
     if values and fee_coverage < 0.9:
@@ -254,7 +267,9 @@ def transfer_price_stats(session: Session, save_id: int, filters: TransferFilter
         warnings.append("合同剩余时间覆盖率不足 50%，未做合同年限校正")
     return {
         "sample_size": len(values),
-        "currency": "EUR",
+        "currency": next(iter(currency_values)) if len(currency_values) == 1 else None,
+        "currencies": {key: {"sample": len(group), "median": summarize(group)["median"]} for key, group in currency_values.items()},
+        "mixed_currency": mixed_currency,
         "median": summary["median"],
         "p25": summary["p25"],
         "p75": summary["p75"],
