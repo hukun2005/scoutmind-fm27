@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from .uploads import read_request_payload, upload_slot
 from ..db import get_db
 from ..ingestion.adapters import fmscout
 from ..ingestion.importer import ScanImporter
@@ -67,7 +68,8 @@ def adapter_info() -> dict[str, Any]:
 @router.post("/imports/fmscout/preview", summary="字段映射预览（不写库）")
 async def preview(request: Request) -> dict[str, Any]:
     """Convert a dump and report the mapping without writing anything to the database."""
-    raw = await _read_upload(request)
+    async with upload_slot():
+        raw = await _read_upload(request)
     try:
         payload, report = fmscout.convert_dump(raw)
     except ValueError as exc:
@@ -93,7 +95,8 @@ async def validate_dump(
     user=Depends(get_current_user),
 ) -> dict[str, Any]:
     """真实数据审查：按 P0-1 的报告格式逐项核对一份真实导出，不写库。"""
-    raw = await _read_upload(request)
+    async with upload_slot():
+        raw = await _read_upload(request)
     try:
         payload, report = fmscout.convert_dump(raw)
     except ValueError as exc:
@@ -271,7 +274,8 @@ async def import_dump(
 ) -> dict[str, Any]:
     """Convert an FMSuperScout dump and import it idempotently, returning the adapter report too."""
     target = _resolve_save(db, save_id or save.id, user.id)
-    raw = await _read_upload(request)
+    async with upload_slot():
+        raw = await _read_upload(request)
     try:
         payload, report = fmscout.convert_dump(raw)
         validated = ScanPayload.model_validate(payload)
@@ -316,20 +320,14 @@ def maybe_adapt(raw: bytes) -> tuple[dict[str, Any], dict[str, Any]] | None:
 
 
 async def _read_upload(request: Request) -> bytes:
-    """Accept a multipart ``file`` upload or a raw body, with the same size limit as the scan endpoint."""
-    content_type = request.headers.get("content-type", "")
-    if content_type.startswith("multipart/form-data"):
-        form = await request.form()
-        upload = form.get("file")
-        if upload is None or not hasattr(upload, "read"):
-            raise HTTPException(status_code=422, detail={"code": "missing_file", "message": "缺少 file 字段"})
-        raw = await upload.read()  # type: ignore[union-attr]
-    else:
-        raw = await request.body()
+    """Accept a multipart ``file`` upload or a raw body through the shared upload guard.
+
+    The guard streams in chunks, enforces the same byte limit as the scan endpoint, limits multipart
+    file/field counts and always closes the form so temporary files are cleaned up.
+    """
+    raw = await read_request_payload(request, what="文件内容")
     if not raw:
         raise HTTPException(status_code=422, detail={"code": "empty_payload", "message": "文件内容为空"})
-    if len(raw) > settings.max_import_bytes:
-        raise HTTPException(status_code=413, detail={"code": "payload_too_large", "message": "文件超过大小限制"})
     return raw
 
 

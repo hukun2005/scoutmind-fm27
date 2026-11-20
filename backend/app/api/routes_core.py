@@ -21,60 +21,10 @@ from ..schemas import SaveCreate
 from ..utils import iso, payload_checksum, utcnow
 from .deps import get_active_save, get_current_user
 from .routes_adapters import maybe_adapt
+from .uploads import read_request_payload, upload_slot
 
-# 同一时刻只让有限个导入进入数据库：导入是 CPU + IO 密集型，SQLite 写并发过高会锁表。
+# 导入写库限流：SQLite 并发写入过高会锁表；上传解析另有自己的限流（见 uploads.py）。
 _IMPORT_SEMAPHORE = asyncio.Semaphore(settings.max_import_concurrency)
-_CHUNK_SIZE = 1024 * 1024
-
-
-async def _read_body_limited(request: Request) -> bytes:
-    """按块读取请求体，一旦超过上限立即返回 413，而不是先读完再判断。"""
-    declared = request.headers.get("content-length")
-    limit = settings.max_import_bytes
-    if declared is not None:
-        try:
-            declared_bytes = int(declared)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail={"code": "invalid_content_length", "message": "Content-Length 不是整数"},
-            ) from exc
-        if declared_bytes > limit:
-            raise HTTPException(
-                status_code=413,
-                detail={"code": "payload_too_large", "message": f"扫描报文超过 {limit} 字节上限"},
-            )
-
-    chunks: list[bytes] = []
-    total = 0
-    async for chunk in request.stream():
-        total += len(chunk)
-        if total > limit:
-            raise HTTPException(
-                status_code=413,
-                detail={"code": "payload_too_large", "message": f"扫描报文超过 {limit} 字节上限"},
-            )
-        chunks.append(chunk)
-    return b"".join(chunks)
-
-
-async def _read_upload_limited(upload: Any) -> bytes:
-    """分块读取 multipart 文件，超过单字段上限立即 413。"""
-    limit = min(settings.max_import_bytes, settings.max_multipart_field_bytes)
-    chunks: list[bytes] = []
-    total = 0
-    while True:
-        chunk = await upload.read(_CHUNK_SIZE)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > limit:
-            raise HTTPException(
-                status_code=413,
-                detail={"code": "payload_too_large", "message": f"上传文件超过 {limit} 字节上限"},
-            )
-        chunks.append(chunk)
-    return b"".join(chunks)
 
 
 router = APIRouter()
@@ -190,19 +140,9 @@ async def import_transfers(
 
     FM 的转会历史是另一个数据源；它不应该被迫和球员扫描捆在一起，也不应该因为缺少球员数据而无法导入。
     """
-    content_type = request.headers.get("content-type", "")
-    if content_type.startswith("multipart/form-data"):
-        form = await request.form()
-        upload = form.get("file")
-        if upload is None or not hasattr(upload, "read"):
-            raise HTTPException(status_code=422, detail={"code": "missing_file", "message": "缺少 file 字段"})
-        raw = await upload.read()  # type: ignore[union-attr]
-    else:
-        raw = await request.body()
+    raw = await read_request_payload(request, what="交易报文")
     if not raw:
         raise HTTPException(status_code=422, detail={"code": "empty_payload", "message": "交易报文为空"})
-    if len(raw) > settings.max_import_bytes:
-        raise HTTPException(status_code=413, detail={"code": "payload_too_large", "message": "报文超过大小限制"})
     target = db.get(FmSave, save_id) if save_id else save
     if target is None or target.user_id != user.id:
         raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
@@ -236,15 +176,7 @@ async def import_squad_csv_route(
     user=Depends(get_current_user),
 ) -> dict[str, Any]:
     """导入 FM27 阵容名单（CSV）。低置信度行只报告，不建立归属。"""
-    content_type = request.headers.get("content-type", "")
-    if content_type.startswith("multipart/form-data"):
-        form = await request.form()
-        upload = form.get("file")
-        if upload is None or not hasattr(upload, "read"):
-            raise HTTPException(status_code=422, detail={"code": "missing_file", "message": "缺少 file 字段"})
-        raw = await upload.read()  # type: ignore[union-attr]
-    else:
-        raw = await request.body()
+    raw = await read_request_payload(request, what="阵容 CSV")
     if not raw:
         raise HTTPException(status_code=422, detail={"code": "empty_payload", "message": "CSV 内容为空"})
     if len(raw) > settings.max_import_bytes:
@@ -291,19 +223,7 @@ async def import_scan(
     user=Depends(get_current_user),
 ) -> dict[str, Any]:
     """Accept a scan payload as JSON, NDJSON or a multipart ``file`` upload and import it idempotently."""
-    content_type = request.headers.get("content-type", "")
-    raw = b""
-    if content_type.startswith("multipart/form-data"):
-        form = await request.form(
-            max_files=settings.max_multipart_files,
-            max_fields=settings.max_multipart_fields,
-        )
-        upload = form.get("file")
-        if upload is None or not hasattr(upload, "read"):
-            raise HTTPException(status_code=422, detail={"code": "missing_file", "message": "缺少 file 字段"})
-        raw = await _read_upload_limited(upload)  # type: ignore[arg-type]
-    else:
-        raw = await _read_body_limited(request)
+    raw = await read_request_payload(request, what="扫描报文")
     if not raw:
         raise HTTPException(status_code=422, detail={"code": "empty_payload", "message": "扫描报文为空"})
     target_save = db.get(FmSave, save_id) if save_id else save
@@ -318,12 +238,12 @@ async def import_scan(
             validated = ScanPayload.model_validate(payload)
         except ValueError as exc:  # pydantic raises ValidationError, a ValueError subclass
             raise ProtocolError(f"FMSuperScout 适配结果不符合扫描协议：{exc}") from exc
-        async with _IMPORT_SEMAPHORE:
+        async with upload_slot(), _IMPORT_SEMAPHORE:
             outcome = importer.import_payload(target_save.id, validated, raw)
         body = _outcome_payload(outcome)
         body["adapted_by"] = report
         return body
-    async with _IMPORT_SEMAPHORE:
+    async with upload_slot(), _IMPORT_SEMAPHORE:
         outcome = importer.import_bytes(target_save.id, raw)
     return _outcome_payload(outcome)
 

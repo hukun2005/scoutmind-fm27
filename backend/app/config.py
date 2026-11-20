@@ -39,12 +39,39 @@ class Settings(BaseSettings):
     max_import_bytes: int = 256 * 1024 * 1024
     # Hard ceiling applied before any payload is read into memory (Content-Length and chunked reads).
     max_request_bytes: int = 256 * 1024 * 1024
-    # multipart 上传：文件数、普通字段数、单字段字节数与总字节数上限。
-    max_multipart_files: int = 1
+    # multipart 上传：文件数、普通字段数、单字段字节数与读取块大小。
+    max_upload_files: int = 1
     max_multipart_fields: int = 32
     max_multipart_field_bytes: int = 1024 * 1024
-    # 同一时刻允许执行的导入数量；超过的请求排队等待，不并发压垮 SQLite。
+    upload_chunk_size: int = 1024 * 1024
+    # 并发：导入写库与上传解析分别限流，避免 SQLite 锁表或内存峰值。
     max_import_concurrency: int = 2
+    max_upload_concurrency: int = 2
+    # 兼容旧名字（上一版配置），保留以免已有部署配置失效。
+    max_multipart_files: int = 1
+
+    def model_post_init(self, __context: object) -> None:
+        """启动即校验：限制必须是正数，请求上限不能小于导入上限，旧配置名要兼容。"""
+        positive = {
+            "max_import_bytes": self.max_import_bytes,
+            "max_request_bytes": self.max_request_bytes,
+            "max_upload_files": self.max_upload_files,
+            "max_multipart_fields": self.max_multipart_fields,
+            "max_multipart_field_bytes": self.max_multipart_field_bytes,
+            "upload_chunk_size": self.upload_chunk_size,
+            "max_import_concurrency": self.max_import_concurrency,
+            "max_upload_concurrency": self.max_upload_concurrency,
+        }
+        for name, value in positive.items():
+            if int(value) <= 0:
+                raise ValueError(f"{name} 必须是正整数，当前 {value!r}")
+        if self.max_request_bytes < self.max_import_bytes:
+            raise ValueError("max_request_bytes 不能小于 max_import_bytes")
+        if self.upload_chunk_size > self.max_import_bytes:
+            raise ValueError("upload_chunk_size 不能大于 max_import_bytes")
+        # 旧名字与新名字不一致时，以旧名字为准（它来自已有部署配置）。
+        if self.max_multipart_files != 1 and self.max_multipart_files != self.max_upload_files:
+            self.max_upload_files = self.max_multipart_files
     min_similar_sample: int = 5
     similar_limit: int = 20
 
