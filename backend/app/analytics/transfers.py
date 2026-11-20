@@ -186,13 +186,36 @@ def serialize_transfer(transfer: Transfer, clubs: dict[int, Club] | None = None)
 
 
 def transfer_price_stats(session: Session, save_id: int, filters: TransferFilter) -> dict[str, object]:
-    """Compute median/quartile statistics for completed transfers with a known effective fee."""
+    """Compute median/quartile statistics for completed *permanent* transfers with a known fee.
+
+    口径（与 deals.TRANSACTION_CATEGORIES 一致）：
+    * 只有 ``status='completed'`` 且类别计入统计（正式转会 / 买断 / 解约金）的记录进入价格样本；
+    * 租借、自由转会、交换、青训提拔、未完成、已达成未生效、取消、失败都不进价格统计；
+    * 成交金额未知（None）的记录只计入 excluded，不当作 0；
+    * 同时给出 agreed / pending / cancelled 的数量，历史数据是否可用一目了然。
+    """
+    from .deals import TRANSACTION_CATEGORIES, category_of
+
     rows = fetch_transfers(session, save_id, replace(filters, status="all"))
-    completed = [row for row in rows if row.status == "completed"]
+    counts_by_category: dict[str, int] = {}
+    for row in rows:
+        key = category_of(row)
+        counts_by_category[key] = counts_by_category.get(key, 0) + 1
+
+    def counts_in_price(row) -> bool:
+        return row.status == "completed" and bool(TRANSACTION_CATEGORIES[category_of(row)]["counts_in_stats"])
+
+    transfer_history_available = any(row.status == "completed" for row in rows)
+    completed = [row for row in rows if counts_in_price(row)]
     priced = [row for row in completed if row.effective_fee is not None]
     values = [float(row.effective_fee) for row in priced if row.effective_fee is not None]
     summary = summarize(values)
     total_completed = len(completed)
+    excluded_categories = {
+        key: counts_by_category.get(key, 0)
+        for key, meta in TRANSACTION_CATEGORIES.items()
+        if not meta["counts_in_stats"] and counts_by_category.get(key, 0)
+    }
     fee_coverage = len(priced) / total_completed if total_completed else 0.0
     ca_coverage = (
         sum(1 for row in completed if row.player_ca_at_transfer is not None) / total_completed
@@ -233,6 +256,15 @@ def transfer_price_stats(session: Session, save_id: int, filters: TransferFilter
         "excluded": {
             "incomplete": len(completed) - len(priced),
             "non_completed": len(rows) - total_completed,
+            "by_category": excluded_categories,
+        },
+        "availability": {
+            "transfer_history": transfer_history_available,
+            "completed_for_stats": total_completed,
+            "agreed": counts_by_category.get("agreed", 0),
+            "pending": counts_by_category.get("pending", 0),
+            "cancelled": counts_by_category.get("cancelled", 0),
+            "note": None if transfer_history_available else "该存档没有已完成的历史转会记录，价格统计不可用",
         },
         "warnings": warnings,
     }
