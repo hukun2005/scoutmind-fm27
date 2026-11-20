@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -164,67 +164,104 @@ def forecast_player(session: Session, instance_id: int) -> dict[str, Any]:
     }
 
 
+def _observation_points(snapshots: list[PlayerSnapshot]) -> tuple[list[tuple[date, int]], int]:
+    """按"游戏日期优先、observed_at 兜底"排序并去重。
+
+    同一天多条快照只保留当天最后一次观测（observed_at 最大），这是明确、可解释的策略：
+    一天内的多次扫描不是独立时间点，CA 差异按"当天最后状态"处理。
+    返回（去重后的点，原始快照数）。
+    """
+    by_day: dict[date, tuple[datetime, int]] = {}
+    for row in snapshots:
+        day = row.game_date or row.observed_at.date()
+        current = by_day.get(day)
+        if current is None or row.observed_at >= current[0]:
+            by_day[day] = (row.observed_at, int(row.ca))
+    points = [(day, value) for day, (_observed, value) in sorted(by_day.items())]
+    return points, len(snapshots)
+
+
 def backtest(session: Session, save_id: int, *, min_snapshots: int = 3) -> dict[str, Any]:
-    """用历史快照做滚动回测：前 N-1 个点预测最后一个点。"""
-    instance_ids = [
-        row for row in session.scalars(
+    """用历史快照做滚动回测：门槛按"独立观测日"计算，训练只用到验证点之前的数据。
+
+    `min_snapshots` 表示至少需要的**独立观测日**数（不是原始快照条数）。
+    """
+    instance_ids = list(
+        session.scalars(
             select(PlayerSnapshot.player_instance_id)
             .join(PlayerInstance, PlayerInstance.id == PlayerSnapshot.player_instance_id)
             .where(PlayerInstance.fm_save_id == save_id, PlayerSnapshot.ca.is_not(None))
             .group_by(PlayerSnapshot.player_instance_id)
-            .having(func.count() >= min_snapshots)
         )
-    ]
+    )
     errors: list[float] = []
     covered = 0
-    evaluated = 0
+    raw_total = 0
+    distinct_total = 0
+    skipped_incomplete = 0
     for instance_id in instance_ids:
-        snapshots = [
-            row
-            for row in session.scalars(
+        snapshots = list(
+            session.scalars(
                 select(PlayerSnapshot)
                 .where(PlayerSnapshot.player_instance_id == instance_id, PlayerSnapshot.ca.is_not(None))
-                .order_by(PlayerSnapshot.observed_at)
+                .order_by(PlayerSnapshot.observed_at, PlayerSnapshot.id)
             )
-        ]
-        if len(snapshots) < min_snapshots:
+        )
+        raw_total += len(snapshots)
+        points, _ = _observation_points(snapshots)
+        distinct_total += len(points)
+        if len(points) < min_snapshots:
+            skipped_incomplete += 1
             continue
-        train = snapshots[:-1]
-        actual = snapshots[-1]
-        by_day = {}
-        for row in train:
-            by_day[row.game_date or row.observed_at.date()] = int(row.ca)
-        points = sorted(by_day.items())
-        slope, spread = _slope_per_year(points)
-        years = ((actual.game_date or actual.observed_at.date()) - (train[-1].game_date or train[-1].observed_at.date())).days / 365.25
+        # 训练 = 除最后一个独立观测日外的所有点；验证 = 最后一个点。
+        train_points = points[:-1]
+        valid_day, actual_ca = points[-1]
+        if len(train_points) < 2:
+            skipped_incomplete += 1
+            continue
+        slope, spread = _slope_per_year(train_points)
+        reference_day, reference_ca = train_points[-1]
+        years = (valid_day - reference_day).days / 365.25
         if years <= 0:
+            skipped_incomplete += 1
             continue
-        rate = slope if slope is not None else _rate_by_age(train[-1].age)
-        predicted = float(train[-1].ca) + rate * years
-        if train[-1].pa is not None:
-            predicted = min(predicted, float(train[-1].pa))
-        predicted = max(float(train[-1].ca), predicted)
+        # 训练中最后一条的 PA 作为上限（只用验证点之前的信息）。
+        last_snapshot = max(
+            (row for row in snapshots if (row.game_date or row.observed_at.date()) <= reference_day),
+            key=lambda row: (row.game_date or row.observed_at.date(), row.observed_at),
+        )
+        rate = slope if slope is not None else _rate_by_age(last_snapshot.age)
+        predicted = float(reference_ca) + rate * years
+        if last_snapshot.pa is not None:
+            predicted = min(predicted, float(last_snapshot.pa))
+        predicted = max(float(reference_ca), predicted)
         uncertainty = max(1.0, spread if spread is not None else 1.0)
-        errors.append(abs(predicted - float(actual.ca)))
-        if predicted - uncertainty * years ** 0.5 <= float(actual.ca) <= predicted + uncertainty * years ** 0.5:
+        errors.append(abs(predicted - float(actual_ca)))
+        if predicted - uncertainty * years ** 0.5 <= float(actual_ca) <= predicted + uncertainty * years ** 0.5:
             covered += 1
-        evaluated += 1
+
     if not errors:
         return {
             "available": False,
-            "reason": f"没有满足 {min_snapshots} 个快照的球员，无法回测",
+            "reason": f"没有满足 {min_snapshots} 个独立观测日的球员，无法回测",
+            "raw_snapshots": raw_total,
+            "distinct_days": distinct_total,
             "evaluated": 0,
+            "skipped_incomplete": skipped_incomplete,
             "algorithm_version": ALGORITHM_VERSION,
         }
     mae = sum(errors) / len(errors)
     rmse = (sum(error ** 2 for error in errors) / len(errors)) ** 0.5
     return {
         "available": True,
-        "evaluated": evaluated,
+        "evaluated": len(errors),
+        "raw_snapshots": raw_total,
+        "distinct_days": distinct_total,
+        "skipped_incomplete": skipped_incomplete,
+        "min_snapshots": min_snapshots,
         "mae": round(mae, 2),
         "rmse": round(rmse, 2),
-        "interval_coverage": round(covered / evaluated, 4),
-        "min_snapshots": min_snapshots,
-        "note": "回测只用该存档已有的历史快照；样本少时指标波动大",
+        "interval_coverage": round(covered / len(errors), 4),
+        "note": "门槛按独立观测日；同日重复只保留最后一次；训练只用验证点之前的数据",
         "algorithm_version": ALGORITHM_VERSION,
     }
