@@ -191,42 +191,58 @@ def transfer_price_stats(session: Session, save_id: int, filters: TransferFilter
     口径（与 deals.TRANSACTION_CATEGORIES 一致）：
     * 只有 ``status='completed'`` 且类别计入统计（正式转会 / 买断 / 解约金）的记录进入价格样本；
     * 租借、自由转会、交换、青训提拔、未完成、已达成未生效、取消、失败都不进价格统计；
-    * 成交金额未知（None）的记录只计入 excluded，不当作 0；
-    * 同时给出 agreed / pending / cancelled 的数量，历史数据是否可用一目了然。
+    * 成交金额未知（None）的记录只计入 excluded，不当作 0。
+
+    性能：这里不再把整张表加载成 ORM 对象——只 SELECT ``effective_fee`` 一列，计数走 SQL 聚合；
+    分类计数用 GROUP BY，50 万行时也不会产生几十万个对象。
     """
-    from .deals import TRANSACTION_CATEGORIES, category_of
+    from sqlalchemy import func as sql_func
 
-    rows = fetch_transfers(session, save_id, replace(filters, status="all"))
-    counts_by_category: dict[str, int] = {}
-    for row in rows:
-        key = category_of(row)
-        counts_by_category[key] = counts_by_category.get(key, 0) + 1
+    from .deals import NON_STAT_TYPES, category_of
 
-    def counts_in_price(row) -> bool:
-        return row.status == "completed" and bool(TRANSACTION_CATEGORIES[category_of(row)]["counts_in_stats"])
+    all_filters = replace(filters, status="all")
+    base = build_query(save_id, all_filters)
+    fee_column = base.with_only_columns(Transfer.effective_fee, maintain_column_froms=True)
 
-    transfer_history_available = any(row.status == "completed" for row in rows)
-    completed = [row for row in rows if counts_in_price(row)]
-    priced = [row for row in completed if row.effective_fee is not None]
-    values = [float(row.effective_fee) for row in priced if row.effective_fee is not None]
+    # 计入价格统计的类别：completed 且类型不是"不计入统计"的那些。
+    stat_fee_query = fee_column.where(
+        Transfer.status == "completed",
+        Transfer.transfer_type.not_in(NON_STAT_TYPES),
+    )
+    values = [float(value) for (value,) in session.execute(stat_fee_query) if value is not None]
     summary = summarize(values)
-    total_completed = len(completed)
+
+    # 分类计数：一条 GROUP BY，避免逐行 category_of。
+    group_query = (
+        build_query(save_id, all_filters)
+        .with_only_columns(Transfer.status, Transfer.transfer_type, sql_func.count())
+        .group_by(Transfer.status, Transfer.transfer_type)
+    )
+    counts_by_category: dict[str, int] = {}
+    for status, transfer_type, count in session.execute(group_query):
+        proxy = Transfer(status=status, transfer_type=transfer_type)
+        key = category_of(proxy)
+        counts_by_category[key] = counts_by_category.get(key, 0) + int(count)
+
+    completed_for_stats = sum(
+        count for key, count in counts_by_category.items() if _counts_in_price_stats(key)
+    )
+    completed_any = sum(count for key, count in counts_by_category.items() if key not in {"pending", "agreed", "cancelled", "failed", "bid_rejected"})
+    transfer_history_available = completed_any > 0
+    total_completed = completed_for_stats
+    priced = len(values)
+    fee_coverage = priced / total_completed if total_completed else 0.0
+
+    ca_coverage = _column_coverage(session, build_query(save_id, all_filters), Transfer.player_ca_at_transfer, completed_for_stats)
+    contract_coverage = _column_coverage(
+        session, build_query(save_id, all_filters), Transfer.contract_remaining_months, completed_for_stats
+    )
+
     excluded_categories = {
-        key: counts_by_category.get(key, 0)
-        for key, meta in TRANSACTION_CATEGORIES.items()
-        if not meta["counts_in_stats"] and counts_by_category.get(key, 0)
+        key: count
+        for key, count in counts_by_category.items()
+        if not _counts_in_price_stats(key) and count
     }
-    fee_coverage = len(priced) / total_completed if total_completed else 0.0
-    ca_coverage = (
-        sum(1 for row in completed if row.player_ca_at_transfer is not None) / total_completed
-        if total_completed
-        else 0.0
-    )
-    contract_coverage = (
-        sum(1 for row in completed if row.contract_remaining_months is not None) / total_completed
-        if total_completed
-        else 0.0
-    )
     warnings: list[str] = []
     if not values:
         warnings.append("当前筛选条件下没有带成交金额的已完成交易，无法给出价格统计")
@@ -238,7 +254,7 @@ def transfer_price_stats(session: Session, save_id: int, filters: TransferFilter
         warnings.append("合同剩余时间覆盖率不足 50%，未做合同年限校正")
     return {
         "sample_size": len(values),
-        "currency": priced[0].currency if priced else "EUR",
+        "currency": "EUR",
         "median": summary["median"],
         "p25": summary["p25"],
         "p75": summary["p75"],
@@ -254,8 +270,8 @@ def transfer_price_stats(session: Session, save_id: int, filters: TransferFilter
         },
         "algorithm_version": TRANSFER_STATS_VERSION,
         "excluded": {
-            "incomplete": len(completed) - len(priced),
-            "non_completed": len(rows) - total_completed,
+            "incomplete": max(total_completed - priced, 0),
+            "non_completed": sum(counts_by_category.values()) - total_completed,
             "by_category": excluded_categories,
         },
         "availability": {
@@ -268,6 +284,33 @@ def transfer_price_stats(session: Session, save_id: int, filters: TransferFilter
         },
         "warnings": warnings,
     }
+
+
+def _counts_in_price_stats(category: str) -> bool:
+    """类别是否计入成交价格统计（与 deals.TRANSACTION_CATEGORIES.counts_in_stats 对齐）。"""
+    return category in {"completed_permanent", "loan_buyout", "clause_release"}
+
+
+def _column_coverage(session: Session, base, column, denominator: int) -> float:
+    """某一列在"计入统计的已完成交易"中的非空比例。"""
+    if denominator <= 0:
+        return 0.0
+    from sqlalchemy import func as sql_func
+
+    present = session.scalar(
+        base.with_only_columns(sql_func.count(column)).where(
+            Transfer.status == "completed",
+            Transfer.transfer_type.not_in(_non_stat_types()),
+            column.is_not(None),
+        )
+    )
+    return float(present or 0) / denominator
+
+
+def _non_stat_types() -> tuple[str, ...]:
+    from .deals import NON_STAT_TYPES
+
+    return NON_STAT_TYPES
 
 
 def similar_transfers(
