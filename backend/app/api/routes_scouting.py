@@ -13,7 +13,7 @@ from ..analytics.scoring import evaluate_player, list_roles
 from ..db import get_db
 from ..models import FmSave
 from ..schemas import EvaluateRequest, ScoutingSearchRequest
-from .deps import get_active_save
+from .deps import get_active_save, get_current_user, owned_save_or_404
 
 router = APIRouter()
 
@@ -61,7 +61,8 @@ def search(
         club_id=body.club_id,
         sort="-ca",
     )
-    result = list_players(db, body.save_id or save.id, filters, limit=body.limit, offset=0)
+    target = owned_save_or_404(db, body.save_id, user) if body.save_id is not None else save
+    result = list_players(db, target.id, filters, limit=body.limit, offset=0)
     candidates: list[dict[str, Any]] = []
     for item in result["items"]:
         entry: dict[str, Any] = {"player": item, "role_key": body.role_key, "score": None, "coverage": None}

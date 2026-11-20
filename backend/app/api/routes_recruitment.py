@@ -21,7 +21,13 @@ from ..analytics.recruitment import (
 from ..db import get_db
 from ..models import FmSave
 from ..schemas import CompareRequest, RecruitmentSearchRequest, ShortlistRequest
-from .deps import get_active_save, instance_in_save_or_404, shortlist_in_save_or_404
+from .deps import (
+    get_active_save,
+    get_current_user,
+    instance_in_save_or_404,
+    owned_save_or_404,
+    shortlist_in_save_or_404,
+)
 
 router = APIRouter()
 
@@ -40,12 +46,14 @@ def model() -> dict[str, Any]:
 def search(
     body: RecruitmentSearchRequest,
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """Rank candidates for a slot with the six-dimensional score."""
+    target = owned_save_or_404(db, body.save_id, user) if body.save_id is not None else save
     return search_recruitment(
         db,
-        body.save_id or save.id,
+        target.id,
         slot=body.slot,
         min_age=body.min_age,
         max_age=body.max_age,
@@ -76,10 +84,21 @@ def player(
 def compare(
     body: CompareRequest,
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """Compare up to five players with identical weights."""
-    return compare_players(db, body.save_id or save.id, body.instance_ids)
+    target = owned_save_or_404(db, body.save_id, user) if body.save_id is not None else save
+    # 每一个 instance_id 都必须属于目标存档；任何一个不属于就整体 404，避免混入他人数据。
+    for instance_id in body.instance_ids:
+        instance_in_save_or_404(db, instance_id, target)
+    result = compare_players(db, target.id, body.instance_ids)
+    if result["compared"] != len(set(body.instance_ids)):
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "player_not_found", "message": "有球员不在该存档中"},
+        )
+    return result
 
 
 @router.get("/recruitment/hidden-value")
@@ -123,12 +142,14 @@ def shortlist(
 def create_shortlist(
     body: ShortlistRequest,
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """Generate a shortlist and store it with its candidates."""
+    target = owned_save_or_404(db, body.save_id, user) if body.save_id is not None else save
     result = build_shortlist(
         db,
-        body.save_id or save.id,
+        target.id,
         name=body.name,
         slot=body.slot,
         role_key=body.role_key,

@@ -32,7 +32,7 @@ from ..db import get_db
 from ..models import Club, FmSave, PlayerInstance, PlayerValuation, Transfer, TransferCandidate
 from ..schemas import DealRequest
 from ..utils import iso, utcnow
-from .deps import get_active_save
+from .deps import get_active_save, get_current_user, owned_save_or_404
 
 router = APIRouter()
 
@@ -214,21 +214,32 @@ def transfer_cost(
     wage_period: str = Query(default="week", pattern="^(week|month|year)$"),
     contract_years: float | None = Query(default=None, gt=0, le=20),
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
 ) -> dict[str, Any]:
     """Total cost model for one recorded transfer."""
     transfer = db.get(Transfer, transfer_id)
     if transfer is None:
         raise HTTPException(status_code=404, detail={"code": "transfer_not_found", "message": "交易不存在"})
+    owned_save_or_404(db, transfer.fm_save_id, user)
     return deal_cost(db, transfer, wage_period=wage_period, contract_years=contract_years)
 
 
 @router.post("/transfers/deal-report")
-def deal_report(body: DealRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+def deal_report(
+    body: DealRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
     """Decision report for a prospective signing: fit, cost, wage, age, resale and recommendation."""
+    target = owned_save_or_404(db, body.save_id, user) if body.save_id is not None else save
+    instance = db.get(PlayerInstance, body.instance_id)
+    if instance is None or instance.fm_save_id != target.id:
+        raise HTTPException(status_code=404, detail={"code": "player_not_found", "message": "球员不存在"})
     try:
         return decision_report(
             db,
-            body.save_id or _save_of_instance(db, body.instance_id),
+            target.id,
             body.instance_id,
             fee=body.fee,
             budget=body.budget,
@@ -244,8 +255,13 @@ def transfer_investment(
     instance_id: int = Query(...),
     total_cost: float | None = Query(default=None, ge=0),
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
 ) -> dict[str, Any]:
     """Investment score for a player at a given total cost."""
+    instance = db.get(PlayerInstance, instance_id)
+    if instance is None:
+        raise HTTPException(status_code=404, detail={"code": "player_not_found", "message": "球员不存在"})
+    owned_save_or_404(db, instance.fm_save_id, user)
     return investment_score(db, instance_id, total_cost)
 
 
