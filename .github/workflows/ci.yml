@@ -77,9 +77,7 @@ jobs:
         working-directory: live-reader/tests/ScoutMind.Reader.Tests
         run: dotnet run -c Release
       - name: Compatibility manifest consistency
-        run: >
-          live-reader/tools/ScoutMind.FMReader.Diag/bin/Release/net10.0/ScoutMind.FMReader.Diag.exe
-          configcheck
+        run: dotnet run --project live-reader/tools/ScoutMind.FMReader.Diag/ScoutMind.FMReader.Diag.csproj -c Release -- configcheck
 
   frontend:
     name: Frontend (typecheck + build)
