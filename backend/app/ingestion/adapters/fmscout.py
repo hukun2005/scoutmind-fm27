@@ -239,6 +239,7 @@ class AdapterReport:
     unknown_fields: list[str] = field(default_factory=list)
     compatibility: dict[str, object] = field(default_factory=dict)
     coverage: dict[str, float] = field(default_factory=dict)
+    transfer_coverage: dict[str, dict[str, object]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     def payload(self) -> dict[str, object]:
@@ -264,6 +265,7 @@ class AdapterReport:
             "unknown_fields": self.unknown_fields,
             "compatibility": self.compatibility,
             "coverage": self.coverage,
+            "transfer_coverage": self.transfer_coverage,
             "warnings": self.warnings,
         }
 
@@ -410,6 +412,28 @@ def convert_document(
         if key in document or any(key in entry for entry in players if isinstance(entry, dict))
     ]
 
+    # 转会数据的可用性必须来自"数据源是否有历史交易数组"，不能因为球员行里出现 transferDate 就推断历史数据存在。
+    dump_transfers = document.get("transfers")
+    history_available = isinstance(dump_transfers, list) and len(dump_transfers) > 0
+    agreed_rows = [row for row in rows if row.get("agreed_transfer")]
+    loan_rows = [
+        row
+        for row in rows
+        if (row.get("availability") or {}).get("loan_club_uid")
+        or (row.get("availability") or {}).get("is_loan")
+    ]
+    report.transfer_coverage = {
+        "transfer_history": {"available": history_available, "records": len(dump_transfers) if isinstance(dump_transfers, list) else 0},
+        "agreed_transfers": {"available": bool(agreed_rows), "records": len(agreed_rows)},
+        "future_transfers": {"available": False, "records": 0},
+        "loan_transfers": {"available": bool(loan_rows), "records": len(loan_rows)},
+        "completed_transfers": {"available": history_available, "records": len(dump_transfers) if isinstance(dump_transfers, list) else 0},
+    }
+    if not history_available:
+        report.warnings.append(
+            "数据源没有历史转会数组：transfer_history.available=false（即使存在未来已达成转会，也不能当作历史成交记录）"
+        )
+
     report.unknown_fields = sorted(
         {
             str(key)
@@ -467,8 +491,14 @@ def convert_document(
         "coverage": {
             "players": True,
             "attributes": bool(attribute_seen),
-            # The dump carries neither transfers nor per-match rows; say so instead of implying zero.
-            "transfers": False,
+            # 历史转会与"未来已达成"是两件事：没有历史数组时 transfers 为 False，
+            # 但 agreed_transfers/loan_transfers 仍按实际观测标记。
+            "transfers": report.transfer_coverage["transfer_history"]["available"],
+            "transfer_history": report.transfer_coverage["transfer_history"]["available"],
+            "agreed_transfers": report.transfer_coverage["agreed_transfers"]["available"],
+            "future_transfers": report.transfer_coverage["future_transfers"]["available"],
+            "loan_transfers": report.transfer_coverage["loan_transfers"]["available"],
+            "completed_transfers": report.transfer_coverage["completed_transfers"]["available"],
             "statistics": False,
             "finances": False,
         },
