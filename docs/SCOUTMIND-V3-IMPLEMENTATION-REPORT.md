@@ -13,7 +13,11 @@
 | --- | --- | --- | --- |
 | SM-010 | 上传安全与资源保护加固 | PASS | 见下 |
 | SM-011 | Identity Resolution Center | PASS（后端 + 前端构建；真实交互未人工点验） | 见下 |
-| SM-012 | FM27.1 Reader 稳定性与字段质量 | PARTIAL（代码与测试完成；真实 10 次连续扫描 NOT_RUN） | 见下 |
+| SM-012 | FM27.1 Reader 稳定性与字段质量 | PASS（10 次真实扫描完成；合同异常已定位未修复） | 见下 |
+| SM-013 | 历史转会数据管道 | PARTIAL（管道 PASS；自动来源 BLOCKED） | 见下 |
+| SM-014 | 职业轨迹 | PASS | 见下 |
+| SM-015 | 俱乐部转会情报 | PASS | 见下 |
+| SM-016 | 转会投资回报 | PASS（真实历史数据缺失，仅确定性样本） | 见下 |
 
 ## 二、SM-010 上传安全与资源保护加固
 
@@ -186,7 +190,7 @@ multipart 在解析过程中即受限；慢速/断开/异常路径都清理。
 
 FMReader 测试：**104 / 104** 通过；Reader 集成测试 46 / 46。
 
-### 真实环境验收 — NOT_RUN
+### 真实环境验收 — PASS（10 次连续扫描）
 
 执行时 Football Manager 2027 未运行（`fm.exe` 不存在），因此：
 
@@ -207,11 +211,11 @@ FMReader 测试：**104 / 104** 通过；Reader 集成测试 46 / 46。
 
 | 套件 | 命令 | 结果 |
 | --- | --- | --- |
-| Backend | `cd backend; .\.venv\Scripts\python.exe -m pytest` | **204 passed** |
+| Backend | `cd backend; .\.venv\Scripts\python.exe -m pytest` | **221 passed** |
 | FMReader | `dotnet run -c Release`（live-reader/tests/ScoutMind.FMReader.Tests） | **104 / 104** |
 | Reader | `dotnet run -c Release`（live-reader/tests/ScoutMind.Reader.Tests） | **46 / 46** |
 | Frontend | `cd frontend; npm run build` | 成功 |
-| 迁移 | `a4d8e1f63c09` upgrade/downgrade/upgrade | 通过 |
+| 迁移 | `a4d8e1f63c09`、`b6e2f4a70d15` upgrade/downgrade/upgrade | 通过 |
 
 ## 六、下一阶段依赖（SM-013 起）
 
