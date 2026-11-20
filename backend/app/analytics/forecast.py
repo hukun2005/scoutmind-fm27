@@ -74,35 +74,59 @@ def forecast_player(session: Session, instance_id: int) -> dict[str, Any]:
     ]
     if not snapshots:
         raise ValueError("no CA observations; cannot forecast")
-    points = [((row.game_date or row.observed_at.date()), int(row.ca)) for row in snapshots]
     latest = snapshots[-1]
     age = latest.age
     pa = latest.pa
     ca_now = int(latest.ca)
-    slope, spread = _slope_per_year(points)
     gaps: list[str] = []
+    # 同一天的多次扫描不是独立时间观察：按日期去重，保留当天最后一次。
+    by_day: dict[date, int] = {}
+    for row in snapshots:
+        by_day[row.game_date or row.observed_at.date()] = int(row.ca)
+    points = sorted(by_day.items())
+    if len(points) < len(snapshots):
+        gaps.append(f"同一天有 {len(snapshots) - len(points)} 条重复观察，已按日期去重")
+    anomalies: list[str] = []
+    if pa is not None and ca_now > pa:
+        anomalies.append(f"CA {ca_now} 大于 PA {pa}：数据异常，预测不向上扩展")
+    if pa is not None and any(ca > pa for _, ca in points):
+        anomalies.append("历史 CA 曾超过 PA，PA 上限按数据异常处理")
+    slope, spread = _slope_per_year(points)
     basis: str
     if slope is None or len(points) < MIN_SNAPSHOTS_FOR_TREND:
         rate = _rate_by_age(age)
-        basis = "年龄曲线默认值"
-        gaps.append(f"快照 {len(points)} 个，不足以估计个人成长速率")
+        basis = "年龄曲线统计假设"
+        gaps.append(f"独立观测日 {len(points)} 个，不足以估计个人成长速率；以下为年龄曲线假设")
         confidence = "low"
+        assumption = True
     else:
         rate = slope
         basis = "历史快照最小二乘斜率"
-        confidence = "high" if len(points) >= 5 else "medium"
+        assumption = False
+        # 置信度同时考虑快照数量、观测跨度与数据质量。
+        span_years = (points[-1][0] - points[0][0]).days / 365.25
+        if len(points) >= 5 and span_years >= 1.0 and not anomalies:
+            confidence = "high"
+        elif len(points) >= 3 and span_years >= 0.25 and not anomalies:
+            confidence = "medium"
+        else:
+            confidence = "low"
+            gaps.append("观测跨度或样本量不足，置信度降为 low")
     if pa is None:
         gaps.append("缺少 PA，预测不设上限")
     uncertainty = max(1.0, spread if spread is not None else abs(rate) * 0.5 + 1.0)
     span = (points[-1][0] - points[0][0]).days / 365.25
 
     def project(years: int) -> dict[str, Any] | None:
-        if len(points) < 2 and years > 1:
+        if len(points) <= 1:
             return None
-        mid = ca_now + rate * years
+        if years > 1 and len(points) < MIN_SNAPSHOTS_FOR_TREND:
+            return None
+        base = ca_now if not anomalies or pa is None or ca_now <= pa else float(pa)
+        mid = ca_now + rate * years if (pa is None or ca_now <= pa) else float(pa)
         if pa is not None:
             mid = min(mid, float(pa))
-        mid = max(float(ca_now), mid)
+        mid = max(base, mid)
         low = max(float(ca_now), mid - uncertainty * years ** 0.5)
         high = mid + uncertainty * years ** 0.5
         if pa is not None:
@@ -126,6 +150,8 @@ def forecast_player(session: Session, instance_id: int) -> dict[str, Any]:
             "span_years": round(span, 2),
             "uncertainty_per_year": round(uncertainty, 2),
             "confidence": confidence,
+            "statistical_assumption": assumption,
+            "anomalies": anomalies,
         },
         "forecast": {"one_year": project(1), "three_years": project(3)},
         "ceiling": {
@@ -165,7 +191,10 @@ def backtest(session: Session, save_id: int, *, min_snapshots: int = 3) -> dict[
             continue
         train = snapshots[:-1]
         actual = snapshots[-1]
-        points = [((row.game_date or row.observed_at.date()), int(row.ca)) for row in train]
+        by_day = {}
+        for row in train:
+            by_day[row.game_date or row.observed_at.date()] = int(row.ca)
+        points = sorted(by_day.items())
         slope, spread = _slope_per_year(points)
         years = ((actual.game_date or actual.observed_at.date()) - (train[-1].game_date or train[-1].observed_at.date())).days / 365.25
         if years <= 0:
