@@ -43,6 +43,18 @@ def _paid_addons(session: Session, transfer: Transfer) -> tuple[float, float, bo
     return paid, potential, uncertain
 
 
+def _snapshot_at_transfer(session: Session, instance_id: int | None, when) -> PlayerSnapshot | None:
+    """买入当时（或之前最近一次）的快照：历史工资/合同只能来自这里。"""
+    if instance_id is None or when is None:
+        return None
+    return session.scalar(
+        select(PlayerSnapshot)
+        .where(PlayerSnapshot.player_instance_id == instance_id, PlayerSnapshot.observed_at <= __import__("datetime").datetime.combine(when, __import__("datetime").time(23, 59)))
+        .order_by(PlayerSnapshot.observed_at.desc())
+        .limit(1)
+    )
+
+
 def _latest_snapshot(session: Session, instance_id: int | None) -> PlayerSnapshot | None:
     if instance_id is None:
         return None
@@ -77,12 +89,15 @@ def transfer_roi(session: Session, transfer_id: int) -> dict[str, Any]:
         sales = [
             row
             for row in session.scalars(
-                select(Transfer).where(
+                select(Transfer)
+                .where(
                     Transfer.fm_save_id == transfer.fm_save_id,
                     Transfer.player_instance_id == transfer.player_instance_id,
                     Transfer.status == "completed",
                     Transfer.transfer_date > transfer.transfer_date,
+                    Transfer.transfer_type.in_(("permanent", "loan_buyout", "clause_release", "swap")),
                 )
+                .order_by(Transfer.transfer_date, Transfer.id)
             )
             if row.from_club_id == transfer.to_club_id and row.effective_fee is not None
         ]
@@ -90,8 +105,16 @@ def transfer_roi(session: Session, transfer_id: int) -> dict[str, Any]:
     sale_paid, sale_potential, _ = _paid_addons(session, sale) if sale is not None else (0.0, 0.0, False)
 
     realized = None
+    realized_note = None
     if cash_cost is not None and sale is not None and sale.effective_fee is not None:
-        realized = fee_round(float(sale.effective_fee) + sale_paid - cash_cost)
+        if sale.currency != transfer.currency:
+            realized_note = f"买入币种 {transfer.currency} 与卖出币种 {sale.currency} 不同，未配置汇率时不计算已实现收益"
+        else:
+            realized = fee_round(float(sale.effective_fee) + sale_paid - cash_cost)
+    elif cash_cost is None:
+        realized_note = "买入成本未知，无法计算已实现收益"
+    elif sale is None:
+        realized_note = "没有找到之后完成的永久类卖出交易，未实现"
 
     snapshot = _latest_snapshot(session, transfer.player_instance_id)
     valuation = None
@@ -105,21 +128,29 @@ def transfer_roi(session: Session, transfer_id: int) -> dict[str, Any]:
     elif snapshot is None:
         missing.append("没有球员快照，无法估值")
 
-    # 会计成本：现金 + 已知工资 × 合同年限（只有拿到工资才给，否则标下界）。
+    # 会计成本：现金 + 买入当时的已知工资 × 买入时合同年限。
+    # 当前工资只能作为"现状"展示，绝不能当作历史事实。
+    buy_snapshot = _snapshot_at_transfer(session, transfer.player_instance_id, transfer.transfer_date)
     accounting = None
-    if snapshot is not None and snapshot.wage is not None:
-        years = 5.0
-        if snapshot.contract_end and transfer.transfer_date:
-            years = max((snapshot.contract_end - transfer.transfer_date).days / 365.25, 0.5)
-        wage_cost = float(snapshot.wage) * WEEKS_PER_YEAR * years
+    if buy_snapshot is None:
+        missing.append("买入当时没有快照：历史工资/合同未知，会计成本无法计算")
+    elif buy_snapshot.wage is None:
+        missing.append("买入当时快照没有工资：会计成本只能给现金下界")
+    elif buy_snapshot.contract_end is None:
+        missing.append("买入当时没有合同到期日：合同年限未知，会计成本无法计算")
+    else:
+        years = max((buy_snapshot.contract_end - transfer.transfer_date).days / 365.25, 0.0)
+        if years <= 0:
+            missing.append("买入时合同已到期，合同年限为 0")
+        wage_cost = float(buy_snapshot.wage) * WEEKS_PER_YEAR * years
         accounting = {
             "years": round(years, 2),
+            "wage_at_transfer": buy_snapshot.wage,
             "wage_cost": fee_round(wage_cost),
             "total": fee_round(cash_cost + wage_cost) if cash_cost is not None else None,
-            "note": "按最新快照周薪 × 合同剩余年限估算；工资未知时不给总额",
+            "observed_at": buy_snapshot.observed_at.isoformat(),
+            "note": "按买入时点快照的周薪 × 买入时合同剩余年限；不是当前工资",
         }
-    else:
-        missing.append("工资未知，会计成本只能给现金下界")
 
     return {
         "transfer_id": transfer.id,
@@ -144,11 +175,20 @@ def transfer_roi(session: Session, transfer_id: int) -> dict[str, Any]:
         },
         "cash": {
             "realized_profit": realized,
-            "realized_note": None
-            if realized is not None
-            else "没有找到后续 completed 卖出记录或买入成本未知，已实现收益不可计算",
+            "realized_note": realized_note,
         },
         "accounting": accounting,
+        "current": {
+            "wage": snapshot.wage if snapshot else None,
+            "contract_end": snapshot.contract_end.isoformat() if snapshot and snapshot.contract_end else None,
+            "note": "当前工资/合同只用于展示现状，不参与历史成本计算",
+        },
+        "buy_context": {
+            "wage": buy_snapshot.wage if buy_snapshot else None,
+            "contract_end": buy_snapshot.contract_end.isoformat() if buy_snapshot and buy_snapshot.contract_end else None,
+            "observed_at": buy_snapshot.observed_at.isoformat() if buy_snapshot else None,
+            "available": buy_snapshot is not None,
+        },
         "valuation": valuation,
         "cost_per_appearance": None,
         "cost_per_goal": None,
