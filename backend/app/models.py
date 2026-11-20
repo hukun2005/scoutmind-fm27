@@ -223,6 +223,11 @@ class IdentityConflict(TimestampMixin, Base):
     existing_birth_date: Mapped[date | None] = mapped_column(Date)
     incoming_birth_date: Mapped[date | None] = mapped_column(Date)
     resolution: Mapped[str] = mapped_column(String(32), default="kept_both", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="open", nullable=False, index=True)
+    conflict_fields: Mapped[str | None] = mapped_column(String(128))
+    confidence: Mapped[float | None] = mapped_column(Float)
+    source_scan_id: Mapped[str | None] = mapped_column(String(64))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
     evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
 
     __table_args__ = (
