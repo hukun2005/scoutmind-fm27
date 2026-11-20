@@ -14,8 +14,11 @@ public enum ContractDateCategory
     /// <summary>能解出年份与序日，且在合理范围内。</summary>
     Decodable,
 
-    /// <summary>能解出年份，但年份/序日超出合理范围。</summary>
+    /// <summary>能解出年份，但年份超出 1900..2100。</summary>
     OutOfRange,
+
+    /// <summary>能解出日期，但年份不在 FM 合同应有的 2000..2060（多半是偏移读到了别的字段）。</summary>
+    UnexpectedYear,
 
     /// <summary>低 9 位序日非法（0 或 >366）。</summary>
     BadDayOfYear,
@@ -72,6 +75,7 @@ public sealed class ContractDateDiagnostics
             $"可解码 {Count(ContractDateCategory.Decodable)}",
             $"序日非法 {Count(ContractDateCategory.BadDayOfYear)}",
             $"年份越界 {Count(ContractDateCategory.OutOfRange)}",
+            $"年份异常 {Count(ContractDateCategory.UnexpectedYear)}",
             $"未设置 {Count(ContractDateCategory.Unset)}",
             $"哨兵值 {Count(ContractDateCategory.Sentinel)}",
         });
@@ -104,6 +108,12 @@ public sealed class ContractDateDiagnostics
         if (year is < 1900 or > 2100)
         {
             return new ContractDateSample(raw, year, doy, ContractDateCategory.OutOfRange, $"年份 {year} 超出 1900..2100");
+        }
+
+        if (year is < 2000 or > 2060)
+        {
+            return new ContractDateSample(raw, year, doy, ContractDateCategory.UnexpectedYear,
+                $"日期可解码但年份 {year} 不在合同应有的 2000..2060（疑似偏移读到了别的字段）");
         }
 
         return new ContractDateSample(raw, year, doy, ContractDateCategory.Decodable, $"可解码：{year}-{doy}");
