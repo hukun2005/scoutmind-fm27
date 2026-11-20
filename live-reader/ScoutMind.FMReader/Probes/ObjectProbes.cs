@@ -337,7 +337,9 @@ public sealed partial class ObjectProbes
                 applicable++;
                 pointerValid++;
 
-                var (expiryYear, expiryDoy) = FmDate.Decode(_memory.UInt32(contract + _layout["CON_EXPIRY"]));
+                var expiryRaw = _memory.UInt32(contract + _layout["CON_EXPIRY"]);
+                dateDiagnostics.Add(expiryRaw);
+                var (expiryYear, expiryDoy) = FmDate.Decode(expiryRaw);
                 if (expiryYear == 0)
                 {
                     noExpiry++;
@@ -377,6 +379,10 @@ public sealed partial class ObjectProbes
             Ratio("wage_range", wageSane, applicable == 0 ? 1 : applicable, "周薪 <= 5,000,000"),
             Ratio("status_flags", flagsSane, applicable == 0 ? 1 : applicable, "状态位不是 0xFF（未定义值）", 0.9),
             Ratio("expiry_after_birth", expiryAfterBirth, expiryApplicable == 0 ? 1 : expiryApplicable, "到期日晚于出生 14 年且不超过 45 年", 0.8),
+            dateDiagnostics.Total > 0
+                ? new FieldCheck("expiry_diagnostics", CheckStatus.Inconclusive,
+                    $"{dateDiagnostics.Summary}；可解码比例 {dateDiagnostics.DecodableRatio:P0}")
+                : new FieldCheck("expiry_diagnostics", CheckStatus.Inconclusive, "没有可解析合同样本"),
         };
         var status = checks.Any(item => item.Status == CheckStatus.Failed) ? ProbeStatus.Failed : ProbeStatus.Passed;
         return new ProbeOutcome("contract", status, sample.Count, checks,
