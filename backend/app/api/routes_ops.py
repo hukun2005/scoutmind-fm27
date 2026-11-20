@@ -89,24 +89,47 @@ def overview(
 
 @router.get("/compatibility")
 def compatibility(db: Session = Depends(get_db)) -> dict[str, Any]:
-    """Known and candidate reader compatibility entries, plus the reader protocol version."""
+    """Reader compatibility entries, sourced from the canonical config files.
+
+    The database table is legacy: it used to be the only source, which is how it drifted to
+    "candidate" while the engine gate and registry said "verified". The config files are now the
+    single truth; a stale DB row is reported as a conflict instead of being served as truth.
+    """
+    from .routes_compat import build_compatibility_view
+
+    view = build_compatibility_view()
+    items = [
+        {
+            "app_id": build["app_id"],
+            "build_id": build["build"],
+            "plugin_version": build["plugin_version"],
+            "status": build["status"],
+            "notes": build.get("note") or "来自 verified-versions.json + compatibility-registry.json",
+            "verified_at": None,
+        }
+        for build in view["builds"]
+    ]
+    issues = list(view["issues"])
     rows = list(db.scalars(select(ReaderCompatibility)))
-    if not rows:
+    for row in rows:
+        canonical = next((item for item in view["builds"] if item["build"] == row.build_id), None)
+        if canonical is None:
+            issues.append({"code": "db_only_build", "build": row.build_id, "message": "数据库里有、配置文件里没有"})
+        elif canonical["status"] != row.status:
+            issues.append(
+                {
+                    "code": "stale_db_status",
+                    "build": row.build_id,
+                    "message": f"数据库状态 {row.status} ≠ 配置 {canonical['status']}，以配置为准",
+                }
+            )
+    if not items:
         items = [CANDIDATE_COMPATIBILITY]
-    else:
-        items = [
-            {
-                "app_id": row.app_id,
-                "build_id": row.build_id,
-                "plugin_version": row.plugin_version,
-                "status": row.status,
-                "notes": row.notes,
-                "verified_at": iso(row.verified_at),
-            }
-            for row in rows
-        ]
     return {
         "items": items,
+        "consistent": not issues,
+        "issues": issues,
+        "source": "config",
         "reader_versions": ["0.1.0"],
         "protocol_version": "1.0",
         "notes": "只有 status=verified 的组合允许扫描；candidate 必须先在本机 probe 通过",
