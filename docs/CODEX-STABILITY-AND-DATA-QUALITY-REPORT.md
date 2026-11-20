@@ -179,6 +179,33 @@
 - 失败/取消/JSON 损坏路径删除临时目录；成功保留 dump 供 `RawDumpPath` 使用。
 - 测试：超时传参、取消失败、并发拒绝、失败后目录清理（FMReader 96/96）。
 
+## 七之三、第三阶段（SM-007 / SM-008 / SM-009）
+
+### SM-007 AI 会话与存档隔离 — PASS
+
+- 新增 `_owned_save()` 与 `_conversation_for()`：会话必须同时属于当前用户与当前存档；
+  不存在与不属于统一返回 404，避免用状态码探测别人的会话 id。
+- `/agent/conversations`、`/agent/conversations/{id}/messages`（GET/POST）、`/agent/reports` 全部加用户与存档校验；
+  `ask` 拒绝 `save_id` 与会话存档不一致的请求（400），回答与报告只写入会话所属存档。
+- 测试：跨存档会话读取、跨存档提问、save_id 不一致、未知会话、他人存档报告、用他人存档建会话 → 全部拒绝。
+
+### SM-008 CI 与回归流水线 — PARTIAL
+
+- 新增 `.github/workflows/ci.yml`：backend（pytest + 全新库迁移往返）、security 子集（上传/身份/兼容/性能/Agent 隔离）、
+  .NET（`ScoutMind.sln` 构建 + 两套测试 + `configcheck`）、frontend（`npm ci` + `vue-tsc && vite build`）。
+- 本地已验证：YAML 可解析、`requirements.txt` 存在、各命令在本机可执行。
+- **未在 GitHub Actions 上实际运行**（本机无法执行云端工作流），因此标 PARTIAL，等首次 PR 后再确认。
+
+### SM-009 LLM 工具规划器 — PARTIAL
+
+- `backend/app/agents/llm_planner.py`：工具白名单 + JSON Schema 参数校验 + `save_id` 禁止注入 + 最多 5 次调用 +
+  执行轨迹；LLM 只规划/解释，数字全部来自 `app.agents.tools`。
+- `service.answer_question`：配置了 LLM 时先规划，失败（无 Key/超时/非法计划/未知工具）自动降级到规则规划器，
+  回答里写 `llm_fallback` 原因；LLM 路径回答带 `plan_trace` 与 `tool_call_limit`。
+- `explain_with_llm` 对解释文本做数字校验：出现工具结果里没有的数字就丢弃解释。
+- 测试：未知工具、`save_id` 注入、超调用上限、参数越界、执行轨迹、未配置时降级、假客户端成功路径、非法计划降级。
+- **未接真实 LLM**（无 API Key）：真实模型行为仍需一次联调，故标 PARTIAL。
+
 ## 八、后续建议
 
 1. 在真实 FM27 环境跑一次完整扫描与导入（含 5 万+ 球员），确认上传/身份/转会改动无回归。
