@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from ..analytics.transfers import serialize_transfer
 from ..models import DataSource, Player, PlayerInstance, Transfer
 from ..utils import iso, utcnow
-from . import planner, tools
+from . import llm_planner, planner, tools
 from .tools import ToolCall
 
 DISCLAIMERS = ["结论是决策辅助，不是游戏内真实报价或官方市场价格。"]
@@ -29,8 +29,25 @@ def answer_question(
     instance_id: int | None = None,
     club_id: int | None = None,
 ) -> tuple[dict[str, object], list[ToolCall]]:
-    """Answer one question and return the structured answer plus the tool calls behind it."""
+    """Answer one question and return the structured answer plus the tool calls behind it.
+
+    如果配置了 LLM，先让它规划工具调用（数字仍只来自确定性工具）；任何失败都退回规则规划器，
+    并在回答里说明降级原因，绝不把规则结果伪装成 LLM 结果。
+    """
     intent = planner.parse(question, instance_id=instance_id, club_id=club_id)
+    if llm_planner.llm_enabled():
+        try:
+            planned = llm_planner.plan_with_llm(session, save_id, question)
+        except (llm_planner.LlmUnavailable, llm_planner.PlannerError) as exc:
+            fallback_reason = str(exc)
+        else:
+            answer = _compose_llm_answer(session, save_id, question, planned)
+            if _has_demo_data(session, save_id):
+                answer["disclaimers"] = list(answer["disclaimers"]) + [DEMO_WARNING]
+            answer["generated_at"] = iso(utcnow())
+            return answer, planned.calls
+    else:
+        fallback_reason = "未配置 LLM（agent_llm_enabled=false 或缺少 api_key）"
     if intent.instance_id is None and intent.kind in {"valuation", "similar", "deal"}:
         resolved = _resolve_instance(session, save_id, question)
         intent.instance_id = resolved.id if resolved is not None else None
@@ -68,8 +85,43 @@ def answer_question(
     answer["reliability"] = _reliability_block(answer)
     answer["citations"] = _citations(calls)
     answer["mode"] = "deterministic"
+    if "fallback_reason" in dir():
+        answer["llm_fallback"] = fallback_reason
     answer["generated_at"] = iso(utcnow())
     return answer, calls
+
+
+def _compose_llm_answer(
+    session: Session, save_id: int, question: str, planned: llm_planner.PlanResult
+) -> dict[str, object]:
+    """把 LLM 规划 + 确定性工具结果组装成与规则路径同构的回答。
+
+    数字全部来自 ``call.payload()``；这里只做字符串拼接，不做任何估算。
+    """
+    payloads = [call.payload() for call in planned.calls]
+    summaries = [str(item.get("result_summary") or "") for item in payloads]
+    conclusion = "；".join(summary for summary in summaries if summary) or "当前问题没有足够的确定性数据支持结论。"
+    return {
+        "conclusion": conclusion,
+        "sections": [
+            {"tool": payload["name"], "summary": payload.get("result_summary"), "result": payload.get("result")}
+            for payload in payloads
+        ],
+        "filters": {},
+        "evidence": [
+            {"type": "tool", "label": payload["name"], "value": payload.get("result_summary")} for payload in payloads
+        ],
+        "reliability": {
+            "level": "tool-backed",
+            "note": "所有数字来自确定性工具；LLM 只负责选择工具与组织说明",
+            "calls": len(payloads),
+        },
+        "citations": _citations(planned.calls),
+        "disclaimers": list(DISCLAIMERS),
+        "mode": "llm-planned",
+        "plan_trace": planned.trace,
+        "tool_call_limit": llm_planner.MAX_TOOL_CALLS,
+    }
 
 
 # -- V2 handlers: squad, depth, recruitment, growth, comparison, history -----------------------------------------
