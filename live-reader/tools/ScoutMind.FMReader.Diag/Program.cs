@@ -524,6 +524,23 @@ internal static class Program
                 return 0;
             }
 
+            case "fields":
+            {
+                // 每个字段的偏移/类型/可信度/证据来源；供文档与审计使用。
+                var layout = new ScoutMind.FMReader.Layouts.FM27_1_Layout();
+                var rows = ScoutMind.FMReader.Engine.FieldMetadataCatalog.Build(layout);
+                Console.WriteLine(ToJson(new
+                {
+                    layout = layout.Name,
+                    count = rows.Count,
+                    verified = rows.Count(row => row.Status == "Verified"),
+                    candidate = rows.Count(row => row.Status == "Candidate"),
+                    pending = rows.Count(row => row.Status == "Pending"),
+                    fields = rows,
+                }));
+                return 0;
+            }
+
             case "configcheck":
             {
                 // 三份兼容性配置是否一致；不一致时退出码 3（CI / 发布脚本可以直接用）。

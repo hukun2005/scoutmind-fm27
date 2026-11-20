@@ -321,6 +321,7 @@ public sealed partial class ObjectProbes
 
         int pointerValid = 0, expirySane = 0, wageSane = 0, flagsSane = 0, expiryAfterBirth = 0;
         int applicable = 0, missing = 0, noExpiry = 0, expiryApplicable = 0;
+        var dateDiagnostics = new ContractDateDiagnostics();
         foreach (var player in sample)
         {
             try
