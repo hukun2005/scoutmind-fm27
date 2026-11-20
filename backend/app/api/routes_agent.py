@@ -16,6 +16,26 @@ from ..schemas import AskRequest, ConversationCreate
 from ..utils import iso
 from .deps import get_active_save, get_current_user
 
+def _owned_save(db: Session, save_id: int, user) -> FmSave:
+    """校验存档属于当前用户；不存在或不属于就按"找不到"处理，不泄露存在性。"""
+    target = db.get(FmSave, save_id)
+    if target is None or target.user_id != user.id:
+        raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
+    return target
+
+
+def _conversation_for(db: Session, conversation_id: int, user, save_id: int) -> AgentConversation:
+    """会话必须同时属于当前用户与当前存档。
+
+    会话是"某个存档的 AI 分析"，跨存档读取等于读取另一份存档的数据，因此一律拒绝；
+    不区分"不存在"和"不属于你"，避免通过状态码探测别人的会话 id。
+    """
+    conversation = db.get(AgentConversation, conversation_id)
+    if conversation is None or conversation.user_id != user.id or conversation.fm_save_id != save_id:
+        raise HTTPException(status_code=404, detail={"code": "conversation_not_found", "message": "会话不存在"})
+    return conversation
+
+
 router = APIRouter()
 
 
@@ -27,7 +47,7 @@ def conversations(
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """Conversations of the save, newest first."""
-    target = save_id or save.id
+    target = _owned_save(db, save_id, user).id if save_id else save.id
     rows = list(
         db.scalars(
             select(AgentConversation)
@@ -64,9 +84,10 @@ def create_conversation(
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """Create an empty conversation."""
+    target_save = _owned_save(db, body.save_id, user) if body.save_id else save
     conversation = AgentConversation(
         user_id=user.id,
-        fm_save_id=body.save_id or save.id,
+        fm_save_id=target_save.id,
         title=body.title or "新的分析",
     )
     db.add(conversation)
@@ -75,11 +96,14 @@ def create_conversation(
 
 
 @router.get("/agent/conversations/{conversation_id}/messages")
-def messages(conversation_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
-    """Full message history including stored structured answers."""
-    conversation = db.get(AgentConversation, conversation_id)
-    if conversation is None:
-        raise HTTPException(status_code=404, detail={"code": "conversation_not_found", "message": "会话不存在"})
+def messages(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    """Full message history including stored structured answers (same user, same save)."""
+    conversation = _conversation_for(db, conversation_id, user, save.id)
     rows = list(
         db.scalars(
             select(AgentMessage)
@@ -108,19 +132,24 @@ def ask(
     conversation_id: int,
     body: AskRequest,
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """Ask a question; the answer is built only from deterministic tool results."""
-    conversation = db.get(AgentConversation, conversation_id)
-    if conversation is None:
-        raise HTTPException(status_code=404, detail={"code": "conversation_not_found", "message": "会话不存在"})
+    conversation = _conversation_for(db, conversation_id, user, save.id)
+    if body.save_id is not None and body.save_id != conversation.fm_save_id:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "save_mismatch", "message": "会话属于另一个存档，不能跨存档提问"},
+        )
+    target_save_id = conversation.fm_save_id
     user_message = AgentMessage(conversation_id=conversation.id, role="user", content=body.question)
     db.add(user_message)
     db.flush()
     try:
         answer, calls = agent_service.answer_question(
             db,
-            body.save_id or save.id,
+            target_save_id,
             body.question,
             instance_id=body.instance_id,
             club_id=body.club_id,
@@ -138,7 +167,7 @@ def ask(
     db.add(assistant)
     db.add(
         AiReport(
-            fm_save_id=body.save_id or save.id,
+            fm_save_id=target_save_id,
             conversation_id=conversation.id,
             question=body.question,
             answer=str(answer.get("conclusion", "")),
@@ -163,10 +192,11 @@ def reports(
     save_id: int | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """Stored AI reports with their reliability split and citations."""
-    target = save_id or save.id
+    target = _owned_save(db, save_id, user).id if save_id else save.id
     rows = list(
         db.scalars(
             select(AiReport)
