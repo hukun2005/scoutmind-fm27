@@ -46,7 +46,7 @@
 5. 所有拒绝统一 404（不泄露"存在但不属于你"）。
 6. AI 服务继续用 `user_id` 校验存档；工具参数禁止 `save_id`。
 
-### 新增测试（9 项）
+### 新增测试（10 项）
 
 - `search` 的 `body.save_id` 指向他人存档 → 404；
 - `compare` 混合本人与他人球员 → 404；
@@ -212,7 +212,7 @@
 | 前端 | `cd frontend; npm ci; npm run build` | PASS |
 | .NET | `dotnet build ScoutMind.sln -c Release` | 0 error |
 | SQLite 迁移 | 数据库副本 `upgrade → downgrade -1 → upgrade` | PASS（当前 head `d2f7a91b64e0`；本轮无新迁移） |
-| GitHub Actions | 推送后云端检查 | 见交付说明 |
+| GitHub Actions | 推送后云端检查 | **success**（run 44768073456，提交 `b9733ef`，4 job 全绿） |
 
 ## 未解决问题
 
@@ -229,7 +229,7 @@
 
 | 任务 | 状态 | 说明 |
 | --- | --- | --- |
-| SM-025 | PASS | 权限补齐 + 9 项测试 |
+| SM-025 | PASS | 权限补齐 + 10 项测试 |
 | SM-026 | PASS | 严格金额 + ROI 完整性 + 21 项测试 |
 | SM-027 | PASS | 跨存档合并 + 回滚 + 2 项测试 |
 | SM-028 | PASS | 独立观测日 + 排序 + 5 项测试 |
