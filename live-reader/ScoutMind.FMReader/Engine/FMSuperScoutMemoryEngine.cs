@@ -182,6 +182,8 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
     private readonly Func<GameIdentity, string?> _buildResolver;
     private readonly IProbeEnvironment _probeEnvironment;
     private readonly CompatibilityConfig _compatibilityConfig;
+    private readonly SemaphoreSlim _scanGate = new(1, 1);
+    private readonly TimeSpan _scanTimeout;
 
     /// <summary>创建引擎。</summary>
     /// <param name="locator">进程定位器。</param>
@@ -201,7 +203,8 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
         UpstreamDumpMapper? mapper = null,
         string? workingRoot = null,
         Func<GameIdentity, string?>? buildResolver = null,
-        IProbeEnvironment? probeEnvironment = null)
+        IProbeEnvironment? probeEnvironment = null,
+        TimeSpan? scanTimeout = null)
     {
         _probeEnvironment = probeEnvironment ?? new WinMemoryEnvironment();
         _compatibilityConfig = new CompatibilityConfig();
@@ -213,6 +216,41 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
         _dumpProvider = dumpProvider ?? new FMSuperScoutDumpProvider();
         _mapper = mapper ?? new UpstreamDumpMapper();
         _workingRoot = workingRoot ?? Path.Combine(Path.GetTempPath(), "scoutmind", "fmreader");
+        _scanTimeout = scanTimeout is { TotalSeconds: > 0 } ? scanTimeout.Value : ReadScanTimeout();
+    }
+
+
+    /// <summary>扫描超时：默认 10 分钟，可用 SCOUTMIND_READER_SCAN_TIMEOUT_SECONDS 覆盖（大存档可调大）。</summary>
+    private static TimeSpan ReadScanTimeout()
+    {
+        var raw = Environment.GetEnvironmentVariable("SCOUTMIND_READER_SCAN_TIMEOUT_SECONDS");
+        return int.TryParse(raw, out var seconds) && seconds > 0
+            ? TimeSpan.FromSeconds(seconds)
+            : TimeSpan.FromMinutes(10);
+    }
+
+    /// <summary>删除本次扫描的临时目录；成功时保留 dump 供 RawDumpPath 使用。</summary>
+    private static void CleanupWorkingDirectory(string directory, bool keep)
+    {
+        if (keep)
+        {
+            return;
+        }
+
+        try
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+            // 清理失败不影响扫描结论；下一次扫描会复用/覆盖同名目录。
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     /// <inheritdoc />
@@ -407,6 +445,25 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
     /// <inheritdoc />
     public async Task<FmScanResult> ScanAsync(CancellationToken cancellationToken)
     {
+        // 同一进程只允许一个扫描：两个并发扫描会争抢 Dumper 的 dump 目录与游戏读取。
+        if (!await _scanGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        {
+            var busyStatus = await GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            return Failed(busyStatus, "已有扫描正在进行，拒绝并发扫描。");
+        }
+
+        try
+        {
+            return await ScanCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _scanGate.Release();
+        }
+    }
+
+    private async Task<FmScanResult> ScanCoreAsync(CancellationToken cancellationToken)
+    {
         var status = await GetStatusAsync(cancellationToken).ConfigureAwait(false);
         if (status.Gate is null || !status.Gate.AllowScan)
         {
@@ -462,15 +519,17 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
             UpstreamDump dump;
             try
             {
-                dump = await _dumpProvider.ReadAsync(workingDirectory, TimeSpan.FromMinutes(10), cancellationToken)
+                dump = await _dumpProvider.ReadAsync(workingDirectory, _scanTimeout, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (UpstreamReadException ex)
             {
-                return Failed(status, ex.Message);
+                CleanupWorkingDirectory(workingDirectory, keep: false);
+                return Failed(status, $"读取失败：{ex.Message}");
             }
             catch (OperationCanceledException)
             {
+                CleanupWorkingDirectory(workingDirectory, keep: false);
                 return Failed(status, "扫描被取消。");
             }
 
@@ -487,6 +546,7 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
             }
             catch (System.Text.Json.JsonException ex)
             {
+                CleanupWorkingDirectory(workingDirectory, keep: false);
                 return Failed(status, $"上游 dump 不是合法 JSON：{ex.Message}");
             }
 
