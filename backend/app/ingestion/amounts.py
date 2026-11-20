@@ -44,9 +44,10 @@ UNIT_FACTORS = {
     "亿": 100_000_000,
 }
 
-_SUFFIX = re.compile(r"^\s*([-+]?\d[\d,]*(?:\.\d+)?)\s*([a-zA-Z]+|万|亿)?\s*$")
-_PREFIX = re.compile(r"^\s*([£€$¥￥₩])\s*([-+]?\d[\d,]*(?:\.\d+)?)\s*([a-zA-Z]+|万|亿)?\s*$")
-_CODE = re.compile(r"^\s*(GBP|EUR|USD|CNY|JPY|KRW|BRL|ARS|TRY)\s*([-+]?\d[\d,]*(?:\.\d+)?)\s*([a-zA-Z]+|万|亿)?\s*$", re.I)
+_SUFFIX = re.compile(r"^\s*([-+]?[\d,]+(?:\.\d+)?)\s*([a-zA-Z]+|万|亿)?\s*$")
+_PREFIX = re.compile(r"^\s*([£€$¥￥₩])\s*([-+]?[\d,]+(?:\.\d+)?)\s*([a-zA-Z]+|万|亿)?\s*$")
+_CODE = re.compile(r"^\s*(GBP|EUR|USD|CNY|JPY|KRW|BRL|ARS|TRY)\s*([-+]?[\d,]+(?:\.\d+)?)\s*([a-zA-Z]+|万|亿)?\s*$", re.I)
+_NUMBER = re.compile(r"^\d{1,3}(?:,\d{3})*(?:\.\d+)?$|^\d+(?:\.\d+)?$")
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,9 @@ class AmountParse:
 
 
 def _number(text: str) -> float:
+    """严格校验千分位：只接受 2,500,000 / 2500000 / 2500000.5，拒绝 2,5 与 1,2,3。"""
+    if not _NUMBER.match(text):
+        raise ValueError(f"非法数字格式 {text!r}（千分位必须每三位一组）")
     return float(text.replace(",", ""))
 
 
@@ -102,8 +106,8 @@ def parse_amount(value: object, currency_hint: str | None = None) -> AmountParse
 def _finish(number_text: str, suffix: str | None, raw: str, currency: str | None) -> AmountParse:
     try:
         value = _number(number_text)
-    except ValueError:
-        return AmountParse(None, currency, raw, f"金额数字部分非法：{number_text!r}")
+    except ValueError as exc:
+        return AmountParse(None, currency, raw, f"金额数字部分非法：{exc}")
     if suffix:
         unit = UNIT_FACTORS.get(suffix.lower())
         if unit is None:
@@ -116,3 +120,33 @@ def _finish(number_text: str, suffix: str | None, raw: str, currency: str | None
     if value >= 10_000_000_000:
         return AmountParse(None, currency, raw, "金额数量级异常（>= 100 亿），拒绝导入")
     return AmountParse(value, currency, raw)
+
+
+def parse_ratio(value: object, *, maximum: float = 100.0) -> tuple[float | None, str | None]:
+    """解析百分比/比例（0..maximum）：接受 ``10``、``10%``、``12.5 %``；不做字符过滤。"""
+    if value is None:
+        return None, None
+    raw = str(value).strip()
+    if not raw:
+        return None, None
+    text = raw[:-1].strip() if raw.endswith("%") else raw
+    try:
+        number = _number(text)
+    except ValueError as exc:
+        return None, f"比例/百分比格式非法：{exc}"
+    if number < 0 or number > maximum:
+        return None, f"比例 {number} 超出 0..{maximum:g}"
+    return number, None
+
+
+def parse_plain_number(value: object) -> tuple[float | None, str | None]:
+    """解析工资分摊等纯数字字段：不接受货币符号、单位或任意字符。"""
+    if value is None:
+        return None, None
+    raw = str(value).strip()
+    if not raw:
+        return None, None
+    try:
+        return _number(raw), None
+    except ValueError as exc:
+        return None, f"数字格式非法：{exc}"

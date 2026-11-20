@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Club, Player, PlayerInstance, Transfer, TransferFeeComponent, TransferImportRun, TransferSource
 from ..utils import normalize_name, utcnow
-from .amounts import parse_amount
+from .amounts import parse_amount, parse_plain_number, parse_ratio
 
 TRANSFER_STATUSES = ("completed", "agreed", "pending", "cancelled", "failed", "unknown")
 TRANSFER_TYPES = (
@@ -135,18 +135,6 @@ def _text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
-
-
-def _float_optional(value: Any) -> float | None:
-    """工资分摊/二转分成等非转会费字段：只接受纯数字，失败返回 None（不猜测）。"""
-    text_value = _text(value)
-    if text_value is None:
-        return None
-    cleaned = re.sub(r"[^0-9.\-]", "", text_value.replace(",", ""))
-    try:
-        return float(cleaned) if cleaned not in {"", "-", "."} else None
-    except ValueError:
-        return None
 
 
 def _date(value: Any) -> date | None:
@@ -264,6 +252,14 @@ def _validate(row: dict[str, Any], line: int, report: TransferImportReport) -> d
         report.errors.append(RowError(line, "missing_to_club", "缺少转入俱乐部（release 除外）"))
         return None
     currency_hint = _text(row.get("currency"))
+    wage_contribution, wage_error = parse_plain_number(row.get("wage_contribution"))
+    if wage_error:
+        report.errors.append(RowError(line, "invalid_wage_contribution", f"工资分摊：{wage_error}"))
+        return None
+    sell_on_pct, sell_on_error = parse_ratio(row.get("sell_on_pct"))
+    if sell_on_error:
+        report.errors.append(RowError(line, "invalid_sell_on", f"二转分成：{sell_on_error}"))
+        return None
     fees: dict[str, object] = {}
     for field, label in (("base_fee", "转会费"), ("add_on_fee", "附加条款"), ("loan_fee", "租借费")):
         parsed = parse_amount(row.get(field), currency_hint)
@@ -305,8 +301,8 @@ def _validate(row: dict[str, Any], line: int, report: TransferImportReport) -> d
         "add_on_fee_raw": fees["add_on_fee"].raw,
         "loan_fee_raw": fees["loan_fee"].raw,
         "currency_original": currency_hint or (fees["base_fee"].currency if fees["base_fee"].currency else None),
-        "wage_contribution": _float_optional(row.get("wage_contribution")),
-        "sell_on_pct": _float_optional(row.get("sell_on_pct")),
+        "wage_contribution": wage_contribution,
+        "sell_on_pct": sell_on_pct,
         "addon_status": (_text(row.get("addon_status")) or "pending").lower(),
         "currency": currency or ("EUR" if currency_hint is None else currency_hint.upper())[: FIELD_LIMITS["currency"]],
         "source_record_id": _text(row.get("source_record_id")),
