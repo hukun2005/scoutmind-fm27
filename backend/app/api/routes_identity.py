@@ -301,7 +301,13 @@ def _merge_players(db: Session, conflict: IdentityConflict, keep_player_id: int,
     )
     for instance in instances:
         instance.player_id = keep.id
-    matches = db.scalars(select(IdentityMatch).where(IdentityMatch.player_id == drop.id)).all()
+    # IdentityMatch 必须按存档过滤：同一 Player 在另一个存档里的匹配证据不能被这次合并改动。
+    matches = db.scalars(
+        select(IdentityMatch).where(
+            IdentityMatch.player_id == drop.id,
+            IdentityMatch.fm_save_id == conflict.fm_save_id,
+        )
+    ).all()
     for match in matches:
         match.player_id = keep.id
     db.flush()
