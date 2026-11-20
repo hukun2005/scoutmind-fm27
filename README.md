@@ -17,9 +17,10 @@ LLM 只负责理解问题与组织解释，所有数字来自数据库和算法�
 >
 > 读取器现在自带原生只读引擎（`live-reader/ScoutMind.FMReader`，内嵌 FMSuperScout 内核，MIT）：
 > 不再需要单独安装/启动 FMSuperScout，`ScoutMind.LiveReader.exe scan` 默认走内置引擎。
-> 版本闸门按构建号 + 插件版本放行；本机 27.1（build 26620374）目前是 `candidate`，会被拒绝扫描，
-> 见 [docs/PHASE-REPORT-native-reader.md](docs/PHASE-REPORT-native-reader.md) 与
-> [docs/FM27-VERSION-VERIFICATION.md](docs/FM27-VERSION-VERIFICATION.md)。
+> 版本闸门按构建号 + 插件版本放行；本机 27.1（build 26620374 / 插件 27.1.0+2505117）已验证为
+> `Verified`，可直接扫描，见 [docs/FM27-VERSION-VERIFICATION.md](docs/FM27-VERSION-VERIFICATION.md) 与
+> [docs/acceptance/VERIFY-2026-11-20-SM012-READER.md](docs/acceptance/VERIFY-2026-11-20-SM012-READER.md)
+> （同一存档连续 10 次真实扫描）。候选构建仍会被拒绝，这是版本闸门的预期行为。
 >
 > 这份导出没有 `clubs` 数组、没有俱乐部 ID，也没有主执教俱乐部：ScoutMind 用独立的俱乐部解析层
 > （稳定 uid + 来源 + 可信度）、手动指定本队与阵容 CSV 导入来解决，见
@@ -27,12 +28,13 @@ LLM 只负责理解问题与组织解释，所有数字来自数据库和算法�
 >
 > V2 已落地的分析能力：阵容智能（六维评分 + 位置深度 + 短板 + 接班）、智能球探引擎（位置模板 + 六维球员评分 +
 > 隐藏价值 + 候选名单）、转会情报（成交分位 + 成本模型 + 投资效率 + 交易类型体系 + 复盘）、球员发展（成长速率 +
-> 建议 + 潜力区间）、比赛表现分析（分位置产出 + 同位置百分位 + 趋势）与 AI 体育总监（10 个业务工具 + 四类可靠性 + 引用）。
-> 每个分数都标注了数据依据与缺失项，口径见 [docs/MODELS.md](docs/MODELS.md)。
+> 建议 + 潜力区间）、比赛表现分析（分位置产出 + 同位置百分位 + 趋势）与 AI 体育总监（14 个业务工具 + 四类可靠性 + 引用）、身份复核中心、转会模拟器、成长预测与自动引援推荐。
+> 每个分数都标注了数据依据与缺失项，口径见 [docs/MODELS.md](docs/MODELS.md)；
+> V3 任务状态见 [docs/SCOUTMIND-V3-IMPLEMENTATION-REPORT.md](docs/SCOUTMIND-V3-IMPLEMENTATION-REPORT.md)。
 >
 > 本机实测：Steam Build `26620374`、`game_plugin.dll` `27.1.0+2505117`（路径 `fm_Data\Plugins\x86_64`），
-> 不在已知候选组合内，读取器返回 `Unknown`/`candidate` 并拒绝扫描。要真正读取，需要配置一个经过审查的外部扫描器、
-> 确认其支持该构建、把兼容条目改为 `verified` 后跑通 `probe`。在此之前任何界面上的数字都只代表演示数据。
+> 兼容条目为 `Verified`，`probe` 通过、`scan` 可读取真实存档。未验证的构建仍会返回
+> `Unknown`/`candidate` 并拒绝扫描；界面上的数字只有在该存档完成真实扫描后才有意义。
 
 ## 目录结构
 
