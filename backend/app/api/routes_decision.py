@@ -14,7 +14,7 @@ from ..analytics.recruitment_recommend import recommend
 from ..analytics.simulator import simulate_transfer
 from ..db import get_db
 from ..models import FmSave, PlayerInstance
-from .deps import get_active_save, get_current_user
+from .deps import get_active_save, get_current_user, instance_in_save_or_404, owned_save_or_404
 
 router = APIRouter()
 
@@ -53,22 +53,6 @@ class RecommendRequest(BaseModel):
     page_size: int = Field(default=20, ge=1, le=100)
 
 
-def _owned_save(db: Session, save_id: int | None, save: FmSave, user) -> FmSave:
-    if save_id is None:
-        return save
-    target = db.get(FmSave, save_id)
-    if target is None or target.user_id != user.id:
-        raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
-    return target
-
-
-def _instance_of(db: Session, instance_id: int, save_id: int) -> PlayerInstance:
-    instance = db.get(PlayerInstance, instance_id)
-    if instance is None or instance.fm_save_id != save_id:
-        raise HTTPException(status_code=404, detail={"code": "player_not_found", "message": "球员不存在"})
-    return instance
-
-
 @router.post("/transfers/simulate", summary="转会决策模拟（确定性）")
 def simulate(
     body: SimulateRequest,
@@ -76,8 +60,8 @@ def simulate(
     user=Depends(get_current_user),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
-    target = _owned_save(db, body.save_id, save, user)
-    _instance_of(db, body.instance_id, target.id)
+    target = owned_save_or_404(db, body.save_id, user) if body.save_id is not None else save
+    instance_in_save_or_404(db, body.instance_id, target)
     try:
         return simulate_transfer(
             db,
@@ -121,7 +105,7 @@ def forecast_backtest(
     user=Depends(get_current_user),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
-    target = _owned_save(db, save_id, save, user)
+    target = owned_save_or_404(db, save_id, user) if save_id is not None else save
     return backtest(db, target.id, min_snapshots=min_snapshots)
 
 
@@ -132,7 +116,7 @@ def recommend_players(
     user=Depends(get_current_user),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
-    target = _owned_save(db, body.save_id, save, user)
+    target = owned_save_or_404(db, body.save_id, user) if body.save_id is not None else save
     try:
         return recommend(
             db,

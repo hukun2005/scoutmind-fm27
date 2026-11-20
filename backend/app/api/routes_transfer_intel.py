@@ -12,18 +12,15 @@ from ..analytics.club_intelligence import club_transfer_intelligence
 from ..analytics.roi import player_investment, transfer_roi
 from ..db import get_db
 from ..models import Club, FmSave, PlayerInstance, Transfer
-from .deps import get_active_save, get_current_user
+from .deps import (
+    club_in_save_or_404,
+    get_active_save,
+    get_current_user,
+    owned_save_or_404,
+    transfer_in_save_or_404,
+)
 
 router = APIRouter()
-
-
-def _owned_save(db: Session, save_id: int | None, save: FmSave, user) -> FmSave:
-    if save_id is None:
-        return save
-    target = db.get(FmSave, save_id)
-    if target is None or target.user_id != user.id:
-        raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
-    return target
 
 
 @router.get("/clubs/{club_id}/transfer-intelligence", summary="俱乐部转会策略分析")
@@ -36,10 +33,8 @@ def club_intelligence(
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """只统计 completed；agreed/pending/cancelled 单独计数，缺失金额不给 0。"""
-    target = _owned_save(db, save_id, save, user)
-    club = db.get(Club, club_id)
-    if club is None or club.fm_save_id != target.id:
-        raise HTTPException(status_code=404, detail={"code": "club_not_found", "message": "俱乐部不存在"})
+    target = save if save_id is None else owned_save_or_404(db, save_id, user)
+    club_in_save_or_404(db, club_id, target)
     try:
         return club_transfer_intelligence(db, target.id, club_id, season=season)
     except ValueError as exc:
@@ -55,9 +50,8 @@ def roi(
     transfer = db.get(Transfer, transfer_id)
     if transfer is None:
         raise HTTPException(status_code=404, detail={"code": "transfer_not_found", "message": "交易不存在"})
-    save = db.get(FmSave, transfer.fm_save_id)
-    if save is None or save.user_id != user.id:
-        raise HTTPException(status_code=404, detail={"code": "transfer_not_found", "message": "交易不存在"})
+    save = owned_save_or_404(db, transfer.fm_save_id, user)
+    transfer_in_save_or_404(db, transfer_id, save)
     try:
         return transfer_roi(db, transfer_id)
     except ValueError as exc:
@@ -74,9 +68,7 @@ def investment(
     instance = db.get(PlayerInstance, instance_id)
     if instance is None:
         raise HTTPException(status_code=404, detail={"code": "player_not_found", "message": "球员不存在"})
-    save = db.get(FmSave, instance.fm_save_id)
-    if save is None or save.user_id != user.id:
-        raise HTTPException(status_code=404, detail={"code": "player_not_found", "message": "球员不存在"})
+    save = owned_save_or_404(db, instance.fm_save_id, user)
     try:
         return player_investment(db, instance_id)
     except ValueError as exc:

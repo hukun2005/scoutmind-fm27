@@ -10,17 +10,10 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..ingestion.transfer_history import import_transfer_file, transfer_coverage
 from ..models import FmSave
-from .deps import get_active_save, get_current_user
+from .deps import get_active_save, get_current_user, owned_save_or_404
 from .uploads import read_request_payload, upload_slot
 
 router = APIRouter()
-
-
-def _owned_save(db: Session, save_id: int, user) -> FmSave:
-    target = db.get(FmSave, save_id)
-    if target is None or target.user_id != user.id:
-        raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
-    return target
 
 
 @router.get("/transfers/coverage", summary="历史转会覆盖率与导入批次")
@@ -31,7 +24,7 @@ def coverage(
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """覆盖率只统计已导入的历史记录；没有 completed 就明确说"历史不可用"。"""
-    target = _owned_save(db, save_id, user) if save_id else save
+    target = owned_save_or_404(db, save_id, user) if save_id else save
     return transfer_coverage(db, target.id)
 
 
@@ -48,7 +41,7 @@ async def import_history(
 
     数据源必须真的提供历史交易；状态未知的行会被拒绝，绝不默认 completed。
     """
-    target = _owned_save(db, save_id, user) if save_id else save
+    target = owned_save_or_404(db, save_id, user) if save_id else save
     filename = None
     content_type = request.headers.get("content-type", "")
     if content_type.startswith("multipart/form-data"):

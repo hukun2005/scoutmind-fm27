@@ -34,19 +34,12 @@ from ..models import (
 )
 from ..schemas import IdentityConflictResolve
 from ..utils import iso, utcnow
-from .deps import get_active_save, get_current_user
+from .deps import get_active_save, get_current_user, owned_save_or_404
 
 router = APIRouter()
 
 OPEN_STATUSES = ("open",)
 DECISIONS = {"same": "same_person", "different": "different_people", "defer": "deferred"}
-
-
-def _owned_save(db: Session, save_id: int, user) -> FmSave:
-    target = db.get(FmSave, save_id)
-    if target is None or target.user_id != user.id:
-        raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
-    return target
 
 
 def _conflict_for(db: Session, conflict_id: int, save_id: int) -> IdentityConflict:
@@ -179,7 +172,7 @@ def list_conflicts(
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """当前存档的身份冲突，默认只看待处理。"""
-    target = _owned_save(db, save_id, user) if save_id else save
+    target = owned_save_or_404(db, save_id, user) if save_id else save
     query = select(IdentityConflict).where(IdentityConflict.fm_save_id == target.id)
     if status != "all":
         query = query.where(IdentityConflict.status == status)
