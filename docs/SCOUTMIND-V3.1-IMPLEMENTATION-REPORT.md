@@ -172,8 +172,16 @@
 
 ### CI
 
-推送分支后通过 `gh run list --branch codex/scoutmind-v3.1-hardening` 检查云端实际结果，记录在此：
-推送后运行 `gh run watch`（见交付说明），记录最终结论。
+推送分支后检查 GitHub Actions 云端实际结果（不使用本地结果代替）：
+
+- 运行：`CI` #**44751799946**，提交 `3bf471a`；
+- 结论：**success**（4 个 job 全部通过）；
+- Backend (pytest + migrations)：success；
+- Frontend (typecheck + build)：success；
+- .NET readers and agent：success；
+- Upload / identity / agent isolation regressions：success。
+
+说明：随后仅修改本文档（docs-only）会再触发一次 CI；代码与测试与 `3bf471a` 完全一致。
 
 ## 未解决问题
 
