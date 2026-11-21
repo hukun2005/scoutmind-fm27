@@ -541,6 +541,32 @@ internal static class Program
                 return 0;
             }
 
+            case "capture":
+            {
+                // SM-057：采样工具结构验证。没有运行中的 FM27 时只导出 simulated 证据，真实采集记 NOT_RUN。
+                var store = new ScoutMind.FMReader.Evidence.FieldValidationCaptureStore();
+                var now = DateTime.UtcNow.ToString("O");
+                store.Add(new ScoutMind.FMReader.Evidence.FieldValidationCapture(
+                    "CON_EXPIRY", "SIM-0001", "contract", "0x00000000", "2027-06-30", "26620374",
+                    "27.1.0+2505117", "FM27_1", "2026-07-01", now, "simulated", "Pending", true));
+                store.Add(new ScoutMind.FMReader.Evidence.FieldValidationCapture(
+                    "PERO_COMMON_NAME", "SIM-0002", "person", "Player One", "Player One", "26620374",
+                    "27.1.0+2505117", "FM27_1", "2026-07-01", now, "simulated", "Candidate", true));
+                var directory = args.Length > 1 ? args[1] : "exports/field-capture";
+                Directory.CreateDirectory(directory);
+                File.WriteAllText(Path.Combine(directory, "captures.json"), store.ToJson(), new System.Text.UTF8Encoding(false));
+                File.WriteAllText(Path.Combine(directory, "captures.csv"), store.ToCsv(), new System.Text.UTF8Encoding(false));
+                Console.WriteLine(ToJson(new
+                {
+                    count = store.Count,
+                    json = Path.Combine(directory, "captures.json"),
+                    csv = Path.Combine(directory, "captures.csv"),
+                    real_fm27_capture = "NOT_RUN",
+                    note = "当前样本为 simulated，仅验证结构；真实采集需要 FM27 运行 + 界面期望值",
+                }));
+                return 0;
+            }
+
             case "evidence":
             {
                 // SM-042：字段级证据。没有样本时最高 Candidate；可用 evidence <out.json> 导出。

@@ -27,7 +27,8 @@ public sealed record FieldSpec(
     string Method,
     FieldStatus Status,
     EvidenceKind Kind,
-    string? Note = null);
+    string? Note = null,
+    FieldValidationStrategy? Validation = null);
 
 /// <summary>字段规格表。</summary>
 public static class FieldSpecs
@@ -113,7 +114,8 @@ public static class FieldSpecs
             FieldStatus.Pending, EvidenceKind.InternalCheck,
             "梯队语义必须与游戏内球队界面核对后才能升级"));
 
-        return specs;
+        // 每个字段都拿到独立策略（SM-056），而不是全局共用同一套容差。
+        return specs.Select(spec => spec with { Validation = FieldValidationStrategies.For(spec) }).ToList();
     }
 
     /// <summary>汇总每种状态的字段数（报告用）。</summary>
