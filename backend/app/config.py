@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     agent_llm_base_url: str = "https://api.deepseek.com"
     agent_llm_model: str = "deepseek-chat"
     agent_llm_api_key: str | None = None
+    # SM-046：超时、重试与成本估算（真实联调仍需要 API Key）。
+    agent_llm_timeout_seconds: float = 30.0
+    agent_llm_max_retries: int = 2
+    agent_llm_input_price_per_mtok: float = 0.0
+    agent_llm_output_price_per_mtok: float = 0.0
 
     @property
     def allowed_origins(self) -> list[str]:
