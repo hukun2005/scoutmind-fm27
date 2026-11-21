@@ -199,6 +199,8 @@ class PlanResult:
     trace: list[dict[str, object]] = field(default_factory=list)
     mode: str = "llm"
     warning: str | None = None
+    usage: dict[str, int] | None = None
+    cost_estimate: float | None = None
 
 
 class LlmUnavailable(RuntimeError):
@@ -367,6 +369,7 @@ def execute_plan(
     plan: list[tuple[str, dict[str, Any]]],
     *,
     mode: str = "llm",
+    usage: dict[str, int] | None = None,
 ) -> PlanResult:
     """按计划执行确定性工具，记录每一步轨迹。"""
     calls: list[ToolCall] = []
@@ -390,11 +393,42 @@ def execute_plan(
         )
     if not calls:
         raise PlannerError("所有工具都执行失败，不能生成回答")
-    return PlanResult(calls=calls, trace=trace, mode=mode)
+    return PlanResult(
+        calls=calls,
+        trace=trace,
+        mode=mode,
+        usage=usage,
+        cost_estimate=_cost_of(usage),
+    )
 
 
-def chat_completion(messages: list[dict[str, str]], *, timeout: float = 20.0) -> dict[str, Any]:
-    """调用 OpenAI 兼容的 chat/completions。未配置 Key 时抛 :class:`LlmUnavailable`。"""
+def _usage_from(response: dict[str, Any]) -> dict[str, int] | None:
+    usage = response.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    return {
+        "prompt_tokens": int(usage.get("prompt_tokens") or 0),
+        "completion_tokens": int(usage.get("completion_tokens") or 0),
+        "total_tokens": int(usage.get("total_tokens") or 0),
+    }
+
+
+def _cost_of(usage: dict[str, int] | None) -> float | None:
+    if usage is None:
+        return None
+    return round(
+        usage["prompt_tokens"] / 1_000_000 * settings.agent_llm_input_price_per_mtok
+        + usage["completion_tokens"] / 1_000_000 * settings.agent_llm_output_price_per_mtok,
+        6,
+    )
+
+
+def chat_completion(
+    messages: list[dict[str, str]],
+    *,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+    """调用 OpenAI 兼容的 chat/completions；带超时、可重试错误与 usage。"""
     if not llm_enabled():
         raise LlmUnavailable("未配置 agent_llm_api_key 或 agent_llm_enabled=false")
 
@@ -407,17 +441,30 @@ def chat_completion(messages: list[dict[str, str]], *, timeout: float = 20.0) ->
         "temperature": 0,
         "response_format": {"type": "json_object"},
     }
-    try:
-        response = httpx.post(
-            url,
-            json=payload,
-            timeout=timeout,
-            headers={"Authorization": f"Bearer {settings.agent_llm_api_key}"},
-        )
-        response.raise_for_status()
-        return response.json()
-    except Exception as exc:  # noqa: BLE001 - 网络/配额问题都要降级
-        raise LlmUnavailable(f"LLM 调用失败：{exc}") from exc
+    attempt = 0
+    last_error: Exception | None = None
+    while attempt <= max(0, settings.agent_llm_max_retries):
+        attempt += 1
+        try:
+            response = httpx.post(
+                url,
+                json=payload,
+                timeout=timeout if timeout is not None else settings.agent_llm_timeout_seconds,
+                headers={"Authorization": f"Bearer {settings.agent_llm_api_key}"},
+            )
+            if response.status_code in {429, 500, 502, 503, 504}:
+                raise httpx.HTTPStatusError("retryable status", request=response.request, response=response)
+            response.raise_for_status()
+            data = response.json()
+            usage = _usage_from(data)
+            if usage is not None:
+                log.info("llm usage=%s cost=%s", usage, _cost_of(usage))
+            return data
+        except Exception as exc:  # noqa: BLE001 - 统一降级
+            last_error = exc
+            if attempt <= max(0, settings.agent_llm_max_retries):
+                continue
+    raise LlmUnavailable(f"LLM 调用失败（{attempt} 次尝试）：{last_error}") from last_error
 
 
 def plan_with_llm(session: Session, save_id: int, question: str, *, client: Callable[[list[dict[str, str]]], dict[str, Any]] | None = None) -> PlanResult:
@@ -447,7 +494,7 @@ def plan_with_llm(session: Session, save_id: int, question: str, *, client: Call
     except (TypeError, json.JSONDecodeError) as exc:
         raise PlannerError("LLM 没有返回合法 JSON 计划") from exc
     plan = parse_plan(payload)
-    return execute_plan(session, save_id, plan, mode="llm")
+    return execute_plan(session, save_id, plan, mode="llm", usage=_usage_from(response))
 
 
 def explain_with_llm(question: str, calls: list[ToolCall], *, client: Callable[[list[dict[str, str]]], dict[str, Any]] | None = None) -> str | None:
