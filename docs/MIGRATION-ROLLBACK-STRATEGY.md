@@ -1,7 +1,7 @@
 # 迁移回滚策略（SM-041）
 
 - 日期：2026-11-21
-- 当前 head：`d2f7a91b64e0`
+- 当前 head：`f0a2c6d81b47`
 - 原则：**forward-only**。已发布的历史迁移不修改；默认保留历史 `scan_id`；不做有损自动清理。
 
 ## 1. Alembic revision 链（从旧到新）
@@ -16,6 +16,7 @@
 | `a4d8e1f63c09` | identity conflict actions |
 | `b6e2f4a70d15` | historical transfer pipeline |
 | `d2f7a91b64e0` | transfer fee raw amounts |
+| `f0a2c6d81b47` | transfer_history.source_id FK（SM-040 发现并补上） |
 
 ## 2. 支持的 downgrade 边界
 
