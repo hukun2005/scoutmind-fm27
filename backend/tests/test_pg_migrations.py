@@ -46,9 +46,8 @@ def test_pg_transaction_rollback(engine) -> None:
         with engine.begin() as connection:
             connection.execute(
                 text(
-                    "insert into player_instances (id, player_id, fm_save_id, save_local_uid, uid_occurrence, "
-                    "first_seen_at, last_seen_at, created_at, updated_at) "
-                    "values (999999, 888888, 1, 'TEST-BROKEN', 0, now(), now(), now(), now())"
+                    "insert into player_instances (id, player_id, fm_save_id, save_local_uid, uid_occurrence) "
+                    "values (999999, 888888, 1, 'TEST-BROKEN', 0)"
                 )
             )
     except IntegrityError:
