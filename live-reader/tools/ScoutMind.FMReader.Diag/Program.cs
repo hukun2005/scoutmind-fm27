@@ -541,6 +541,33 @@ internal static class Program
                 return 0;
             }
 
+            case "evidence":
+            {
+                // SM-042：字段级证据。没有样本时最高 Candidate；可用 evidence <out.json> 导出。
+                var layout = new ScoutMind.FMReader.Layouts.FM27_1_Layout();
+                var rows = ScoutMind.FMReader.Evidence.FieldEvidenceCatalog.Build(layout);
+                var payload = ToJson(new
+                {
+                    layout = layout.Name,
+                    count = rows.Count,
+                    verified = rows.Count(row => row.ValidationStatus == ScoutMind.FMReader.Evidence.FieldValidationStatus.Verified),
+                    candidate = rows.Count(row => row.ValidationStatus == ScoutMind.FMReader.Evidence.FieldValidationStatus.Candidate),
+                    pending = rows.Count(row => row.ValidationStatus == ScoutMind.FMReader.Evidence.FieldValidationStatus.Pending),
+                    rejected = rows.Count(row => row.ValidationStatus == ScoutMind.FMReader.Evidence.FieldValidationStatus.Rejected),
+                    fields = rows,
+                });
+                if (args.Length > 1 && !string.IsNullOrWhiteSpace(args[1]))
+                {
+                    File.WriteAllText(args[1], payload, new System.Text.UTF8Encoding(false));
+                    Console.WriteLine($"证据报告已写入 {args[1]}");
+                }
+                else
+                {
+                    Console.WriteLine(payload);
+                }
+                return 0;
+            }
+
             case "configcheck":
             {
                 // 三份兼容性配置是否一致；不一致时退出码 3（CI / 发布脚本可以直接用）。
