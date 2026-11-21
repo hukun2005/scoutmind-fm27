@@ -77,7 +77,15 @@ def _player_payload(db: Session, player: Player | None, save_id: int) -> dict[st
         or 0
     )
     matches = list(
-        db.scalars(select(IdentityMatch).where(IdentityMatch.player_id == player.id).order_by(IdentityMatch.created_at.desc()).limit(5))
+        db.scalars(
+            select(IdentityMatch)
+            .where(
+                IdentityMatch.player_id == player.id,
+                IdentityMatch.fm_save_id == save_id,
+            )
+            .order_by(IdentityMatch.created_at.desc())
+            .limit(5)
+        )
     )
     latest_instance = max(instances, key=lambda item: item.last_seen_at, default=None)
     sources: list[dict[str, Any]] = []
