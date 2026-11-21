@@ -6,7 +6,7 @@ using ScoutMind.FMReader.Versioning;
 
 namespace ScoutMind.FMReader.Evidence;
 
-/// <summary>可信度状态（SM-042/SM-052）：只有达到字段级门槛才允许 Verified。</summary>
+/// <summary>可信度状态（SM-055）：异常不再一票否决，Rejected 需要系统性证据。</summary>
 public enum FieldValidationStatus
 {
     Pending,
@@ -15,7 +15,15 @@ public enum FieldValidationStatus
     Rejected,
 }
 
-/// <summary>字段级证据；confidence 只在有校准数据时填写，不把启发式分数当概率。</summary>
+/// <summary>一条异常证据，保留原始值、期望值、对象与观测时间。</summary>
+public sealed record FieldAnomaly(
+    string RawValue,
+    string ExpectedGameValue,
+    string ObservedAt,
+    string ObjectId,
+    bool Simulated);
+
+/// <summary>字段级证据；confidence 只有校准值才填写，不把启发式分数当概率。</summary>
 public sealed record FieldEvidence(
     string FieldId,
     string FieldName,
@@ -33,28 +41,31 @@ public sealed record FieldEvidence(
     string ValidationNotes,
     string ComparisonKind = "exact",
     int UniqueObjectCount = 0,
-    int UniqueObservationCount = 0);
+    int UniqueObservationCount = 0,
+    int MatchCount = 0,
+    int MissingSampleCount = 0,
+    double ObservedMatchRate = 0,
+    bool NeedsReview = false,
+    string EvidenceClass = "none",
+    IReadOnlyList<FieldAnomaly>? Anomalies = null);
 
-/// <summary>一次观测；ObjectId 用于区分独立对象，ObservedAt 用于区分独立观测时间。</summary>
+/// <summary>一次观测；ObjectId 区分独立对象，ObservedAt 区分独立观测时间。</summary>
 public sealed record FieldObservation(
     string FieldId,
     string? RawValue,
     string? ExpectedGameValue,
     string ObservedAt,
-    string? ObjectId = null);
+    string? ObjectId = null,
+    bool Simulated = false);
 
-/// <summary>字段级验证门槛与比较规则（SM-052）。</summary>
-/// <param name="NumericTolerance">数值字段允许的绝对误差；默认 0。</param>
-/// <param name="MinimumSamples">至少多少个有效配对样本。</param>
-/// <param name="MinimumUniqueObjects">至少多少个独立对象。</param>
-/// <param name="MinimumUniqueObservations">至少多少个独立观测时间。</param>
-/// <param name="CalibratedConfidence">只有在有校准研究时填写；否则保持 null。</param>
+/// <summary>字段级验证门槛覆盖值；0 表示使用 FieldSpec 自己的策略。</summary>
 public sealed record FieldEvidenceOptions(
     double NumericTolerance = 0.0,
-    int MinimumSamples = 1,
-    int MinimumUniqueObjects = 1,
-    int MinimumUniqueObservations = 1,
-    double? CalibratedConfidence = null);
+    int MinimumSamples = 0,
+    int MinimumUniqueObjects = 0,
+    int MinimumUniqueObservations = 0,
+    double? CalibratedConfidence = null,
+    double? AllowedMismatchRate = null);
 
 /// <summary>把布局、字段规格、注册表与样本合并成结构化证据。</summary>
 public static class FieldEvidenceCatalog
@@ -91,40 +102,73 @@ public static class FieldEvidenceCatalog
         foreach (var (name, offset) in layout.Offsets.OrderBy(item => item.Value).ThenBy(item => item.Key))
         {
             var spec = specs.GetValueOrDefault(name);
+            var strategy = spec?.Validation ?? DefaultStrategy(spec);
             var fieldSamples = samples.GetValueOrDefault(name) ?? new List<FieldObservation>();
             var valid = fieldSamples
                 .Where(item => item.RawValue is not null && item.ExpectedGameValue is not null)
                 .ToList();
-            var comparison = ComparisonFor(name, spec?.DataType);
-            var mismatch = valid.Count(item => !Matches(comparison, item.RawValue!, item.ExpectedGameValue!, options.NumericTolerance));
+            var missing = fieldSamples.Count - valid.Count;
+            var comparison = strategy.ComparisonStrategy;
+            var tolerance = options.NumericTolerance > 0 ? options.NumericTolerance : strategy.NumericTolerance;
+            var anomalies = valid
+                .Where(item => !Matches(comparison, item.RawValue!, item.ExpectedGameValue!, tolerance))
+                .Select(item => new FieldAnomaly(
+                    item.RawValue!, item.ExpectedGameValue!, item.ObservedAt,
+                    item.ObjectId ?? item.ObservedAt, item.Simulated))
+                .ToList();
             var sampleCount = valid.Count;
+            var mismatch = anomalies.Count;
+            var match = sampleCount - mismatch;
+            var matchRate = sampleCount == 0 ? 0 : (double)match / sampleCount;
             var uniqueObjects = valid.Select(item => item.ObjectId ?? item.ObservedAt).Distinct(StringComparer.Ordinal).Count();
             var uniqueObservations = valid.Select(item => item.ObservedAt).Distinct(StringComparer.Ordinal).Count();
             var last = valid.LastOrDefault();
             var objectType = ObjectTypeOf(name, spec?.RelativeTo);
             var isRegistryVerified = verified.Contains(name);
             var isUpstream = upstream.Contains(name);
+            var allowedRate = options.AllowedMismatchRate ?? strategy.AllowedMismatchRate;
+            var minSamples = options.MinimumSamples > 0 ? options.MinimumSamples : strategy.MinimumSamples;
+            var minObjects = options.MinimumUniqueObjects > 0 ? options.MinimumUniqueObjects : strategy.MinimumUniqueObjects;
+            var minObservations = options.MinimumUniqueObservations > 0
+                ? options.MinimumUniqueObservations
+                : strategy.MinimumUniqueObservations;
+
+            var systematic = anomalies
+                .GroupBy(item => $"{item.RawValue}->{item.ExpectedGameValue}", StringComparer.Ordinal)
+                .Any(group => group.Select(item => item.ObservedAt).Distinct(StringComparer.Ordinal).Count() >= 3);
+            var rate = sampleCount == 0 ? 0 : (double)mismatch / sampleCount;
 
             FieldValidationStatus status;
             string notes;
-            if (mismatch > 0)
+            var needsReview = false;
+            if (mismatch > 0 && (rate > allowedRate || systematic))
             {
                 status = FieldValidationStatus.Rejected;
-                notes = $"{mismatch}/{sampleCount} 个样本与界面不一致，字段被拒绝";
+                notes = systematic
+                    ? $"同一异常在至少 3 个独立观测重复出现，判定为系统性错误（{mismatch}/{sampleCount}）"
+                    : $"异常比例 {rate:P1} 超过字段阈值 {allowedRate:P1}（{mismatch}/{sampleCount}）";
             }
             else if (sampleCount == 0)
             {
                 status = isRegistryVerified || isUpstream ? FieldValidationStatus.Candidate : FieldValidationStatus.Pending;
-                notes = "没有原始值 + 界面期望值的配对样本，不能升级为 Verified";
+                notes = missing > 0
+                    ? $"{missing} 条观测缺少原始值或界面值，不计入样本"
+                    : "没有原始值 + 界面期望值的配对样本，不能升级为 Verified";
             }
-            else if (sampleCount < options.MinimumSamples)
+            else if (mismatch > 0)
             {
                 status = FieldValidationStatus.Candidate;
-                notes = $"有效样本 {sampleCount} 少于门槛 {options.MinimumSamples}，保持 Candidate";
+                needsReview = true;
+                notes = $"单次/少量异常（{mismatch}/{sampleCount}，允许 {allowedRate:P1}），保留异常证据，转人工复核";
+            }
+            else if (sampleCount < minSamples)
+            {
+                status = FieldValidationStatus.Candidate;
+                notes = $"有效样本 {sampleCount} 少于门槛 {minSamples}，保持 Candidate";
             }
             else if (isRegistryVerified
-                     && uniqueObjects >= options.MinimumUniqueObjects
-                     && uniqueObservations >= options.MinimumUniqueObservations)
+                     && uniqueObjects >= minObjects
+                     && uniqueObservations >= minObservations)
             {
                 status = FieldValidationStatus.Verified;
                 notes = $"{sampleCount} 个样本一致，{uniqueObjects} 个独立对象、{uniqueObservations} 个观测时间达到门槛";
@@ -145,13 +189,16 @@ public static class FieldEvidenceCatalog
                 notes = "有样本一致，但字段没有注册表证据，保持 Candidate";
             }
 
-            var source = sampleCount > 0
+            var source = sampleCount > 0 || missing > 0
                 ? "real-memory + game-ui sample"
                 : isRegistryVerified
                     ? "verified_fields（历史界面核对，本轮没有重新采样）"
                     : isUpstream
                         ? "upstream_agreement_fields"
                         : "布局声明，无字段级证据";
+            var evidenceClass = valid.Count == 0
+                ? (missing > 0 ? "missing-only" : "none")
+                : valid.All(item => item.Simulated) ? "simulated" : "real";
             var confidence = status == FieldValidationStatus.Verified ? options.CalibratedConfidence : null;
 
             rows.Add(new FieldEvidence(
@@ -171,36 +218,36 @@ public static class FieldEvidenceCatalog
                 ValidationNotes: notes + "；confidence 未校准（null），不是概率",
                 ComparisonKind: comparison,
                 UniqueObjectCount: uniqueObjects,
-                UniqueObservationCount: uniqueObservations));
+                UniqueObservationCount: uniqueObservations,
+                MatchCount: match,
+                MissingSampleCount: missing,
+                ObservedMatchRate: matchRate,
+                NeedsReview: needsReview,
+                EvidenceClass: evidenceClass,
+                Anomalies: anomalies));
         }
 
         return rows;
     }
 
-    private static string ComparisonFor(string name, string? dataType)
+    private static FieldValidationStrategy DefaultStrategy(FieldSpec? spec)
     {
-        var type = dataType ?? "";
-        if (type.Contains("date", StringComparison.OrdinalIgnoreCase))
+        if (spec is not null)
         {
-            return "date";
+            return FieldValidationStrategies.For(spec);
         }
-        if (numericTypes.Any(token => type.Contains(token, StringComparison.OrdinalIgnoreCase)))
-        {
-            return "numeric";
-        }
-        return "exact";
-    }
 
-    private static readonly string[] numericTypes = { "u8", "u16", "u32", "int", "float", "double", "number" };
+        return new("String", "player", "exact", 0, 2, 2, 1, 0.02, "empty", "空值不计数", "界面文本配对");
+    }
 
     private static bool Matches(string comparison, string raw, string expected, double tolerance)
     {
         switch (comparison)
         {
             case "date":
-                return DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var rawDate)
-                       && DateTime.TryParse(expected, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var expectedDate)
-                       && rawDate.Date == expectedDate.Date;
+                return TryDate(raw, out var rawDate)
+                       && TryDate(expected, out var expectedDate)
+                       && rawDate == expectedDate;
             case "numeric":
                 return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var rawNumber)
                        && double.TryParse(expected, NumberStyles.Float, CultureInfo.InvariantCulture, out var expectedNumber)
@@ -208,6 +255,18 @@ public static class FieldEvidenceCatalog
             default:
                 return string.Equals(raw.Trim(), expected.Trim(), StringComparison.Ordinal);
         }
+    }
+
+    private static bool TryDate(string value, out DateTime date)
+    {
+        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var parsed))
+        {
+            date = parsed.Date;
+            return true;
+        }
+
+        date = default;
+        return false;
     }
 
     private static string ObjectTypeOf(string name, string? relativeTo)

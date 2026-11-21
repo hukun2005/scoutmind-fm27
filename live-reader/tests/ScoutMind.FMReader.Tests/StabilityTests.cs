@@ -128,29 +128,102 @@ internal static class StabilityTests
         {
             var observations = new[]
             {
-                new ScoutMind.FMReader.Evidence.FieldObservation("PERO_COMMON_NAME", "Player One", "Player One", "2026-11-21T12:00:00Z"),
-                new ScoutMind.FMReader.Evidence.FieldObservation("PLAO_HEIGHT", "180", "180", "2026-11-21T12:00:00Z"),
+                new ScoutMind.FMReader.Evidence.FieldObservation("PERO_COMMON_NAME", "Player One", "Player One", "2026-11-21T12:00:00Z", "p1"),
+                new ScoutMind.FMReader.Evidence.FieldObservation("PERO_COMMON_NAME", "Player Two", "Player Two", "2026-11-21T13:00:00Z", "p2"),
+                new ScoutMind.FMReader.Evidence.FieldObservation("PLAO_HEIGHT", "180", "180", "2026-11-21T12:00:00Z", "p1"),
             };
             var rows = ScoutMind.FMReader.Evidence.FieldEvidenceCatalog.Build(new FM27_1_Layout(), observations: observations);
             var ca = rows.Single(row => row.FieldId == "PERO_COMMON_NAME");
             TestHarness.Equal("Verified", ca.ValidationStatus.ToString(), "注册表 verified + 一致样本");
-            TestHarness.Equal(1, ca.SampleCount, "有效样本数");
+            TestHarness.Equal(2, ca.SampleCount, "有效样本数");
             var height = rows.Single(row => row.FieldId == "PLAO_HEIGHT");
             TestHarness.True(height.ValidationStatus != ScoutMind.FMReader.Evidence.FieldValidationStatus.Verified, "Candidate 字段不因样本升级");
         });
 
-        harness.Run("字段证据：不一致样本标记 Rejected，0 值也是观测", () =>
+        harness.Run("字段证据：单次异常不直接 Rejected，保留异常证据", () =>
         {
-            var observations = new[]
+            var observations = new List<ScoutMind.FMReader.Evidence.FieldObservation>
             {
-                new ScoutMind.FMReader.Evidence.FieldObservation("PERO_COMMON_NAME", "Player One", "Player Two", "2026-11-21T12:00:00Z"),
-                new ScoutMind.FMReader.Evidence.FieldObservation("PLAO_HEIGHT", "0", "0", "2026-11-21T12:00:00Z"),
+                new("PERO_COMMON_NAME", "Player One", "Player Two", "2026-11-21T12:00:00Z", "p1"),
+                new("PLAO_HEIGHT", "0", "0", "2026-11-21T12:00:00Z", "p1"),
             };
+            for (var i = 0; i < 99; i++)
+            {
+                observations.Add(new ScoutMind.FMReader.Evidence.FieldObservation(
+                    "PERO_COMMON_NAME", $"Player {i}", $"Player {i}", $"2026-11-22T{i % 24:00}:00:00Z", $"p{i + 10}"));
+            }
             var rows = ScoutMind.FMReader.Evidence.FieldEvidenceCatalog.Build(new FM27_1_Layout(), observations: observations);
-            TestHarness.Equal("Rejected", rows.Single(row => row.FieldId == "PERO_COMMON_NAME").ValidationStatus.ToString(), "不一致");
+            var name = rows.Single(row => row.FieldId == "PERO_COMMON_NAME");
+            TestHarness.Equal("Candidate", name.ValidationStatus.ToString(), "1/100 在允许比例内");
+            TestHarness.True(name.NeedsReview, "需要人工复核");
+            TestHarness.Equal(1, name.Anomalies!.Count, "保留异常证据");
+            TestHarness.Equal(99, name.MatchCount, "匹配计数");
             var height = rows.Single(row => row.FieldId == "PLAO_HEIGHT");
             TestHarness.Equal(1, height.SampleCount, "0 与 0 也是有效配对的观测");
             TestHarness.Equal(0, height.MismatchCount, "0 与 0 一致");
+        });
+
+        harness.Run("字段证据：持续异常超过阈值才 Rejected", () =>
+        {
+            var observations = new List<ScoutMind.FMReader.Evidence.FieldObservation>();
+            for (var i = 0; i < 100; i++)
+            {
+                var mismatch = i < 5;
+                observations.Add(new ScoutMind.FMReader.Evidence.FieldObservation(
+                    "PERO_COMMON_NAME", $"Raw {i}", mismatch ? $"Expected {i}" : $"Raw {i}",
+                    $"2026-11-22T{i % 24:00}:00:00Z", $"obj-{i}"));
+            }
+            var rows = ScoutMind.FMReader.Evidence.FieldEvidenceCatalog.Build(new FM27_1_Layout(), observations: observations);
+            var name = rows.Single(row => row.FieldId == "PERO_COMMON_NAME");
+            TestHarness.Equal("Rejected", name.ValidationStatus.ToString(), "5/100 超过允许比例");
+            TestHarness.Equal(5, name.MismatchCount, "异常数");
+            TestHarness.Equal(0.95, name.ObservedMatchRate, "匹配率");
+        });
+
+        harness.Run("字段证据：系统性重复异常即使比例低也 Rejected", () =>
+        {
+            var observations = new List<ScoutMind.FMReader.Evidence.FieldObservation>();
+            for (var i = 0; i < 200; i++)
+            {
+                var anomaly = i < 3;
+                observations.Add(new ScoutMind.FMReader.Evidence.FieldObservation(
+                    "PERO_COMMON_NAME", anomaly ? "same-raw" : $"ok-{i}", anomaly ? "same-expected" : $"ok-{i}",
+                    $"2026-11-23T{i % 24:00}:00:00Z", $"obj-{i}"));
+            }
+            var rows = ScoutMind.FMReader.Evidence.FieldEvidenceCatalog.Build(new FM27_1_Layout(), observations: observations);
+            var name = rows.Single(row => row.FieldId == "PERO_COMMON_NAME");
+            TestHarness.Equal("Rejected", name.ValidationStatus.ToString(), "同一异常重复 3 次");
+        });
+
+        harness.Run("字段证据：不同对象的独立异常保持 Candidate", () =>
+        {
+            var observations = new List<ScoutMind.FMReader.Evidence.FieldObservation>();
+            for (var i = 0; i < 100; i++)
+            {
+                observations.Add(new ScoutMind.FMReader.Evidence.FieldObservation(
+                    "PERO_COMMON_NAME", i < 2 ? $"bad-{i}" : $"ok-{i}", $"ok-{i}",
+                    $"2026-11-24T{i % 24:00}:00:00Z", $"obj-{i}"));
+            }
+            var rows = ScoutMind.FMReader.Evidence.FieldEvidenceCatalog.Build(new FM27_1_Layout(), observations: observations);
+            var name = rows.Single(row => row.FieldId == "PERO_COMMON_NAME");
+            TestHarness.Equal("Candidate", name.ValidationStatus.ToString(), "2/100 不同异常");
+            TestHarness.True(name.NeedsReview, "人工复核");
+        });
+
+        harness.Run("字段证据：日期跨时区标准化与缺失样本", () =>
+        {
+            var observations = new[]
+            {
+                new ScoutMind.FMReader.Evidence.FieldObservation("CON_EXPIRY", "2026-07-01T23:00:00-05:00", "2026-07-02", "2026-11-25T12:00:00Z", "c1"),
+                new ScoutMind.FMReader.Evidence.FieldObservation("CON_EXPIRY", null, "2026-07-02", "2026-11-25T12:00:00Z", "c2"),
+                new ScoutMind.FMReader.Evidence.FieldObservation("CON_EXPIRY", "", null, "2026-11-25T12:00:00Z", "c3"),
+            };
+            var rows = ScoutMind.FMReader.Evidence.FieldEvidenceCatalog.Build(new FM27_1_Layout(), observations: observations);
+            var expiry = rows.Single(row => row.FieldId == "CON_EXPIRY");
+            TestHarness.Equal(1, expiry.SampleCount, "只有原始值 + 界面值配对才算样本");
+            TestHarness.Equal(2, expiry.MissingSampleCount, "缺失样本单独计数");
+            TestHarness.Equal("date", expiry.ComparisonKind, "日期比较器");
+            TestHarness.Equal(0, expiry.MismatchCount, "跨时区同一天应一致");
         });
 
         harness.Run("字段证据：独立对象/观测计数与门槛", () =>
@@ -158,7 +231,7 @@ internal static class StabilityTests
             var observations = new[]
             {
                 new ScoutMind.FMReader.Evidence.FieldObservation("PERO_COMMON_NAME", "A", "A", "2026-11-21T12:00:00Z", "obj-1"),
-                new ScoutMind.FMReader.Evidence.FieldObservation("PERO_COMMON_NAME", "B", "B", "2026-11-21T12:00:00Z", "obj-2"),
+                new ScoutMind.FMReader.Evidence.FieldObservation("PERO_COMMON_NAME", "B", "B", "2026-11-21T13:00:00Z", "obj-2"),
             };
             var rows = ScoutMind.FMReader.Evidence.FieldEvidenceCatalog.Build(
                 new FM27_1_Layout(),
@@ -167,7 +240,7 @@ internal static class StabilityTests
             var name = rows.Single(row => row.FieldId == "PERO_COMMON_NAME");
             TestHarness.Equal(2, name.SampleCount, "样本数");
             TestHarness.Equal(2, name.UniqueObjectCount, "独立对象数");
-            TestHarness.Equal(1, name.UniqueObservationCount, "独立观测时间数");
+            TestHarness.Equal(2, name.UniqueObservationCount, "独立观测时间数");
             TestHarness.Equal("Verified", name.ValidationStatus.ToString(), "达到对象门槛");
             TestHarness.True(name.Confidence is null, "未校准的 confidence 必须为 null");
         });
@@ -187,6 +260,21 @@ internal static class StabilityTests
                 options: new ScoutMind.FMReader.Evidence.FieldEvidenceOptions(NumericTolerance: 1.0));
             TestHarness.True(tolerant.Single(row => row.FieldId == "PLAO_CA").MismatchCount == 0, "容差 1 内一致");
             TestHarness.Equal("numeric", tolerant.Single(row => row.FieldId == "PLAO_CA").ComparisonKind, "数值比较器");
+        });
+
+        harness.Run("字段采样：同一球员同一观测时间去重", () =>
+        {
+            var store = new ScoutMind.FMReader.Evidence.FieldValidationCaptureStore();
+            var item = new ScoutMind.FMReader.Evidence.FieldValidationCapture(
+                "CON_EXPIRY", "P-1", "contract", "0x1", "2027-06-30", "26620374",
+                "27.1.0+2505117", "FM27_1", "2026-07-01", "2026-11-21T12:00:00Z", "simulated", "Pending", true);
+            TestHarness.True(store.Add(item), "第一次加入");
+            TestHarness.True(!store.Add(item), "重复键被拒绝");
+            TestHarness.Equal(1, store.Count, "只计一次");
+            var csv = store.ToCsv();
+            TestHarness.True(csv.StartsWith("FieldId,PlayerInstanceUID", StringComparison.Ordinal), "CSV 表头");
+            TestHarness.True(csv.Contains("CON_EXPIRY", StringComparison.Ordinal), "CSV 字段");
+            TestHarness.True(store.ToJson().Contains("Simulated", StringComparison.Ordinal), "JSON 保留模拟标记");
         });
 
         harness.Run("字段元数据：Candidate 不会被整体升级为 Verified", () =>
