@@ -1,5 +1,7 @@
 # FM27.1 Reader 真实验收（10 次连续扫描 + 合同日期诊断）
 
+> 当前版本兼容状态与四个维度的区分见 [FM27-VERSION-VERIFICATION.md](../FM27-VERSION-VERIFICATION.md)。
+
 - 日期：2026-11-20 20:32–20:44（Asia/Shanghai）
 - 环境：Football Manager 2027，Build **26620374**，插件 27.1.0+2505117，Steam appId 4530370
 - Reader：ScoutMind.LiveReader 0.1.0（native，SM-012 版本）
