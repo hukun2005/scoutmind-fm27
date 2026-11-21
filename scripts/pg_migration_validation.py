@@ -161,11 +161,11 @@ def main() -> int:
     report["checks"]["duplicate_scan_id_across_saves_allowed"] = same_scan_across_saves
     assert same_scan_across_saves == 2
 
-    # 事务失败必须完整回滚。
+    # 事务失败必须完整回滚：engine.begin() 在异常时回滚整个事务。
     with engine.connect() as connection:
         before = count(connection, "player_instances")
-        transaction = connection.begin()
-        try:
+    try:
+        with engine.begin() as connection:
             insert_minimal(
                 connection,
                 "player_instances",
@@ -173,9 +173,9 @@ def main() -> int:
                 fm_save_id=1,
                 save_local_uid="BROKEN",
             )
-            transaction.commit()
-        except IntegrityError:
-            transaction.rollback()
+    except IntegrityError:
+        pass
+    with engine.connect() as connection:
         after = count(connection, "player_instances")
     report["checks"]["transaction_rollback"] = before == after
     assert before == after
