@@ -32,7 +32,7 @@ MVP 采用模块化单体：不引入微服务、消息队列、向量数据库�
 | `app/analytics/performance.py` | 分位置每 90 分钟产出、同位置百分位、趋势、能力与表现对比 |
 | `app/analytics/deals.py` | 转会总成本、投资效率、交易类型体系、本队复盘 |
 | 其余 `app/analytics/*` | 分位数、成交统计、相似交易、估值、费用口径、角色评分 |
-| `app/agents` | 问题解析（rule-based）、10 个业务工具、可靠性分类与引用组装（数字只来自工具） |
+| `app/agents` | 问题解析（rule-based）、14 个业务工具、可靠性分类与引用组装（数字只来自工具） |
 | `app/api` | REST 路由、鉴权、默认用户/存档解析 |
 | `app/services` | Watchlist、提醒规则 |
 | `app/models.py` | 31 张核心表（身份、快照、统计、交易、生成物、评分、审计） |
