@@ -183,7 +183,7 @@ CA/PA 覆盖率 100%、合同 85.6%、身价 80.6%、工资 85.6%，来源
 
 ## CI
 
-推送后记录 GitHub Actions run 链接（见提交后更新）。
+推送后验证：run **44916529554**，提交 4aa8d60，**success**（5 job 全绿：Backend、PostgreSQL 16、AI isolation、.NET、Frontend）。
 
 ## 未解决问题
 
