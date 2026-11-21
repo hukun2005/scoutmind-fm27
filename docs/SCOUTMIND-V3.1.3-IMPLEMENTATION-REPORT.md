@@ -11,7 +11,7 @@
 
 | 编号 | 任务 | 状态 |
 | --- | --- | --- |
-| SM-040 | PostgreSQL 迁移兼容性验证 | 见 CI 结果（本地 Docker 不可用） |
+| SM-040 | PostgreSQL 迁移兼容性验证 | PASS（CI PostgreSQL 16） |
 | SM-041 | 迁移回滚策略 | PASS（策略）；`downgrade base` 仍 BLOCKED |
 | SM-042 | Field Evidence Validation System | PASS |
 | SM-043 | CON_EXPIRY 根因调查 | PARTIAL（真实样本 NOT_RUN） |
@@ -51,9 +51,27 @@
 7. 输出每一步耗时 JSON；
 8. PG 专项 pytest（`SCOUTMIND_PG_TEST_URL` 未配置时 skip）。
 
-### 本地限制
+### 真实 PostgreSQL 16 结果
 
-本机 Docker daemon 不可用，无法本地启动 PG；验证由 CI 的 PostgreSQL 16 service 执行，CI 结果见文末。
+CI run **44901354992**（提交 `596532c`）的 PostgreSQL job **success**，脚本输出：
+
+| 检查 | 结果 |
+| --- | --- |
+| 表数量 | 40 |
+| 缺表 / 缺列 / 缺索引 | `[]` / `[]` / `[]` |
+| `import_jobs` 唯一约束 `(fm_save_id, scan_id)` | true |
+| `transfer_history.source_id` 外键 | true |
+| 跨存档同 `scan_id` 允许 | 2 条并存 |
+| 事务失败回滚 | true |
+| 升级 head 耗时 | 1.21 s |
+| 降级到旧版本耗时 | 0.82 s |
+| 旧 schema 升级 head 耗时 | 0.83 s |
+
+发现并修复：`b6e2f4a70d15` 添加了 `transfer_history.source_id` 却没有外键；新增迁移
+`f0a2c6d81b47` 补上 `fk_transfer_history_source_id`（ON DELETE SET NULL），SQLite 真实副本
+upgrade/downgrade/upgrade 通过；本地头版本同步升级。
+
+本机 Docker daemon 不可用，所以本地不跑 PG；以上数字来自 CI 的真实 PostgreSQL 16.16 容器。
 
 ---
 
@@ -197,7 +215,7 @@
 | 前端 build | PASS |
 | SQLite 迁移 | 旧库升级 PASS；head 往返 PASS；base downgrade BLOCKED（已记录） |
 | PostgreSQL 16 | CI job 执行（本地 Docker 不可用） |
-| GitHub Actions | 见文末 |
+| GitHub Actions | **success**（run 44901354992，5 job 全绿，含 PostgreSQL 16） |
 
 ## 未解决问题
 
