@@ -83,6 +83,11 @@ public sealed class ContractDateDiagnostics
     /// <summary>最多 8 条样本，便于定位具体偏移/对象。</summary>
     public IReadOnlyList<ContractDateSample> Samples => _samples;
 
+    /// <summary>原始值与转换结果的紧凑文本，供诊断报告记录。</summary>
+    public string RawSamples =>
+        string.Join("；", _samples.Select(item =>
+            $"0x{item.RawValue:X8} -> y{item.Year} d{item.DayOfYear} [{item.Category}]"));
+
     /// <summary>分析一个原始值。</summary>
     /// <param name="raw">原始 u32。</param>
     /// <returns>分类结果。</returns>
