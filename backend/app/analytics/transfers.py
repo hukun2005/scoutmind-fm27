@@ -65,6 +65,36 @@ class SimilarOutcome:
     sample_size: int = 0
 
 
+def _filter_conditions(filters: TransferFilter) -> list:
+    """SQL conditions shared by ORM paging and the column-only statistics query."""
+    conditions = []
+    if filters.status != "all":
+        conditions.append(Transfer.status == filters.status)
+    if filters.transfer_type:
+        conditions.append(Transfer.transfer_type == filters.transfer_type)
+    if filters.from_date:
+        conditions.append(Transfer.transfer_date >= filters.from_date)
+    if filters.to_date:
+        conditions.append(Transfer.transfer_date <= filters.to_date)
+    if filters.club_id:
+        conditions.append(
+            (Transfer.from_club_id == filters.club_id) | (Transfer.to_club_id == filters.club_id)
+        )
+    if filters.min_fee is not None:
+        conditions.append(Transfer.effective_fee >= filters.min_fee)
+    if filters.max_fee is not None:
+        conditions.append(Transfer.effective_fee <= filters.max_fee)
+    if filters.min_age is not None:
+        conditions.append(Transfer.player_age_at_transfer >= filters.min_age)
+    if filters.max_age is not None:
+        conditions.append(Transfer.player_age_at_transfer <= filters.max_age)
+    if filters.min_ca is not None:
+        conditions.append(Transfer.player_ca_at_transfer >= filters.min_ca)
+    if filters.max_ca is not None:
+        conditions.append(Transfer.player_ca_at_transfer <= filters.max_ca)
+    return conditions
+
+
 def build_query(save_id: int, filters: TransferFilter):  # noqa: ANN201 - SQLAlchemy Select is not worth importing for typing
     """Build the base select for a filter set; callers add ordering and paging."""
     query = (
@@ -72,30 +102,8 @@ def build_query(save_id: int, filters: TransferFilter):  # noqa: ANN201 - SQLAlc
         .options(selectinload(Transfer.components))
         .where(Transfer.fm_save_id == save_id)
     )
-    if filters.status != "all":
-        query = query.where(Transfer.status == filters.status)
-    if filters.transfer_type:
-        query = query.where(Transfer.transfer_type == filters.transfer_type)
-    if filters.from_date:
-        query = query.where(Transfer.transfer_date >= filters.from_date)
-    if filters.to_date:
-        query = query.where(Transfer.transfer_date <= filters.to_date)
-    if filters.club_id:
-        query = query.where(
-            (Transfer.from_club_id == filters.club_id) | (Transfer.to_club_id == filters.club_id)
-        )
-    if filters.min_fee is not None:
-        query = query.where(Transfer.effective_fee >= filters.min_fee)
-    if filters.max_fee is not None:
-        query = query.where(Transfer.effective_fee <= filters.max_fee)
-    if filters.min_age is not None:
-        query = query.where(Transfer.player_age_at_transfer >= filters.min_age)
-    if filters.max_age is not None:
-        query = query.where(Transfer.player_age_at_transfer <= filters.max_age)
-    if filters.min_ca is not None:
-        query = query.where(Transfer.player_ca_at_transfer >= filters.min_ca)
-    if filters.max_ca is not None:
-        query = query.where(Transfer.player_ca_at_transfer <= filters.max_ca)
+    for condition in _filter_conditions(filters):
+        query = query.where(condition)
     return query
 
 
@@ -201,13 +209,10 @@ def transfer_price_stats(session: Session, save_id: int, filters: TransferFilter
     from .deals import NON_STAT_TYPES, category_of
 
     all_filters = replace(filters, status="all")
-    base = build_query(save_id, all_filters)
-    fee_column = base.with_only_columns(Transfer.effective_fee, maintain_column_froms=True)
-
-    # 计入价格统计的类别：completed 且类型不是"不计入统计"的那些。
+    # 只 SELECT 两列，且不携带 ORM loader（selectinload）；50 万行也不会构造实体/触发第二条查询。
     stat_fee_query = (
-        build_query(save_id, replace(filters, status="all"))
-        .with_only_columns(Transfer.effective_fee, Transfer.currency)
+        select(Transfer.effective_fee, Transfer.currency)
+        .where(Transfer.fm_save_id == save_id, *_filter_conditions(all_filters))
         .where(
             Transfer.status == "completed",
             Transfer.transfer_type.not_in(NON_STAT_TYPES),
