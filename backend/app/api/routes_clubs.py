@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from ..clubs import SOURCE_LABELS, ClubResolver
 from ..db import get_db
 from ..models import FmSave
-from .deps import get_active_save
+from .deps import get_active_save, get_current_user, owned_save_or_404
 
 router = APIRouter()
 
@@ -35,8 +35,13 @@ def search_clubs(
 
 
 @router.get("/saves/{save_id}/user-club")
-def get_user_club(save_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def get_user_club(
+    save_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
     """当前主执教俱乐部及其来源。"""
+    owned_save_or_404(db, save_id, user)
     resolver = ClubResolver(db, save_id)
     club = resolver.user_club()
     if club is None:
@@ -58,9 +63,15 @@ def get_user_club(save_id: int, db: Session = Depends(get_db)) -> dict[str, Any]
 
 
 @router.put("/saves/{save_id}/user-club")
-def set_user_club(save_id: int, body: UserClubRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+def set_user_club(
+    save_id: int,
+    body: UserClubRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
     """指定主执教俱乐部。只改存档指针，**不移动任何球员**。"""
-    resolver = ClubResolver(db, save_id)
+    target = owned_save_or_404(db, save_id, user)
+    resolver = ClubResolver(db, target.id)
     try:
         club = resolver.set_user_club(body.club_id)
     except ValueError as exc:
@@ -77,8 +88,13 @@ def set_user_club(save_id: int, body: UserClubRequest, db: Session = Depends(get
 
 
 @router.delete("/saves/{save_id}/user-club")
-def clear_user_club(save_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def clear_user_club(
+    save_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
     """清除主执教俱乐部；阵容分析会回到"无法确定本队"的状态。"""
-    ClubResolver(db, save_id).clear_user_club()
+    target = owned_save_or_404(db, save_id, user)
+    ClubResolver(db, target.id).clear_user_club()
     db.commit()
     return {"club": None}

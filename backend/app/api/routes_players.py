@@ -15,7 +15,14 @@ from ..db import get_db
 from ..models import FmSave, Watchlist
 from ..schemas import WatchItemCreate, WatchItemUpdate
 from ..services import watchlist as watch_service
-from .deps import get_active_save, get_current_user
+from .deps import (
+    alert_owned_or_404,
+    get_active_save,
+    get_current_user,
+    instance_in_save_or_404,
+    instance_owned_or_404,
+    watch_item_owned_or_404,
+)
 
 router = APIRouter()
 
@@ -67,8 +74,10 @@ def players(
 def player_detail(
     instance_id: int,
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
 ) -> dict[str, Any]:
     """Full profile with attributes, history bounds and tags."""
+    instance_owned_or_404(db, instance_id, user)
     try:
         return player_profile(db, instance_id)
     except ValueError as exc:
@@ -81,14 +90,21 @@ def player_history(
     from_date: date | None = Query(default=None, alias="from"),
     to_date: date | None = Query(default=None, alias="to"),
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
 ) -> dict[str, Any]:
     """Snapshot timeline for growth charts."""
+    instance_owned_or_404(db, instance_id, user)
     return history(db, instance_id, from_date, to_date)
 
 
 @router.get("/players/{instance_id}/status", summary="球员状态时间线（挂牌/伤病/租借）")
-def player_status_route(instance_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def player_status_route(
+    instance_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
     """挂牌、伤病、租借与待生效转会的时间线；缺失项以 data_gaps 说明，不做推断。"""
+    instance_owned_or_404(db, instance_id, user)
     try:
         return player_availability_status(db, instance_id)
     except ValueError as exc:
@@ -96,8 +112,13 @@ def player_status_route(instance_id: int, db: Session = Depends(get_db)) -> dict
 
 
 @router.get("/players/{instance_id}/development")
-def player_development(instance_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def player_development(
+    instance_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
     """Growth deltas with fact / correlation / speculation kept separate."""
+    instance_owned_or_404(db, instance_id, user)
     try:
         return development(db, instance_id)
     except ValueError as exc:
@@ -124,6 +145,7 @@ def add_watch_item(
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """Follow a player instance."""
+    instance_in_save_or_404(db, body.instance_id, save)
     try:
         item = watch_service.add_item(db, user.id, save.id, body.instance_id, body.tag, body.note)
     except ValueError as exc:
@@ -133,8 +155,14 @@ def add_watch_item(
 
 
 @router.patch("/watchlist/items/{item_id}")
-def patch_watch_item(item_id: int, body: WatchItemUpdate, db: Session = Depends(get_db)) -> dict[str, Any]:
+def patch_watch_item(
+    item_id: int,
+    body: WatchItemUpdate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
     """Update the tag or note of a watchlist entry."""
+    watch_item_owned_or_404(db, item_id, user)
     try:
         item = watch_service.update_item(db, item_id, body.tag, body.note)
     except ValueError as exc:
@@ -144,8 +172,13 @@ def patch_watch_item(item_id: int, body: WatchItemUpdate, db: Session = Depends(
 
 
 @router.delete("/watchlist/items/{item_id}", status_code=204)
-def remove_watch_item(item_id: int, db: Session = Depends(get_db)) -> None:
+def remove_watch_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> None:
     """Stop following a player."""
+    watch_item_owned_or_404(db, item_id, user)
     try:
         watch_service.delete_item(db, item_id)
     except ValueError as exc:
@@ -176,8 +209,13 @@ def alerts(
 
 
 @router.post("/alerts/{alert_id}/read", status_code=204)
-def read_alert(alert_id: int, db: Session = Depends(get_db)) -> None:
+def read_alert(
+    alert_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> None:
     """Mark one alert read."""
+    alert_owned_or_404(db, alert_id, user)
     try:
         watch_service.mark_read(db, alert_id)
     except ValueError as exc:

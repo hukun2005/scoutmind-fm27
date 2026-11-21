@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ..analytics.performance import POSITION_METRICS, performance_board, performance_profile
 from ..db import get_db
 from ..models import FmSave
-from .deps import get_active_save
+from .deps import get_active_save, get_current_user, instance_owned_or_404
 
 router = APIRouter()
 
@@ -38,8 +38,13 @@ def board(
 
 
 @router.get("/performance/player/{instance_id}")
-def player(instance_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def player(
+    instance_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
     """One player's output, trend and ability-versus-output comparison."""
+    instance_owned_or_404(db, instance_id, user)
     try:
         return performance_profile(db, instance_id)
     except ValueError as exc:
