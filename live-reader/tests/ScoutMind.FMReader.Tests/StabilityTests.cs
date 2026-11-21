@@ -114,6 +114,45 @@ internal static class StabilityTests
             TestHarness.Equal(7, rows.Count(row => row.Status == "Candidate"), "Candidate 字段数");
         });
 
+        harness.Run("字段证据：没有样本时最高只能是 Candidate", () =>
+        {
+            var rows = ScoutMind.FMReader.Evidence.FieldEvidenceCatalog.Build(new FM27_1_Layout());
+            TestHarness.Equal(50, rows.Count, "字段数");
+            TestHarness.Equal(0, rows.Count(row => row.ValidationStatus == ScoutMind.FMReader.Evidence.FieldValidationStatus.Verified), "无样本不得 Verified");
+            TestHarness.Equal(32, rows.Count(row => row.ValidationStatus == ScoutMind.FMReader.Evidence.FieldValidationStatus.Pending), "Pending");
+            TestHarness.True(rows.All(row => row.FieldId.Length > 0 && row.MemoryOffset.StartsWith("0x")), "标识与偏移");
+            TestHarness.True(rows.All(row => row.SampleCount == 0 && row.MismatchCount == 0), "没有样本时计数为 0");
+        });
+
+        harness.Run("字段证据：原始值与界面一致才 Verified", () =>
+        {
+            var observations = new[]
+            {
+                new ScoutMind.FMReader.Evidence.FieldObservation("PERO_COMMON_NAME", "Player One", "Player One", "2026-11-21T12:00:00Z"),
+                new ScoutMind.FMReader.Evidence.FieldObservation("PLAO_HEIGHT", "180", "180", "2026-11-21T12:00:00Z"),
+            };
+            var rows = ScoutMind.FMReader.Evidence.FieldEvidenceCatalog.Build(new FM27_1_Layout(), observations: observations);
+            var ca = rows.Single(row => row.FieldId == "PERO_COMMON_NAME");
+            TestHarness.Equal("Verified", ca.ValidationStatus.ToString(), "注册表 verified + 一致样本");
+            TestHarness.Equal(1, ca.SampleCount, "有效样本数");
+            var height = rows.Single(row => row.FieldId == "PLAO_HEIGHT");
+            TestHarness.True(height.ValidationStatus != ScoutMind.FMReader.Evidence.FieldValidationStatus.Verified, "Candidate 字段不因样本升级");
+        });
+
+        harness.Run("字段证据：不一致样本标记 Rejected，0 值也是观测", () =>
+        {
+            var observations = new[]
+            {
+                new ScoutMind.FMReader.Evidence.FieldObservation("PERO_COMMON_NAME", "Player One", "Player Two", "2026-11-21T12:00:00Z"),
+                new ScoutMind.FMReader.Evidence.FieldObservation("PLAO_HEIGHT", "0", "0", "2026-11-21T12:00:00Z"),
+            };
+            var rows = ScoutMind.FMReader.Evidence.FieldEvidenceCatalog.Build(new FM27_1_Layout(), observations: observations);
+            TestHarness.Equal("Rejected", rows.Single(row => row.FieldId == "PERO_COMMON_NAME").ValidationStatus.ToString(), "不一致");
+            var height = rows.Single(row => row.FieldId == "PLAO_HEIGHT");
+            TestHarness.Equal(1, height.SampleCount, "0 与 0 也是有效配对的观测");
+            TestHarness.Equal(0, height.MismatchCount, "0 与 0 一致");
+        });
+
         harness.Run("字段元数据：Candidate 不会被整体升级为 Verified", () =>
         {
             var rows = FieldMetadataCatalog.Build(new FM27_1_Layout());
