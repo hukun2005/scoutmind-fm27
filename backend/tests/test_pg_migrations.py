@@ -42,18 +42,18 @@ def test_pg_head_schema(engine) -> None:
 def test_pg_transaction_rollback(engine) -> None:
     with engine.connect() as connection:
         before = connection.execute(text("select count(*) from player_instances")).scalar_one()
-        transaction = connection.begin()
-        try:
+    try:
+        with engine.begin() as connection:
             connection.execute(
                 text(
-                    "insert into player_instances (player_id, fm_save_id, save_local_uid, uid_occurrence, "
+                    "insert into player_instances (id, player_id, fm_save_id, save_local_uid, uid_occurrence, "
                     "first_seen_at, last_seen_at, created_at, updated_at) "
-                    "values (999999, 1, 'TEST-BROKEN', 0, now(), now(), now(), now())"
+                    "values (999999, 888888, 1, 'TEST-BROKEN', 0, now(), now(), now(), now())"
                 )
             )
-            transaction.commit()
-        except IntegrityError:
-            transaction.rollback()
+    except IntegrityError:
+        pass
+    with engine.connect() as connection:
         after = connection.execute(text("select count(*) from player_instances")).scalar_one()
     assert before == after
 
