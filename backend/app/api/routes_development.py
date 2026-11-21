@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ..analytics.development import development_board, growth_profile
 from ..db import get_db
 from ..models import FmSave
-from .deps import get_active_save
+from .deps import get_active_save, get_current_user, instance_owned_or_404
 
 router = APIRouter()
 
@@ -28,8 +28,13 @@ def board(
 
 
 @router.get("/development/player/{instance_id}")
-def player(instance_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def player(
+    instance_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
     """Growth timeline, rate, advice and outlook for one player."""
+    instance_owned_or_404(db, instance_id, user)
     try:
         return growth_profile(db, instance_id)
     except ValueError as exc:

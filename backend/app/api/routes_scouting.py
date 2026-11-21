@@ -13,7 +13,7 @@ from ..analytics.scoring import evaluate_player, list_roles
 from ..db import get_db
 from ..models import FmSave
 from ..schemas import EvaluateRequest, ScoutingSearchRequest
-from .deps import get_active_save, get_current_user, owned_save_or_404
+from .deps import get_active_save, get_current_user, instance_owned_or_404, owned_save_or_404
 
 router = APIRouter()
 
@@ -27,8 +27,13 @@ def roles(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @router.post("/scouting/evaluate")
-def evaluate(body: EvaluateRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+def evaluate(
+    body: EvaluateRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
     """Score one player against one role, returning the component breakdown."""
+    instance_owned_or_404(db, body.instance_id, user)
     try:
         result = evaluate_player(db, body.instance_id, body.role_key)
     except ValueError as exc:
@@ -79,8 +84,10 @@ def search(
 def rank(
     instance_id: int = Query(...),
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
 ) -> dict[str, Any]:
     """Show every role score for one player, which is what the profile screen displays."""
+    instance_owned_or_404(db, instance_id, user)
     roles_list = list_roles(db)
     scores = []
     for role in roles_list:
@@ -89,5 +96,5 @@ def rank(
         except ValueError:
             continue
     db.commit()
-    scores.sort(key=lambda item: float(item["score"]), reverse=True)
+    scores.sort(key=lambda item: -(float(item["score"]) if item["score"] is not None else -1), reverse=True)
     return {"instance_id": instance_id, "items": scores}
