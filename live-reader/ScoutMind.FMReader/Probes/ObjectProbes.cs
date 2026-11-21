@@ -322,6 +322,7 @@ public sealed partial class ObjectProbes
         int pointerValid = 0, expirySane = 0, wageSane = 0, flagsSane = 0, expiryAfterBirth = 0;
         int applicable = 0, missing = 0, noExpiry = 0, expiryApplicable = 0;
         var dateDiagnostics = new ContractDateDiagnostics();
+        var flagCounts = new Dictionary<byte, int>();
         foreach (var player in sample)
         {
             try
@@ -357,6 +358,7 @@ public sealed partial class ObjectProbes
                 if (wage <= 5_000_000) wageSane++;
 
                 var flags = _memory.Byte(contract + _layout["CON_STATUS_FLAGS"]);
+                flagCounts[flags] = flagCounts.GetValueOrDefault(flags) + 1;
                 // 上游只解释 bit0/bit3/bit4/bit5；高位未定义，因此只要求不是全 0xFF。
                 if (flags != 0xFF) flagsSane++;
 
@@ -381,8 +383,12 @@ public sealed partial class ObjectProbes
             Ratio("expiry_after_birth", expiryAfterBirth, expiryApplicable == 0 ? 1 : expiryApplicable, "到期日晚于出生 14 年且不超过 45 年", 0.8),
             dateDiagnostics.Total > 0
                 ? new FieldCheck("expiry_diagnostics", CheckStatus.Inconclusive,
-                    $"{dateDiagnostics.Summary}；可解码比例 {dateDiagnostics.DecodableRatio:P0}")
+                    $"{dateDiagnostics.Summary}；可解码比例 {dateDiagnostics.DecodableRatio:P0}；原始样本：{dateDiagnostics.RawSamples}")
                 : new FieldCheck("expiry_diagnostics", CheckStatus.Inconclusive, "没有可解析合同样本"),
+            new FieldCheck("contract_flags_mix", CheckStatus.Inconclusive,
+                "状态位分布：" + string.Join("，", flagCounts.OrderBy(item => item.Key)
+                    .Select(item => $"0x{item.Key:X2}={item.Value}"))
+                + "（仅作为对象类型线索，不能据此判定合同类型）"),
         };
         var status = checks.Any(item => item.Status == CheckStatus.Failed) ? ProbeStatus.Failed : ProbeStatus.Passed;
         return new ProbeOutcome("contract", status, sample.Count, checks,
