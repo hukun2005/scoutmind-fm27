@@ -123,10 +123,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt "psycopg[binary]>=3.2,<4"
-      - name: Upgrade empty PostgreSQL database to head
+      - name: Validate PostgreSQL migrations end to end
+        env:
+          SCOUTMIND_PG_URL: postgresql+psycopg://postgres:postgres@localhost:5432/scoutmind_test
+        run: python scripts/pg_migration_validation.py
+      - name: PostgreSQL migration tests
         working-directory: backend
         env:
-          SCOUTMIND_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/scoutmind_test
-        run: |
-          python -m alembic upgrade head
-          python -m alembic current
+          SCOUTMIND_PG_TEST_URL: postgresql+psycopg://postgres:postgres@localhost:5432/scoutmind_test
+        run: python -m pytest -q tests/test_pg_migrations.py
