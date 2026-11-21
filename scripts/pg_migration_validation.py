@@ -129,7 +129,7 @@ def main() -> int:
     with engine.connect() as connection:
         revision = connection.execute(text("select version_num from alembic_version")).scalar_one()
     report["checks"]["revision"] = revision
-    assert revision == "d2f7a91b64e0", revision
+    assert revision == "f0a2c6d81b47", revision
     assert report["checks"]["schema"]["missing_tables"] == []
     assert report["checks"]["schema"]["missing_columns"] == []
     assert report["checks"]["schema"]["missing_indexes"] == []
