@@ -216,7 +216,13 @@ def llm_enabled() -> bool:
 
 
 def _validate_arguments(spec: dict[str, Any], arguments: dict[str, Any]) -> dict[str, Any]:
-    """按 schema 做最小但严格的校验：类型、枚举、范围、未知键、禁止键。"""
+    """严格校验工具参数：类型、有限性、枚举、范围、长度、未知/禁止键。
+
+    不依赖第三方库：规则集是 JSON Schema 的子集，行为由测试固定。bool 不能冒充 integer/number，
+    NaN/Infinity 一律拒绝；未知键和 save_id/user_id 等作用域参数直接拒绝。
+    """
+    import math
+
     params = spec["parameters"]
     properties = params.get("properties", {})
     allowed = set(properties)
@@ -226,34 +232,68 @@ def _validate_arguments(spec: dict[str, Any], arguments: dict[str, Any]) -> dict
         raise PlannerError(f"模型试图指定受限参数：{sorted(forbidden)}")
     if unknown:
         raise PlannerError(f"未知参数：{sorted(unknown)}")
+    if params.get("additionalProperties") is False and unknown:
+        raise PlannerError(f"未知参数：{sorted(unknown)}")
 
     cleaned: dict[str, Any] = {}
     for key, value in arguments.items():
         rule = properties[key]
         kind = rule.get("type")
         if kind == "integer":
-            if not isinstance(value, int) or isinstance(value, bool):
+            if isinstance(value, bool) or not isinstance(value, int):
                 raise PlannerError(f"{key} 必须是整数")
+        elif kind == "number":
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise PlannerError(f"{key} 必须是数字")
+            if not math.isfinite(float(value)):
+                raise PlannerError(f"{key} 必须是有限数字")
+        elif kind == "string":
+            if not isinstance(value, str):
+                raise PlannerError(f"{key} 必须是字符串")
+        elif kind == "boolean":
+            if not isinstance(value, bool):
+                raise PlannerError(f"{key} 必须是布尔值")
+        elif kind is not None:
+            raise PlannerError(f"{key} 的 schema 类型不受支持")
+
+        if "enum" in rule and value not in rule["enum"]:
+            raise PlannerError(f"{key} 不在允许取值内")
+        if kind in {"integer", "number"}:
             if "minimum" in rule and value < rule["minimum"]:
                 raise PlannerError(f"{key} 小于下限")
             if "maximum" in rule and value > rule["maximum"]:
                 raise PlannerError(f"{key} 超过上限")
-        elif kind == "number":
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
-                raise PlannerError(f"{key} 必须是数字")
-            if "minimum" in rule and value < rule["minimum"]:
-                raise PlannerError(f"{key} 小于下限")
-        elif kind == "string":
-            if not isinstance(value, str):
-                raise PlannerError(f"{key} 必须是字符串")
-            if "enum" in rule and value not in rule["enum"]:
-                raise PlannerError(f"{key} 不在允许取值内")
+        if kind == "string":
+            if "minLength" in rule and len(value) < rule["minLength"]:
+                raise PlannerError(f"{key} 长度小于下限")
+            if "maxLength" in rule and len(value) > rule["maxLength"]:
+                raise PlannerError(f"{key} 长度超过上限")
         cleaned[key] = value
 
     for key in params.get("required", []):
         if key not in cleaned:
             raise PlannerError(f"缺少必需参数 {key}")
     return cleaned
+
+
+def _assert_tool_scope(session: Session, save_id: int, arguments: dict[str, Any]) -> None:
+    """在调用工具前验证所有实体 ID 都属于当前存档；错误不泄露记录是否存在。"""
+    from ..models import Club, PlayerInstance, RecruitmentShortlist, Transfer, TransferCandidate
+
+    checks = {
+        "instance_id": (PlayerInstance, "fm_save_id"),
+        "transfer_id": (Transfer, "fm_save_id"),
+        "club_id": (Club, "fm_save_id"),
+        "shortlist_id": (RecruitmentShortlist, "fm_save_id"),
+        "candidate_id": (TransferCandidate, "fm_save_id"),
+    }
+    for key, (model, save_attribute) in checks.items():
+        value = arguments.get(key)
+        if value is None:
+            continue
+        entity = session.get(model, int(value))
+        if entity is None or getattr(entity, save_attribute) != save_id:
+            raise PlannerError("工具参数引用了当前存档之外的记录")
 
 
 
@@ -376,6 +416,8 @@ def execute_plan(
     trace: list[dict[str, object]] = []
     for name, arguments in plan:
         spec = TOOL_SPECS[name]
+        # 作用域错误必须直接抛出，不能被“工具执行失败”兜底成通用错误。
+        _assert_tool_scope(session, save_id, arguments)
         try:
             call = spec["execute"](session, save_id, arguments)
         except Exception as exc:  # noqa: BLE001 - 工具失败要记录而不是伪造结果
