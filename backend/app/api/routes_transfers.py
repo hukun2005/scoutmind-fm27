@@ -32,7 +32,13 @@ from ..db import get_db
 from ..models import Club, FmSave, PlayerInstance, PlayerValuation, Transfer, TransferCandidate
 from ..schemas import DealRequest
 from ..utils import iso, utcnow
-from .deps import get_active_save, get_current_user, owned_save_or_404
+from .deps import (
+    candidate_in_save_or_404,
+    get_active_save,
+    get_current_user,
+    owned_save_or_404,
+    transfer_in_save_or_404,
+)
 
 router = APIRouter()
 
@@ -148,8 +154,12 @@ def transfers_similar(
     instance_id: int = Query(...),
     limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
 ) -> dict[str, Any]:
     """Weighted comparable transfers for one player."""
+    from .deps import instance_owned_or_404
+
+    instance_owned_or_404(db, instance_id, user)
     try:
         outcome = similar_transfers(db, instance_id, limit=limit)
     except ValueError as exc:
@@ -165,8 +175,15 @@ def transfers_similar(
 
 
 @router.get("/transfers/valuation")
-def transfers_valuation(instance_id: int = Query(...), db: Session = Depends(get_db)) -> dict[str, Any]:
+def transfers_valuation(
+    instance_id: int = Query(...),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
     """Comparable-transfer valuation range, stored for audit."""
+    from .deps import instance_owned_or_404
+
+    instance_owned_or_404(db, instance_id, user)
     result = estimate_value(db, instance_id)
     db.add(
         PlayerValuation(
@@ -271,11 +288,12 @@ def list_candidates(
     status: str = Query(default="candidate"),
     limit: int = Query(default=100, ge=1, le=200),
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """快照对比发现的俱乐部变化：在确认前只是候选事件，不进入任何统计。"""
-    target = save_id or save.id
-    query = select(TransferCandidate).where(TransferCandidate.fm_save_id == target)
+    target = owned_save_or_404(db, save_id, user) if save_id is not None else save
+    query = select(TransferCandidate).where(TransferCandidate.fm_save_id == target.id)
     if status != "all":
         query = query.where(TransferCandidate.status == status)
     rows = list(db.scalars(query.order_by(TransferCandidate.detected_at.desc()).limit(limit)))
@@ -290,20 +308,26 @@ def list_candidates(
 def confirm_candidate(
     candidate_id: int,
     payload: dict[str, Any] | None = None,
+    save_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+    save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """确认一个候选变化；可关联已有交易，否则按确认信息生成一笔无金额的已完成交易。"""
-    candidate = db.get(TransferCandidate, candidate_id)
-    if candidate is None:
-        raise HTTPException(status_code=404, detail={"code": "candidate_not_found", "message": "候选事件不存在"})
+    target = owned_save_or_404(db, save_id, user) if save_id is not None else save
+    candidate = candidate_in_save_or_404(db, candidate_id, target)
     if candidate.status != "candidate":
         raise HTTPException(status_code=409, detail={"code": "candidate_not_open", "message": "该候选事件已处理"})
     body = payload or {}
     transfer_id = body.get("transfer_id")
     if transfer_id is not None:
-        transfer = db.get(Transfer, int(transfer_id))
-        if transfer is None or transfer.fm_save_id != candidate.fm_save_id:
-            raise HTTPException(status_code=404, detail={"code": "transfer_not_found", "message": "交易不存在"})
+        try:
+            numeric_transfer_id = int(transfer_id)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=404, detail={"code": "transfer_not_found", "message": "交易不存在"}
+            ) from None
+        transfer = transfer_in_save_or_404(db, numeric_transfer_id, target)
         candidate.confirmed_transfer_id = transfer.id
     else:
         instance = db.get(PlayerInstance, candidate.player_instance_id)
@@ -336,12 +360,14 @@ def confirm_candidate(
 def dismiss_candidate(
     candidate_id: int,
     payload: dict[str, Any] | None = None,
+    save_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+    save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     """把候选变化标记为误报（例如租借结束回归、退役或数据错乱）。"""
-    candidate = db.get(TransferCandidate, candidate_id)
-    if candidate is None:
-        raise HTTPException(status_code=404, detail={"code": "candidate_not_found", "message": "候选事件不存在"})
+    target = owned_save_or_404(db, save_id, user) if save_id is not None else save
+    candidate = candidate_in_save_or_404(db, candidate_id, target)
     candidate.status = "dismissed"
     reason = (payload or {}).get("reason")
     if reason:
@@ -403,8 +429,16 @@ def list_clubs(
     return {"items": shaped, "total": len(shaped)}
 
 @router.get("/clubs/{club_id}/transfer-profile")
-def club_profile(club_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def club_profile(
+    club_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
     """Buy/sell behaviour of one club."""
+    club = db.get(Club, club_id)
+    if club is None:
+        raise HTTPException(status_code=404, detail={"code": "club_not_found", "message": "俱乐部不存在"})
+    owned_save_or_404(db, club.fm_save_id, user)
     try:
         return club_transfer_profile(db, club_id)
     except ValueError as exc:

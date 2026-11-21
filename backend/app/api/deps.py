@@ -8,7 +8,17 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
-from ..models import FmSave, PlayerInstance, RecruitmentShortlist, Transfer, User
+from ..models import (
+    Alert,
+    FmSave,
+    PlayerInstance,
+    RecruitmentShortlist,
+    Transfer,
+    TransferCandidate,
+    User,
+    Watchlist,
+    WatchlistItem,
+)
 
 DEFAULT_USERNAME = "local"
 
@@ -97,4 +107,41 @@ def club_in_save_or_404(session: Session, club_id: int, save: FmSave):
     if club is None or club.fm_save_id != save.id:
         raise HTTPException(status_code=404, detail={"code": "club_not_found", "message": "俱乐部不存在"})
     return club
+
+def instance_owned_or_404(session: Session, instance_id: int, user: User) -> PlayerInstance:
+    """Player instance plus ownership of its save, in one check."""
+    instance = session.get(PlayerInstance, instance_id)
+    if instance is None:
+        raise HTTPException(status_code=404, detail={"code": "player_not_found", "message": "球员不存在"})
+    owned_save_or_404(session, instance.fm_save_id, user)
+    return instance
+
+
+def candidate_in_save_or_404(session: Session, candidate_id: int, save: FmSave) -> TransferCandidate:
+    """Transfer candidate must belong to the save; otherwise 404."""
+    candidate = session.get(TransferCandidate, candidate_id)
+    if candidate is None or candidate.fm_save_id != save.id:
+        raise HTTPException(status_code=404, detail={"code": "candidate_not_found", "message": "候选事件不存在"})
+    return candidate
+
+
+def watch_item_owned_or_404(session: Session, item_id: int, user: User) -> WatchlistItem:
+    """Watchlist item is reachable only through a watchlist this user owns."""
+    item = session.get(WatchlistItem, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail={"code": "watchlist_error", "message": "关注项不存在"})
+    watchlist = session.get(Watchlist, item.watchlist_id)
+    if watchlist is None or watchlist.user_id != user.id:
+        raise HTTPException(status_code=404, detail={"code": "watchlist_error", "message": "关注项不存在"})
+    owned_save_or_404(session, watchlist.fm_save_id, user)
+    return item
+
+
+def alert_owned_or_404(session: Session, alert_id: int, user: User) -> Alert:
+    """Alert belongs to a save owned by the caller."""
+    alert = session.get(Alert, alert_id)
+    if alert is None:
+        raise HTTPException(status_code=404, detail={"code": "alert_not_found", "message": "提醒不存在"})
+    owned_save_or_404(session, alert.fm_save_id, user)
+    return alert
 
