@@ -162,7 +162,18 @@ required/enum/长度与合法参数原样返回。
 | .NET Release build | 0 error |
 | 前端 build | PASS |
 | PostgreSQL 16 | CI job（见下） |
-| GitHub Actions | 见下 |
+| GitHub Actions | **success**（run 44908508254，5 job 全绿，含 PostgreSQL 16 / AI 隔离 / .NET / 前端 / 后端） |
+
+## CI
+
+- 运行：https://github.com/hukun2005/scoutmind-fm27/actions/runs/44908508254
+- 提交：`2fb06d5`
+- 结论：**success**
+  - Backend (pytest + migrations)：success
+  - PostgreSQL migration compatibility：success
+  - Upload / identity / agent isolation regressions：success
+  - .NET readers and agent：success
+  - Frontend (typecheck + build)：success
 
 ## 未解决问题
 
