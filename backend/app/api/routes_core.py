@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
+from ..analytics.longitudinal import quality_summary
 from ..ingestion.importer import ImportOutcome, ScanImporter
 from ..ingestion.squad_csv import csv_template, import_squad_csv
 from ..ingestion.protocol import ProtocolError, ScanPayload
@@ -195,6 +196,20 @@ async def import_squad_csv_route(
 def squad_csv_template() -> dict[str, Any]:
     """可直接填写并上传的阵容 CSV 模板。"""
     return {"filename": "scoutmind-squad.csv", "content": csv_template()}
+
+
+@router.get("/data-quality/summary", summary="导入后数据质量摘要")
+def data_quality_summary(
+    import_job_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    """每次导入后的质量摘要：数量、独立日期、覆盖率、重复与来源。"""
+    if import_job_id is not None:
+        job = db.get(ImportJob, import_job_id)
+        if job is None or job.fm_save_id != save.id:
+            raise HTTPException(status_code=404, detail={"code": "import_not_found", "message": "导入批次不存在"})
+    return quality_summary(db, save.id, import_job_id)
 
 
 @router.get("/imports")
