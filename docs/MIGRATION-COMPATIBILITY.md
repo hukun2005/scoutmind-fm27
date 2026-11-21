@@ -1,7 +1,7 @@
 # 数据库迁移兼容性调查（SM-034）
 
 - 日期：2026-11-21
-- 当前 head：`d2f7a91b64e0`
+- 当前 head：`f0a2c6d81b47`
 - 数据库：SQLite（真实存档副本，`backend/data/scoutmind.db`，约 1 GB）
 
 ## 1. 调查结论
@@ -11,7 +11,7 @@
 | 旧库（`f3a9c57e21d8`）升级到 head | **PASS** | 升级 3 个迁移，球员/实例/快照/交易行数不变 |
 | 当前 head 降一个版本再升级 | **PASS** | `d2f7 → b6e2 → d2f7` 往返成功 |
 | 从 head `downgrade base` | **BLOCKED** | 在 `992f85fb22b8` 失败：`UNIQUE constraint failed: _alembic_tmp_import_jobs.scan_id` |
-| PostgreSQL | **NOT_RUN** | 本机 Docker daemon 未运行，没有可用 PostgreSQL 实例 |
+| PostgreSQL 16 | **PASS** | CI PostgreSQL 16.16：空库升级、旧 schema 升级、约束/外键、回滚、耗时（见 V3.1.3 报告）；本地 Docker 仍不可用 |
 
 ## 2. 旧数据库升级（真实副本）
 
@@ -88,7 +88,7 @@ python ..\scripts\check_migration_safety.py data\scoutmind.db
 
 ## 6. PostgreSQL
 
-PostgreSQL 迁移兼容性本轮 **NOT_RUN**：本机 Docker daemon 不可用，没有可用的 PG 实例。
+PostgreSQL 迁移兼容性已由 CI 的真实 PostgreSQL 16 service 验证（run 44901354992）；本地 Docker daemon 不可用，无法本地复跑。
 已知风险：
 
 - 迁移大量使用 `op.batch_alter_table`（SQLite 兼容写法），在 PostgreSQL 上会直接 `ALTER TABLE`，通常可用；

@@ -27,7 +27,7 @@ ScoutMind 是独立于 Football Manager 27 的智能球探、球员成长追踪�
 | 转会情报 Transfer Intelligence | 已实现 | 成交分位、相似交易、俱乐部画像、总成本模型、投资效率、交易类型体系与历史复盘 |
 | 球员发展 Player Development | 已实现 | 成长曲线、成长速率、发展建议、潜力等级与区间 |
 | 比赛表现分析 Performance Analytics | 已实现（依赖统计字段） | 分位置每 90 分钟产出、同位置百分位、赛季趋势、能力与表现对比 |
-| AI 体育总监 AI Sporting Director | 已实现（确定性规划器） | 10 个业务工具、四类可靠性分离、工具级引用；LLM 规划器留作扩展点 |
+| AI 体育总监 AI Sporting Director | 已实现（确定性规划器 + 可选 LLM 规划） | 14 个业务工具、四类可靠性分离、工具级引用；真实 LLM 联调需 API Key（NOT_RUN） |
 | 角色球探 Scouting | 已实现 | 8 个战术角色模板，按角色加权评分并展示覆盖度与短板 |
 | 关注名单 Watchlist | 已实现 | 关注列表、标签、归因与自动提醒规则 |
 
