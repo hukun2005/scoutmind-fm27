@@ -153,6 +153,42 @@ internal static class StabilityTests
             TestHarness.Equal(0, height.MismatchCount, "0 与 0 一致");
         });
 
+        harness.Run("字段证据：独立对象/观测计数与门槛", () =>
+        {
+            var observations = new[]
+            {
+                new ScoutMind.FMReader.Evidence.FieldObservation("PERO_COMMON_NAME", "A", "A", "2026-11-21T12:00:00Z", "obj-1"),
+                new ScoutMind.FMReader.Evidence.FieldObservation("PERO_COMMON_NAME", "B", "B", "2026-11-21T12:00:00Z", "obj-2"),
+            };
+            var rows = ScoutMind.FMReader.Evidence.FieldEvidenceCatalog.Build(
+                new FM27_1_Layout(),
+                observations: observations,
+                options: new ScoutMind.FMReader.Evidence.FieldEvidenceOptions(MinimumUniqueObjects: 2, MinimumSamples: 2));
+            var name = rows.Single(row => row.FieldId == "PERO_COMMON_NAME");
+            TestHarness.Equal(2, name.SampleCount, "样本数");
+            TestHarness.Equal(2, name.UniqueObjectCount, "独立对象数");
+            TestHarness.Equal(1, name.UniqueObservationCount, "独立观测时间数");
+            TestHarness.Equal("Verified", name.ValidationStatus.ToString(), "达到对象门槛");
+            TestHarness.True(name.Confidence is null, "未校准的 confidence 必须为 null");
+        });
+
+        harness.Run("字段证据：数值容差与日期标准化", () =>
+        {
+            var observations = new[]
+            {
+                new ScoutMind.FMReader.Evidence.FieldObservation("PLAO_CA", "150", "151", "2026-11-21T12:00:00Z", "obj-1"),
+                new ScoutMind.FMReader.Evidence.FieldObservation("PLAO_HEIGHT", "180", "180", "2026-11-21T12:00:00Z", "obj-1"),
+            };
+            var strict = ScoutMind.FMReader.Evidence.FieldEvidenceCatalog.Build(new FM27_1_Layout(), observations: observations);
+            TestHarness.Equal("Rejected", strict.Single(row => row.FieldId == "PLAO_CA").ValidationStatus.ToString(), "严格容差");
+            var tolerant = ScoutMind.FMReader.Evidence.FieldEvidenceCatalog.Build(
+                new FM27_1_Layout(),
+                observations: observations,
+                options: new ScoutMind.FMReader.Evidence.FieldEvidenceOptions(NumericTolerance: 1.0));
+            TestHarness.True(tolerant.Single(row => row.FieldId == "PLAO_CA").MismatchCount == 0, "容差 1 内一致");
+            TestHarness.Equal("numeric", tolerant.Single(row => row.FieldId == "PLAO_CA").ComparisonKind, "数值比较器");
+        });
+
         harness.Run("字段元数据：Candidate 不会被整体升级为 Verified", () =>
         {
             var rows = FieldMetadataCatalog.Build(new FM27_1_Layout());

@@ -1,3 +1,4 @@
+using System.Globalization;
 using ScoutMind.FMReader.Engine;
 using ScoutMind.FMReader.Layouts;
 using ScoutMind.FMReader.Probes;
@@ -5,7 +6,7 @@ using ScoutMind.FMReader.Versioning;
 
 namespace ScoutMind.FMReader.Evidence;
 
-/// <summary>可信度状态（SM-042）：只有真实界面/样本证据齐全才允许 Verified。</summary>
+/// <summary>可信度状态（SM-042/SM-052）：只有达到字段级门槛才允许 Verified。</summary>
 public enum FieldValidationStatus
 {
     Pending,
@@ -14,21 +15,7 @@ public enum FieldValidationStatus
     Rejected,
 }
 
-/// <summary>一条字段级证据。</summary>
-/// <param name="FieldId">稳定字段标识（布局键）。</param>
-/// <param name="FieldName">可读字段名。</param>
-/// <param name="ObjectType">所属对象：player / contract / club / team / block / person。</param>
-/// <param name="MemoryOffset">内存偏移（十六进制）。</param>
-/// <param name="DataType">数据类型。</param>
-/// <param name="RawValue">最近一次原始值；没有样本时为 null。</param>
-/// <param name="ExpectedGameValue">游戏界面期望值；没有核对时为 null。</param>
-/// <param name="ObservedAt">观测时间。</param>
-/// <param name="SampleCount">有效样本数（只计非缺失观测）。</param>
-/// <param name="MismatchCount">与期望不一致的数量。</param>
-/// <param name="ValidationStatus">可信度状态。</param>
-/// <param name="EvidenceSource">证据来源。</param>
-/// <param name="Confidence">0..1 置信度。</param>
-/// <param name="ValidationNotes">说明与缺口。</param>
+/// <summary>字段级证据；confidence 只在有校准数据时填写，不把启发式分数当概率。</summary>
 public sealed record FieldEvidence(
     string FieldId,
     string FieldName,
@@ -42,36 +29,47 @@ public sealed record FieldEvidence(
     int MismatchCount,
     FieldValidationStatus ValidationStatus,
     string EvidenceSource,
-    double Confidence,
-    string ValidationNotes);
+    double? Confidence,
+    string ValidationNotes,
+    string ComparisonKind = "exact",
+    int UniqueObjectCount = 0,
+    int UniqueObservationCount = 0);
 
-/// <summary>一次观测：只有 raw 与 expected 同时存在且可比时才算有效样本。</summary>
-/// <param name="FieldId">布局键。</param>
-/// <param name="RawValue">内存读取值。</param>
-/// <param name="ExpectedGameValue">界面核对值。</param>
-/// <param name="ObservedAt">观测时间。</param>
+/// <summary>一次观测；ObjectId 用于区分独立对象，ObservedAt 用于区分独立观测时间。</summary>
 public sealed record FieldObservation(
     string FieldId,
     string? RawValue,
     string? ExpectedGameValue,
-    string ObservedAt);
+    string ObservedAt,
+    string? ObjectId = null);
+
+/// <summary>字段级验证门槛与比较规则（SM-052）。</summary>
+/// <param name="NumericTolerance">数值字段允许的绝对误差；默认 0。</param>
+/// <param name="MinimumSamples">至少多少个有效配对样本。</param>
+/// <param name="MinimumUniqueObjects">至少多少个独立对象。</param>
+/// <param name="MinimumUniqueObservations">至少多少个独立观测时间。</param>
+/// <param name="CalibratedConfidence">只有在有校准研究时填写；否则保持 null。</param>
+public sealed record FieldEvidenceOptions(
+    double NumericTolerance = 0.0,
+    int MinimumSamples = 1,
+    int MinimumUniqueObjects = 1,
+    int MinimumUniqueObservations = 1,
+    double? CalibratedConfidence = null);
 
 /// <summary>把布局、字段规格、注册表与样本合并成结构化证据。</summary>
 public static class FieldEvidenceCatalog
 {
     /// <summary>生成 50 个字段的证据记录；缺少样本时绝不升级为 Verified。</summary>
-    /// <param name="layout">布局。</param>
-    /// <param name="registry">兼容性注册表。</param>
-    /// <param name="observations">可选样本（真实读取 + 界面核对）。</param>
-    /// <param name="registeredBuild">注册表构建号；缺省按布局推断。</param>
     public static IReadOnlyList<FieldEvidence> Build(
         ILayout layout,
         CompatibilityRegistry? registry = null,
         IReadOnlyList<FieldObservation>? observations = null,
-        string? registeredBuild = null)
+        string? registeredBuild = null,
+        FieldEvidenceOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(layout);
         registry ??= new CompatibilityRegistry();
+        options ??= new FieldEvidenceOptions();
         var build = registeredBuild ?? FieldMetadataCatalog.DefaultBuild(layout);
         var registration = build is null ? null : registry.For(build);
         var verified = new HashSet<string>(registration?.VerifiedFields ?? Array.Empty<string>(), StringComparer.Ordinal);
@@ -97,8 +95,11 @@ public static class FieldEvidenceCatalog
             var valid = fieldSamples
                 .Where(item => item.RawValue is not null && item.ExpectedGameValue is not null)
                 .ToList();
-            var mismatch = valid.Count(item => !string.Equals(item.RawValue, item.ExpectedGameValue, StringComparison.Ordinal));
+            var comparison = ComparisonFor(name, spec?.DataType);
+            var mismatch = valid.Count(item => !Matches(comparison, item.RawValue!, item.ExpectedGameValue!, options.NumericTolerance));
             var sampleCount = valid.Count;
+            var uniqueObjects = valid.Select(item => item.ObjectId ?? item.ObservedAt).Distinct(StringComparer.Ordinal).Count();
+            var uniqueObservations = valid.Select(item => item.ObservedAt).Distinct(StringComparer.Ordinal).Count();
             var last = valid.LastOrDefault();
             var objectType = ObjectTypeOf(name, spec?.RelativeTo);
             var isRegistryVerified = verified.Contains(name);
@@ -113,14 +114,25 @@ public static class FieldEvidenceCatalog
             }
             else if (sampleCount == 0)
             {
-                // 没有真实样本时最高只能是 Candidate；注册表 verified 也不能凭空升级。
                 status = isRegistryVerified || isUpstream ? FieldValidationStatus.Candidate : FieldValidationStatus.Pending;
                 notes = "没有原始值 + 界面期望值的配对样本，不能升级为 Verified";
             }
-            else if (isRegistryVerified && sampleCount >= 1)
+            else if (sampleCount < options.MinimumSamples)
+            {
+                status = FieldValidationStatus.Candidate;
+                notes = $"有效样本 {sampleCount} 少于门槛 {options.MinimumSamples}，保持 Candidate";
+            }
+            else if (isRegistryVerified
+                     && uniqueObjects >= options.MinimumUniqueObjects
+                     && uniqueObservations >= options.MinimumUniqueObservations)
             {
                 status = FieldValidationStatus.Verified;
-                notes = $"{sampleCount} 个样本全部与界面一致";
+                notes = $"{sampleCount} 个样本一致，{uniqueObjects} 个独立对象、{uniqueObservations} 个观测时间达到门槛";
+            }
+            else if (isRegistryVerified)
+            {
+                status = FieldValidationStatus.Candidate;
+                notes = "样本一致但独立对象/观测时间不足，保持 Candidate";
             }
             else if (isUpstream)
             {
@@ -140,14 +152,7 @@ public static class FieldEvidenceCatalog
                     : isUpstream
                         ? "upstream_agreement_fields"
                         : "布局声明，无字段级证据";
-            var confidence = status switch
-            {
-                FieldValidationStatus.Verified => Math.Min(1.0, 0.6 + 0.1 * sampleCount),
-                FieldValidationStatus.Candidate when sampleCount > 0 => 0.5,
-                FieldValidationStatus.Candidate => 0.3,
-                FieldValidationStatus.Rejected => 0.0,
-                _ => 0.15,
-            };
+            var confidence = status == FieldValidationStatus.Verified ? options.CalibratedConfidence : null;
 
             rows.Add(new FieldEvidence(
                 FieldId: name,
@@ -163,10 +168,46 @@ public static class FieldEvidenceCatalog
                 ValidationStatus: status,
                 EvidenceSource: source,
                 Confidence: confidence,
-                ValidationNotes: notes));
+                ValidationNotes: notes + "；confidence 未校准（null），不是概率",
+                ComparisonKind: comparison,
+                UniqueObjectCount: uniqueObjects,
+                UniqueObservationCount: uniqueObservations));
         }
 
         return rows;
+    }
+
+    private static string ComparisonFor(string name, string? dataType)
+    {
+        var type = dataType ?? "";
+        if (type.Contains("date", StringComparison.OrdinalIgnoreCase))
+        {
+            return "date";
+        }
+        if (numericTypes.Any(token => type.Contains(token, StringComparison.OrdinalIgnoreCase)))
+        {
+            return "numeric";
+        }
+        return "exact";
+    }
+
+    private static readonly string[] numericTypes = { "u8", "u16", "u32", "int", "float", "double", "number" };
+
+    private static bool Matches(string comparison, string raw, string expected, double tolerance)
+    {
+        switch (comparison)
+        {
+            case "date":
+                return DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var rawDate)
+                       && DateTime.TryParse(expected, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var expectedDate)
+                       && rawDate.Date == expectedDate.Date;
+            case "numeric":
+                return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var rawNumber)
+                       && double.TryParse(expected, NumberStyles.Float, CultureInfo.InvariantCulture, out var expectedNumber)
+                       && Math.Abs(rawNumber - expectedNumber) <= tolerance;
+            default:
+                return string.Equals(raw.Trim(), expected.Trim(), StringComparison.Ordinal);
+        }
     }
 
     private static string ObjectTypeOf(string name, string? relativeTo)
