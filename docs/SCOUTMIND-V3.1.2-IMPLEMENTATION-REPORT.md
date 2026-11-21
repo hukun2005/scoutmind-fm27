@@ -186,7 +186,16 @@
 
 ### CI
 
-推送后通过 `gh run list` / `gh run view` 记录本次分支运行结果。
+推送后检查云端实际结果：
+
+- 运行：`CI` #**44865122970**，提交 `d4a6365`；
+- 结论：**success**（4 个 job 全部通过）；
+- Backend (pytest + migrations)：success；
+- Frontend (typecheck + build)：success；
+- .NET readers and agent：success；
+- Upload / identity / agent isolation regressions：success。
+
+说明：随后仅更新本文档会再触发一次 docs-only CI；代码与测试与 `d4a6365` 一致。
 
 ## 未解决问题
 
