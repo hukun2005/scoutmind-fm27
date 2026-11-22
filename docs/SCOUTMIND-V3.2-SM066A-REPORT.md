@@ -95,4 +95,9 @@
 | 数据库变更 | 无 |
 | 下一阶段 SM-061B | **NOT_STARTED**（等待本阶段审查） |
 
+## 9. CI
+
+- run **44998862533**，提交 `aeef467`，**success**；
+- Backend、PostgreSQL 16、AI isolation、.NET、Frontend 全部 success。
+
 完成后停止，不进入 SM-061B。
