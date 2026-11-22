@@ -296,6 +296,71 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
             EngineVersion: Version));
     }
 
+    /// <summary>
+    /// Capture live raw values for a small player sample. Expected game-UI values are intentionally
+    /// left empty: this method must not invent them. It never writes memory and never changes offsets.
+    /// </summary>
+    /// <param name="limit">Maximum players to sample.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public Task<LiveCaptureResult> CaptureLiveAsync(int limit, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var detected = _detector.Detect();
+        var layout = _layouts.Resolve(detected.Build, detected.PluginVersion);
+        var gate = _gate.Evaluate(detected.AppId, detected.Build, detected.PluginVersion);
+        if (!gate.AllowScan || layout is null)
+        {
+            throw new InvalidOperationException(gate.AllowScan ? "没有可用布局" : gate.Message);
+        }
+
+        var memory = _probeEnvironment.Open();
+        var locator = _probeEnvironment.CreateLocator(memory);
+        var located = locator.FindPlayers(layout, Math.Max(1, limit), TimeSpan.FromSeconds(20));
+        var samples = new List<LiveCaptureSample>();
+        var diagnostics = new List<string>();
+        foreach (var player in located)
+        {
+            try
+            {
+                var uid = memory.UInt32(player.Db + layout["OBJ_DUNI"]);
+                var uidText = uid.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                var name = memory.NestedString(player.Person + layout["PERO_COMMON_NAME"]);
+                samples.Add(new LiveCaptureSample("PLAO_CA", "player", uidText, name,
+                    $"0x{memory.UInt16(player.Block + layout["PLAO_CA"]):X4}", null));
+                samples.Add(new LiveCaptureSample("PLAO_PA", "player", uidText, name,
+                    $"0x{memory.UInt16(player.Block + layout["PLAO_PA"]):X4}", null));
+                samples.Add(new LiveCaptureSample("PLAO_HEIGHT", "player", uidText, name,
+                    $"0x{memory.UInt16(player.Block + layout["PLAO_HEIGHT"]):X4}", null));
+                var dob = memory.UInt32(player.Person + layout["PERO_DOB"]);
+                var dobDecoded = FmDate.Decode(dob);
+                samples.Add(new LiveCaptureSample("PERO_DOB", "person", uidText, name,
+                    $"0x{dob:X8}", $"y{dobDecoded.Year} d{dobDecoded.DayOfYear}"));
+                var contract = memory.Pointer(player.Person + layout["PERO_FULL_CONTRACT"]);
+                if (contract != 0 && memory.IsReadable(contract + layout["CON_EXPIRY"], 8))
+                {
+                    var expiry = memory.UInt32(contract + layout["CON_EXPIRY"]);
+                    var decoded = FmDate.Decode(expiry);
+                    samples.Add(new LiveCaptureSample("CON_EXPIRY", "contract", uidText, name,
+                        $"0x{expiry:X8}", $"y{decoded.Year} d{decoded.DayOfYear}"));
+                    samples.Add(new LiveCaptureSample("CON_WEEKLY_WAGE", "contract", uidText, name,
+                        $"0x{memory.UInt32(contract + layout["CON_WEEKLY_WAGE"]):X8}", null));
+                }
+            }
+            catch (MemoryUnreadableException)
+            {
+                diagnostics.Add($"球员对象 0x{player.Address:X} 部分字段不可读，已跳过");
+            }
+        }
+
+        return Task.FromResult(new LiveCaptureResult(
+            detected.Build ?? "unknown",
+            detected.PluginVersion ?? "unknown",
+            layout.Name,
+            DateTime.UtcNow.ToString("O"),
+            samples,
+            diagnostics));
+    }
+
     /// <inheritdoc />
     public async Task<FmProbeResult> ProbeAsync(CancellationToken cancellationToken)
     {
