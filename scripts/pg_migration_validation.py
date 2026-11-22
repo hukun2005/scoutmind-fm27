@@ -88,7 +88,7 @@ def validate_schema(engine) -> dict:
     expected = {
         "users", "fm_saves", "players", "player_instances", "player_snapshots", "import_jobs",
         "transfer_history", "transfer_sources", "transfer_import_runs", "identity_conflicts",
-        "identity_conflict_actions", "identity_matches", "field_evidence_samples", "player_observation_canonicals", "alembic_version",
+        "identity_conflict_actions", "identity_matches", "field_evidence_samples", "player_observation_canonicals", "player_observation_canonical_actions", "alembic_version",
     }
     missing = sorted(expected - tables)
     columns = {row["name"] for row in inspector.get_columns("transfer_history")}
@@ -129,7 +129,7 @@ def main() -> int:
     with engine.connect() as connection:
         revision = connection.execute(text("select version_num from alembic_version")).scalar_one()
     report["checks"]["revision"] = revision
-    assert revision == "c8d2e5f7a013", revision
+    assert revision == "d9e3f6a8b124", revision
     assert report["checks"]["schema"]["missing_tables"] == []
     assert report["checks"]["schema"]["missing_columns"] == []
     assert report["checks"]["schema"]["missing_indexes"] == []

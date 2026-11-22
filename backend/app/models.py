@@ -899,3 +899,29 @@ class PlayerObservationCanonical(TimestampMixin, Base):
     snapshot_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     distinct_content_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    conflict_types_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    changed_fields_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    reviewed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class PlayerObservationCanonicalAction(TimestampMixin, Base):
+    """Append-only audit record for a manual canonical decision."""
+
+    __tablename__ = "player_observation_canonical_actions"
+    __table_args__ = (
+        Index("ix_canonical_action_save_canonical", "fm_save_id", "canonical_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    canonical_id: Mapped[int] = mapped_column(ForeignKey("player_observation_canonicals.id"), nullable=False, index=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False)
+    game_date: Mapped[date] = mapped_column(Date, nullable=False)
+    reviewer_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    action: Mapped[str] = mapped_column(String(24), nullable=False)
+    selected_snapshot_id: Mapped[int | None] = mapped_column(ForeignKey("player_snapshots.id"))
+    previous_status: Mapped[str | None] = mapped_column(String(24))
+    new_status: Mapped[str] = mapped_column(String(24), nullable=False)
+    reason: Mapped[str] = mapped_column(String(512), nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
