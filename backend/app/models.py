@@ -872,3 +872,30 @@ class FieldEvidenceSample(TimestampMixin, Base):
     evidence_source: Mapped[str] = mapped_column(String(32), nullable=False)
     validation_status: Mapped[str] = mapped_column(String(16), nullable=False)
     simulated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+class PlayerObservationCanonical(TimestampMixin, Base):
+    """Canonical choice for one (player instance, game date), without deleting raw snapshots.
+
+    Identical duplicates resolve to the latest observation. Content differences stay
+    ``needs_review`` and keep every raw snapshot; no canonical id is fabricated.
+    """
+
+    __tablename__ = "player_observation_canonicals"
+    __table_args__ = (
+        UniqueConstraint(
+            "fm_save_id", "player_instance_id", "game_date",
+            name="uq_canonical_save_instance_game_date",
+        ),
+        Index("ix_canonical_save_status", "fm_save_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    game_date: Mapped[date] = mapped_column(Date, nullable=False)
+    canonical_snapshot_id: Mapped[int | None] = mapped_column(ForeignKey("player_snapshots.id"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    conflict: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    snapshot_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    distinct_content_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    reason: Mapped[str] = mapped_column(String(255), nullable=False)
