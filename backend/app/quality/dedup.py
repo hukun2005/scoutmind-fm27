@@ -8,6 +8,7 @@ rows, contract/economy fields, status fields and source/version metadata.
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from typing import Any
 
@@ -207,6 +208,8 @@ def build_canonicals(session: Session, save_id: int, *, dry_run: bool = True) ->
         row.snapshot_count = len(snapshots)
         row.distinct_content_count = len(signatures)
         row.reason = reason
+        row.conflict_types_json = json.dumps(conflict_types, ensure_ascii=False)
+        row.changed_fields_json = json.dumps(changed_fields, ensure_ascii=False)
         wrote += 1
     if not dry_run:
         session.commit()
@@ -231,14 +234,20 @@ def canonical_summary(session: Session, save_id: int) -> dict[str, Any]:
             select(PlayerObservationCanonical).where(PlayerObservationCanonical.fm_save_id == save_id)
         )
     )
-    resolved = sum(1 for row in rows if row.status in {"resolved", "resolved_auto", "resolved_manual"})
+    resolved = sum(1 for row in rows if row.status in {"resolved", "resolved_auto"})
+    manual = sum(1 for row in rows if row.status == "resolved_manual")
     needs_review = sum(1 for row in rows if row.status == "needs_review")
+    excluded = sum(1 for row in rows if row.status == "excluded")
+    review_required = sum(1 for row in rows if row.status == "review_required")
     duplicate_rows = sum(max(0, row.snapshot_count - 1) for row in rows)
     return {
         "save_id": save_id,
         "groups": len(rows),
         "resolved": resolved,
         "needs_review": needs_review,
+        "resolved_manual": manual,
+        "excluded": excluded,
+        "review_required": review_required,
         "duplicate_rows": duplicate_rows,
         "conflict_groups": sum(1 for row in rows if row.conflict),
         "with_canonical": sum(1 for row in rows if row.canonical_snapshot_id is not None),

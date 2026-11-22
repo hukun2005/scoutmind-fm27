@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,9 +11,11 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import FmSave, ImportJob, PlayerObservationCanonical
+from ..schemas import CanonicalDecisionIn
 from ..quality.dedup import build_canonicals, canonical_summary
+from ..quality.review import ReviewError, decide, history as review_history, review_queue
 from ..quality.rules import rule_catalog, run_quality_rules
-from .deps import get_active_save
+from .deps import get_active_save, get_current_user
 
 router = APIRouter()
 
@@ -85,3 +88,45 @@ def canonical_list(
         ],
         "total": len(rows),
     }
+
+
+@router.get("/data-quality/canonical/review-queue", summary="Canonical 人工审核队列")
+def canonical_review_queue(
+    status: str | None = Query(default=None),
+    player: str | None = Query(default=None, max_length=64),
+    game_date: date | None = Query(default=None),
+    conflict_type: str | None = Query(default=None, max_length=32),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return review_queue(db, save.id, status=status, player_query=player, game_date=game_date,
+                        conflict_type=conflict_type, limit=limit, offset=offset)
+
+
+@router.get("/data-quality/canonical/{canonical_id}/history", summary="Canonical 审核历史")
+def canonical_history(
+    canonical_id: int,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    try:
+        return review_history(db, save.id, canonical_id)
+    except ReviewError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
+
+
+@router.post("/data-quality/canonical/{canonical_id}/decision", summary="提交人工 canonical 决策")
+def canonical_decision(
+    canonical_id: int,
+    body: CanonicalDecisionIn,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
+    try:
+        return decide(db, save.id, canonical_id, reviewer_user_id=user.id, action=body.action,
+                      selected_snapshot_id=body.selected_snapshot_id, reason=body.reason, evidence=body.evidence)
+    except ReviewError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc

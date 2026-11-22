@@ -177,3 +177,12 @@ class FieldEvidenceCaptureBatch(BaseModel):
     """Batch upload of captured field samples."""
 
     items: list[FieldEvidenceCaptureIn] = Field(min_length=1, max_length=500)
+
+
+class CanonicalDecisionIn(BaseModel):
+    """Manual review decision for one canonical group."""
+
+    action: str = Field(pattern="^(select_snapshot|exclude_game_date|keep_pending)$")
+    selected_snapshot_id: int | None = Field(default=None, ge=1)
+    reason: str = Field(min_length=1, max_length=512)
+    evidence: dict | None = None
