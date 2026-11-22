@@ -218,8 +218,15 @@ def transfer_price_stats(session: Session, save_id: int, filters: TransferFilter
             Transfer.transfer_type.not_in(NON_STAT_TYPES),
         )
     )
+    # Fetch tuples through the driver cursor: 500k rows are common and ORM Row objects add
+    # measurable overhead to a column-only aggregate query.
+    compiled = stat_fee_query.compile(
+        dialect=session.get_bind().dialect,
+        compile_kwargs={"literal_binds": True},
+    )
+    raw_rows = session.connection().exec_driver_sql(str(compiled)).fetchall()
     currency_values: dict[str, list[float]] = {}
-    for fee, currency in session.execute(stat_fee_query):
+    for fee, currency in raw_rows:
         if fee is not None:
             currency_values.setdefault(currency or "UNKNOWN", []).append(float(fee))
     values = [value for group in currency_values.values() for value in group]
