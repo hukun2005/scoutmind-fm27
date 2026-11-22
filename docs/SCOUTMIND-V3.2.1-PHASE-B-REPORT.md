@@ -2,6 +2,7 @@
 
 - 分支：`codex/scoutmind-v3.2-field-capture`
 - 起始 HEAD：`30bf755`
+- Phase B HEAD：`3f6e685`
 - 日期：2026-11-22
 - 范围：**SM-061E 人工 canonical 决策与审计；SM-061F 真实数据库安全写入**
 - 状态：**SM-061E PASS**；**SM-061F PASS（真实写入完成，原始数据未变）**
@@ -111,8 +112,9 @@ exclude/keep_pending、跨存档 404、API 全流程。
 | .NET Release | 0 error |
 | 前端 build | PASS |
 | SQLite migration 往返 | PASS |
-| PostgreSQL 16 | CI job（见提交后链接） |
+| PostgreSQL 16 | **NOT_RUN（CI 平台 Billing 阻止，非代码失败）** |
 | 真实写入 | PASS（备份 + 前后计数 + 幂等） |
+| GitHub Actions | **BLOCKED**：run 45031101105 五 job 均在 1–4s 内未启动，annotation 为账户付款/额度限制；不是测试失败 |
 
 ## 6. 未解决问题
 
@@ -122,12 +124,22 @@ exclude/keep_pending、跨存档 404、API 全流程。
 4. 真实写入为单事务，后续更大规模需分批；
 5. `check_migration_safety.py` 报告历史重复 scan_id 1 条（非本轮产生）。
 
-## 7. 状态
+## 7. CI 阻塞说明
+
+- run **45031101105**（Phase B 提交 `3f6e685`）：五个 job 全部在 1–4 秒内失败；
+- GitHub annotation：*“The job was not started because recent account payments have failed or your spending limit needs to be increased.”*；
+- 这是 GitHub 账户 Billing 阻塞，与代码/迁移无关；**不能写成 CI PASS**；
+- 本提交的 PostgreSQL 16 迁移验证因此为 **NOT_RUN**；本地 SQLite 往返已 PASS；
+- 代码本地门禁：403 passed / 3 skipped，前端 build、.NET Release 通过；
+- 待 Billing 恢复后重跑 run，才可把 PostgreSQL 16 标为 PASS。
+
+## 8. 状态
 
 | 任务 | 状态 |
 | --- | --- |
 | SM-061E 人工审核/审计 | **PASS** |
 | SM-061F 真实 canonical 写入 | **PASS** |
+| CI / PostgreSQL 16 | **BLOCKED / NOT_RUN** |
 | 真实冲突人工治理 | **PARTIAL**（43,901 待审核） |
 | SM-066C/D 前端 | **NOT_STARTED** |
 
