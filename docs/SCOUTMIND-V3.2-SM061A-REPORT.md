@@ -79,13 +79,18 @@
 3. 既有 `alembic check` 漂移未在本阶段处理（留给 SM-061B/后续迁移治理）；
 4. 真实存档同日冲突治理不在本阶段范围。
 
-## 8. 状态
+## 8. CI
+
+- run **44989473913**，提交 `b7e2bab`，**success**；
+- Backend、PostgreSQL 16、AI isolation、.NET、Frontend 全部 success。
+
+## 9. 状态
 
 | 项 | 状态 |
 | --- | --- |
 | SM-061A 结构/接口/持久化 | **PASS** |
 | SM-061A 真实采集 | **NOT_RUN** |
-| PostgreSQL 16 | CI 验证（见 run 链接） |
+| PostgreSQL 16 | **PASS**（CI run 44989473913） |
 | 下一阶段 SM-066A | **NOT_STARTED**（等待本阶段审查） |
 
 完成后停止，不进入 SM-066A。
