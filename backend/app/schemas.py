@@ -6,6 +6,8 @@ Response payloads are assembled by the routers from deterministic analytics resu
 
 from __future__ import annotations
 
+from datetime import date, datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -150,3 +152,28 @@ class IdentityConflictResolve(BaseModel):
     decision: str = Field(pattern="^(same|different|defer)$")
     keep: str = Field(default="existing", pattern="^(existing|incoming)$")
     note: str | None = Field(default=None, max_length=512)
+
+
+class FieldEvidenceCaptureIn(BaseModel):
+    """One field sample captured by the reader or game UI."""
+
+    player_instance_id: int | None = Field(default=None, ge=1)
+    player_instance_uid: str | None = Field(default=None, min_length=1, max_length=64)
+    field_id: str = Field(min_length=1, max_length=64)
+    object_type: str = Field(min_length=1, max_length=32)
+    raw_value: str | None = Field(default=None, max_length=4096)
+    expected_value: str | None = Field(default=None, max_length=4096)
+    game_build: str | None = Field(default=None, max_length=64)
+    plugin_version: str | None = Field(default=None, max_length=32)
+    layout_version: str | None = Field(default=None, max_length=32)
+    game_date: date | None = None
+    observed_at: datetime
+    evidence_source: str = Field(default="reader_capture", max_length=32)
+    validation_status: str = Field(default="Pending", pattern="^(Pending|Candidate|Verified|Rejected)$")
+    simulated: bool = False
+
+
+class FieldEvidenceCaptureBatch(BaseModel):
+    """Batch upload of captured field samples."""
+
+    items: list[FieldEvidenceCaptureIn] = Field(min_length=1, max_length=500)
