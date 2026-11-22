@@ -75,11 +75,11 @@
 - 模拟/真实通过 `simulated` 与 `source` 区分；
 - 摘要只读，不篡改原始数据。
 
-## 7. 真实 FM27 采集结果（2026-11-22 14:35，游戏运行中）
+## 7. 真实 FM27 采集结果（2026-11-22，游戏运行中）
 
 - `Diag status`：pid 113864，build **26620374**，插件 27.1，gate **Verified / allow_scan=true**；
-- 新增 `Diag capture-live 5`，从真实内存读取 5 名球员 × 6 字段 = **30 条原始样本**；
-- 通过 API 写入真实存档 `save_id=2`：`saved=30, duplicates=0`，全部 `simulated=false`、`Pending`；
+- 新增 `Diag capture-live`，从真实内存读取原始值；先用 5 名球员得到 30 条，再扩大扫描定位到截图中的 Jarrod Bowen（UID 29125842），新增 6 条界面配对样本；
+- 通过 API 写入真实存档 `save_id=2`：共 **36 条**，`simulated=false`；
 - 证据样例（UID 109160，Paul Ifill）：
 
 | 字段 | 原始值 | 解码 | 说明 |
@@ -91,12 +91,26 @@
 | CON_EXPIRY | `0x076C0002` | y1900 d2 | 异常年份，重复出现，保持 Candidate |
 | CON_WEEKLY_WAGE | `0x00000000` | 0 | 未设置或非标准合同，未当真实 0 填值 |
 
-所有样本 `expected_value` 为空，因此不能判定 Verified；需要操作员按游戏界面填写至少一名球员的
-身高、出生日期、合同到期日/工资后，才能计算匹配率。
+### Jarrod Bowen（UID 29125842，截图界面核对）
+
+| 字段 | 原始值 | 解码 | 界面期望 | 结果 |
+| --- | --- | --- | --- | --- |
+| PLAO_HEIGHT | `0x00AE` | 174 | 174 cm | 一致 |
+| PERO_DOB | `0x07CC0163` | y1996 d355 | 1996-12-20 | 一致 |
+| CON_EXPIRY | `0x07EE00B5` | y2030 d181 | 2030-06-30 | 一致 |
+| CON_WEEKLY_WAGE | `0x0003D090` | 250,000 | 300,000/周 | **不一致**，需确认税前/税后或偏移语义 |
+| PLAO_CA | `0x009C` | 156 | 界面不可见 | 保持 Pending |
+| PLAO_PA | `0x00A0` | 160 | 界面不可见 | 保持 Pending |
+
+单次界面配对只能到 **Candidate**；字段策略要求 2–3 个独立对象/观测才可能 Verified。
+工资 250,000 vs 界面 300,000 不得通过改偏移“修正”，需要先确认字段语义。
+
+前 30 条样本 `expected_value` 为空；Jarrod 的 6 条已配对界面值，其中身高/生日/合同到期一致、工资不一致。
+所有字段仍为 Pending/Candidate，未达到 Verified 门槛。
 
 ## 8. 未解决问题
 
-1. 真实原始值已入库，但**界面期望值尚未提供**，因此 Verified 仍为 0；
+1. 真实原始值已入库并有 1 名球员的界面配对，但样本数未达字段门槛，Verified 仍为 0；
 2. Reader 尚未自动上传采样（当前为 Diag 导出 + API 导入，避免侵入扫描主路径）；
 3. 既有 `alembic check` 漂移未在本阶段处理（留给 SM-061B/后续迁移治理）；
 4. 真实存档同日冲突治理不在本阶段范围；
@@ -112,7 +126,7 @@
 | 项 | 状态 |
 | --- | --- |
 | SM-061A 结构/接口/持久化 | **PASS** |
-| SM-061A 真实采集 | **PARTIAL**（原始值 PASS，期望值待补） |
+| SM-061A 真实采集 | **PASS**（真实原始值 + 1 名球员界面配对）；字段 Verified 仍 PARTIAL |
 | PostgreSQL 16 | **PASS**（CI run 44989473913） |
 | 下一阶段 SM-066A | **NOT_STARTED**（等待本阶段审查） |
 
