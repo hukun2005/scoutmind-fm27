@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..ingestion.attributes import SLOT_NAMES_ZH, position_group, slot_of
 from ..models import Club, Player, PlayerAttribute, PlayerAttributeValue, PlayerInstance, PlayerSnapshot
+from .canonical import select_canonical_snapshots
 from ..utils import iso
 from .recruitment import POSITION_TEMPLATES
 from .scoring import score_attributes
@@ -47,17 +48,18 @@ def growth_profile(session: Session, instance_id: int, context: dict[str, object
     if instance is None:
         raise ValueError("player instance not found")
     player = session.get(Player, instance.player_id)
-    snapshots = list(
-        session.scalars(
-            select(PlayerSnapshot)
-            .where(PlayerSnapshot.player_instance_id == instance_id)
-            .order_by(PlayerSnapshot.observed_at.asc())
-        )
+    snapshots, canonical_meta = select_canonical_snapshots(
+        session, instance.fm_save_id, instance_id, legacy_if_missing=True
     )
     positions = _positions(session, instance_id)
     points = _timeline(session, snapshots)
     rates = _rates(points)
     if not snapshots:
+        reason = (
+            "canonicalization_pending：该球员没有可用的 canonical 观测，冲突组不得进入成长分析"
+            if canonical_meta["excluded_conflict_count"] or canonical_meta["pending_canonical_count"]
+            else "该球员还没有任何快照，无法分析成长"
+        )
         return {
             "player": _player_payload(instance, player, None),
             "points": [],
@@ -65,13 +67,14 @@ def growth_profile(session: Session, instance_id: int, context: dict[str, object
             "advice": [
                 {
                     "action": "等待数据",
-                    "reason": "该球员还没有任何快照，无法分析成长",
+                    "reason": reason,
                     "confidence": "none",
-                    "evidence": ["快照数为 0"],
+                    "evidence": [reason],
                 }
             ],
-            "outlook": {"band": "unknown", "label": "数据不足", "rationale": "没有快照", "probability": None},
-            "data_gaps": ["没有快照数据"],
+            "outlook": {"band": "unknown", "label": "数据不足", "rationale": reason, "probability": None},
+            "data_gaps": [reason],
+            "canonicalization": canonical_meta,
             "algorithm_version": ALGORITHM_VERSION,
         }
     latest = snapshots[-1]
@@ -101,6 +104,7 @@ def growth_profile(session: Session, instance_id: int, context: dict[str, object
         "advice": advice,
         "outlook": outlook,
         "data_gaps": gaps,
+        "canonicalization": canonical_meta,
         "algorithm_version": ALGORITHM_VERSION,
     }
 

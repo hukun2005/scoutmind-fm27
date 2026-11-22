@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import PlayerInstance, PlayerSnapshot
+from .canonical import select_canonical_snapshots
 
 ALGORITHM_VERSION = "development-forecast-1"
 
@@ -63,15 +64,10 @@ def forecast_player(session: Session, instance_id: int) -> dict[str, Any]:
     instance = session.get(PlayerInstance, instance_id)
     if instance is None:
         raise ValueError("player instance not found")
-    snapshots = [
-        row
-        for row in session.scalars(
-            select(PlayerSnapshot)
-            .where(PlayerSnapshot.player_instance_id == instance_id)
-            .order_by(PlayerSnapshot.observed_at)
-        )
-        if row.ca is not None
-    ]
+    selected, canonical_meta = select_canonical_snapshots(
+        session, instance.fm_save_id, instance_id, legacy_if_missing=True
+    )
+    snapshots = [row for row in selected if row.ca is not None]
     if not snapshots:
         raise ValueError("no CA observations; cannot forecast")
     latest = snapshots[-1]
@@ -154,6 +150,7 @@ def forecast_player(session: Session, instance_id: int) -> dict[str, Any]:
             "anomalies": anomalies,
         },
         "forecast": {"one_year": project(1), "three_years": project(3)},
+        "canonicalization": canonical_meta,
         "ceiling": {
             "pa": pa,
             "room": (pa - ca_now) if pa is not None else None,
@@ -199,14 +196,14 @@ def backtest(session: Session, save_id: int, *, min_snapshots: int = 3) -> dict[
     raw_total = 0
     distinct_total = 0
     skipped_incomplete = 0
+    legacy_instances = 0
     for instance_id in instance_ids:
-        snapshots = list(
-            session.scalars(
-                select(PlayerSnapshot)
-                .where(PlayerSnapshot.player_instance_id == instance_id, PlayerSnapshot.ca.is_not(None))
-                .order_by(PlayerSnapshot.observed_at, PlayerSnapshot.id)
-            )
+        selected, canonical_meta = select_canonical_snapshots(
+            session, save_id, instance_id, legacy_if_missing=True
         )
+        snapshots = [row for row in selected if row.ca is not None]
+        if canonical_meta["legacy_mode"]:
+            legacy_instances += 1
         raw_total += len(snapshots)
         points, _ = _observation_points(snapshots)
         distinct_total += len(points)
@@ -248,6 +245,7 @@ def backtest(session: Session, save_id: int, *, min_snapshots: int = 3) -> dict[
             "distinct_days": distinct_total,
             "evaluated": 0,
             "skipped_incomplete": skipped_incomplete,
+            "legacy_instances": legacy_instances,
             "algorithm_version": ALGORITHM_VERSION,
         }
     mae = sum(errors) / len(errors)
@@ -258,6 +256,7 @@ def backtest(session: Session, save_id: int, *, min_snapshots: int = 3) -> dict[
         "raw_snapshots": raw_total,
         "distinct_days": distinct_total,
         "skipped_incomplete": skipped_incomplete,
+        "legacy_instances": legacy_instances,
         "min_snapshots": min_snapshots,
         "mae": round(mae, 2),
         "rmse": round(rmse, 2),
