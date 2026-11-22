@@ -541,6 +541,25 @@ internal static class Program
                 return 0;
             }
 
+            case "capture-live":
+            {
+                // Real raw capture from the running game; expected UI values are left empty on purpose.
+                var limit = args.Length > 1 && int.TryParse(args[1], out var parsed) ? parsed : 20;
+                var result = await engine.CaptureLiveAsync(limit, cancellation.Token).ConfigureAwait(false);
+                var payload = ToJson(result);
+                if (args.Length > 2 && !string.IsNullOrWhiteSpace(args[2]))
+                {
+                    File.WriteAllText(args[2], payload, new System.Text.UTF8Encoding(false));
+                    Console.WriteLine($"真实原始采样已写入 {args[2]}");
+                }
+                else
+                {
+                    Console.WriteLine(payload);
+                }
+                Console.Error.WriteLine("NOTE: expected_value 为空；必须由操作员按游戏界面填写后才能验证。");
+                return 0;
+            }
+
             case "capture":
             {
                 // SM-057：采样工具结构验证。没有运行中的 FM27 时只导出 simulated 证据，真实采集记 NOT_RUN。

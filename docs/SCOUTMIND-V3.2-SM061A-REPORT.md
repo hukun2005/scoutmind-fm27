@@ -4,7 +4,7 @@
 - 基线：`3c01093`（main，审计后未漂移）
 - 日期：2026-11-22
 - 范围：**SM-061A 真实采集与字段证据**
-- 状态：**PASS（结构/接口/持久化）**；真实 FM27 采集 **NOT_RUN**
+- 状态：**PARTIAL**（结构/接口/持久化 PASS；真实 FM27 原始值采集成功，界面期望值待补）
 
 ## 1. 修改前审计结论（摘要）
 
@@ -20,7 +20,7 @@
 3. 采样可用 `player_instance_id` 或 `player_instance_uid` 定位，服务端强制存档归属；
 4. 模拟样本不得标记 Verified；同一批次重复直接 422；跨批次重复幂等返回 duplicates；
 5. 所有校验在写库前完成，失败不产生写入；
-6. Reader 现有 `Diag capture` 保持独立，不侵入扫描主路径；真实采集仍 NOT_RUN。
+6. Reader 现有 `Diag capture` 保持独立，不侵入扫描主路径；新增 `Diag capture-live` 从运行中的 FM27 读取真实原始值（不写内存、不改偏移），期望值必须由操作员按游戏界面填写。
 
 ## 3. 修改文件
 
@@ -32,6 +32,9 @@
 | `backend/app/api/routes_field_evidence.py` | 新增上传/摘要接口 |
 | `backend/app/main.py` | 注册路由 |
 | `backend/tests/test_sm061a_field_evidence_capture.py` | 新增 7 项测试 |
+| `live-reader/ScoutMind.FMReader/Engine/LiveFieldCapture.cs` | 真实原始采样记录 |
+| `live-reader/ScoutMind.FMReader/Engine/FMSuperScoutMemoryEngine.cs` | `CaptureLiveAsync` 只读采样 |
+| `live-reader/tools/ScoutMind.FMReader.Diag/Program.cs` | `capture-live` 命令 |
 | `scripts/pg_migration_validation.py` | 期望 head 更新到 `b7c1e2f4a901`，加入新表检查 |
 
 ## 4. 数据库变更
@@ -72,12 +75,32 @@
 - 模拟/真实通过 `simulated` 与 `source` 区分；
 - 摘要只读，不篡改原始数据。
 
-## 7. 未解决问题
+## 7. 真实 FM27 采集结果（2026-11-22 14:35，游戏运行中）
 
-1. 真实 FM27 采集 **NOT_RUN**（游戏未运行），没有真实样本入库；
+- `Diag status`：pid 113864，build **26620374**，插件 27.1，gate **Verified / allow_scan=true**；
+- 新增 `Diag capture-live 5`，从真实内存读取 5 名球员 × 6 字段 = **30 条原始样本**；
+- 通过 API 写入真实存档 `save_id=2`：`saved=30, duplicates=0`，全部 `simulated=false`、`Pending`；
+- 证据样例（UID 109160，Paul Ifill）：
+
+| 字段 | 原始值 | 解码 | 说明 |
+| --- | --- | --- | --- |
+| PLAO_CA | `0x0030` | 48 | 与 2026-11-18 导出 CA=65 不一致，待界面/导出复核 |
+| PLAO_PA | `0x007F` | 127 | 与导出 PA=127 一致 |
+| PLAO_HEIGHT | `0x00B7` | 183 cm | 与导出 183 一致 |
+| PERO_DOB | `0x07BB0125` | y1979 d293 | 与导出 birthYear=1979 一致 |
+| CON_EXPIRY | `0x076C0002` | y1900 d2 | 异常年份，重复出现，保持 Candidate |
+| CON_WEEKLY_WAGE | `0x00000000` | 0 | 未设置或非标准合同，未当真实 0 填值 |
+
+所有样本 `expected_value` 为空，因此不能判定 Verified；需要操作员按游戏界面填写至少一名球员的
+身高、出生日期、合同到期日/工资后，才能计算匹配率。
+
+## 8. 未解决问题
+
+1. 真实原始值已入库，但**界面期望值尚未提供**，因此 Verified 仍为 0；
 2. Reader 尚未自动上传采样（当前为 Diag 导出 + API 导入，避免侵入扫描主路径）；
 3. 既有 `alembic check` 漂移未在本阶段处理（留给 SM-061B/后续迁移治理）；
-4. 真实存档同日冲突治理不在本阶段范围。
+4. 真实存档同日冲突治理不在本阶段范围；
+5. UID 109160 的 CA 原始值 48 与旧导出 65 不一致，需人工确认是数据变化、对象类型还是偏移问题；不得直接调偏移。
 
 ## 8. CI
 
@@ -89,7 +112,7 @@
 | 项 | 状态 |
 | --- | --- |
 | SM-061A 结构/接口/持久化 | **PASS** |
-| SM-061A 真实采集 | **NOT_RUN** |
+| SM-061A 真实采集 | **PARTIAL**（原始值 PASS，期望值待补） |
 | PostgreSQL 16 | **PASS**（CI run 44989473913） |
 | 下一阶段 SM-066A | **NOT_STARTED**（等待本阶段审查） |
 
