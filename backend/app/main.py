@@ -16,6 +16,7 @@ from .api import (
     routes_compat,
     routes_identity,
     routes_field_evidence,
+    routes_quality,
     routes_career,
     routes_decision,
     routes_transfer_intel,
@@ -152,6 +153,7 @@ def create_app() -> FastAPI:
         routes_transfer_history.router,
         routes_identity.router,
         routes_field_evidence.router,
+        routes_quality.router,
     ):
         app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(require_token)])
 
