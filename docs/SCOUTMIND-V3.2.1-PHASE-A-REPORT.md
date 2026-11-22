@@ -117,9 +117,14 @@ development/forecast 排除冲突且标记 legacy。
 | 前端 build | PASS |
 | 数据库变更 | Phase A 无新迁移（复用 B 的 canonical 表） |
 | PostgreSQL 16 | 既有 CI job（无新迁移） |
-| GitHub Actions | 见提交后链接 |
+| GitHub Actions | **success**（run 45027305367，5 job 全绿） |
 
-## 7. 未解决问题
+## 7. CI 与性能
+
+- 首轮 Phase A CI 在 500k 行价格统计上超时（6.16s > 5s），根因为 ORM Row 构造；9ea39a7 改为 literal-bound SQL + 驱动游标，语义不变；
+- 修复后 run **45027305367** **success**。
+
+## 8. 未解决问题
 
 1. 真实 canonical 表仍为空，真实成长时间轴返回 `canonicalization_pending`；只能在 SM-061F 安全写入后恢复；
 2. 43,901 组真实冲突尚无人工审核（SM-061E）；
@@ -127,7 +132,7 @@ development/forecast 排除冲突且标记 legacy。
 4. 属性批量读取在真实数据约 18.6 s，后续写入需要评估事务/分批；
 5. `review_required` 状态尚未进入前端/审计表。
 
-## 8. 状态
+## 9. 状态
 
 | 任务 | 状态 |
 | --- | --- |
