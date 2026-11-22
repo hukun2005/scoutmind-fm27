@@ -839,3 +839,36 @@ class AgentMessage(TimestampMixin, Base):
     tool_calls_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
 
     conversation: Mapped[AgentConversation] = relationship(back_populates="messages")
+
+class FieldEvidenceSample(TimestampMixin, Base):
+    """One captured field sample, scoped to a save and player instance.
+
+    Repeated captures of the same (save, instance, field, observed_at) are idempotent.
+    Simulated samples can never be stored as Verified.
+    """
+
+    __tablename__ = "field_evidence_samples"
+    __table_args__ = (
+        UniqueConstraint(
+            "fm_save_id", "player_instance_id", "field_id", "observed_at",
+            name="uq_field_evidence_save_instance_field_time",
+        ),
+        Index("ix_field_evidence_save_status", "fm_save_id", "validation_status"),
+        Index("ix_field_evidence_save_field", "fm_save_id", "field_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    field_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    object_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    raw_value: Mapped[str | None] = mapped_column(Text)
+    expected_value: Mapped[str | None] = mapped_column(Text)
+    game_build: Mapped[str | None] = mapped_column(String(64))
+    plugin_version: Mapped[str | None] = mapped_column(String(32))
+    layout_version: Mapped[str | None] = mapped_column(String(32))
+    game_date: Mapped[date | None] = mapped_column(Date)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    evidence_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    validation_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    simulated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
