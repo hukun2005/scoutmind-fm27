@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import select
 
 from app.analytics.longitudinal import build_series, growth_backtest, growth_report, quality_summary
+from app.quality.dedup import build_canonicals
 from app.ingestion.importer import ScanImporter
 from app.ingestion.protocol import ScanPayload
 from app.models import FmSave, PlayerInstance, User
@@ -29,6 +30,10 @@ def _instance(db, save) -> PlayerInstance:
     return db.scalar(select(PlayerInstance).where(PlayerInstance.fm_save_id == save.id))
 
 
+def add_canon(db, save) -> None:
+    build_canonicals(db, save.id, dry_run=False)
+
+
 def _five_dates(db, save) -> None:
     for index, ca in enumerate((100, 102, 104, 106, 108)):
         _import(
@@ -40,14 +45,29 @@ def _five_dates(db, save) -> None:
         )
 
 
-def test_same_game_date_is_one_independent_point(db, save) -> None:
+def test_same_game_date_identical_is_one_canonical_point(db, save) -> None:
     _import(db, save, "sm058-a", datetime(2026, 7, 1, 9, tzinfo=timezone.utc), 100)
-    _import(db, save, "sm058-b", datetime(2026, 7, 1, 20, tzinfo=timezone.utc), 101)
+    _import(db, save, "sm058-b", datetime(2026, 7, 1, 20, tzinfo=timezone.utc), 100)
+    add_canon(db, save)
     series = build_series(db, save.id, _instance(db, save).id)
     assert series.raw_snapshot_count == 2
     assert series.unique_game_dates == 1
     assert series.unique_observed_dates == 2
-    assert series.points[0].ca == 101, "同日重复扫描只保留最后一次作为独立观测"
+    assert series.canonical_point_count == 1
+    assert series.points[0].ca == 100, "内容一致的重复扫描取 canonical 观测"
+
+
+def test_same_game_date_conflict_is_excluded(db, save) -> None:
+    _import(db, save, "sm058-a", datetime(2026, 7, 1, 9, tzinfo=timezone.utc), 100)
+    _import(db, save, "sm058-b", datetime(2026, 7, 1, 20, tzinfo=timezone.utc), 101)
+    add_canon(db, save)
+    series = build_series(db, save.id, _instance(db, save).id)
+    assert series.points == [], "needs_review 不得用最后一次扫描兜底"
+    assert series.excluded_conflict_count == 1
+    assert series.excluded_snapshot_count == 2
+    report = growth_report(db, save.id, _instance(db, save).id)
+    assert report["available"] is False
+    assert report["excluded_conflict_count"] == 1
 
 
 def test_missing_fields_stay_none_and_cross_save_isolated(db, save) -> None:
@@ -59,6 +79,7 @@ def test_missing_fields_stay_none_and_cross_save_isolated(db, save) -> None:
     db.add(other)
     db.commit()
     _import(db, other, "sm058-d", datetime(2026, 7, 2, 12, tzinfo=timezone.utc), 150)
+    add_canon(db, save)
     series = build_series(db, save.id, _instance(db, save).id)
     assert series.points[0].wage is None
     with pytest.raises(ValueError):
@@ -67,6 +88,7 @@ def test_missing_fields_stay_none_and_cross_save_isolated(db, save) -> None:
 
 def test_growth_report_and_time_split_backtest(db, save) -> None:
     _five_dates(db, save)
+    add_canon(db, save)
     instance = _instance(db, save)
     report = growth_report(db, save.id, instance.id)
     assert report["available"] is True
@@ -82,6 +104,7 @@ def test_growth_report_and_time_split_backtest(db, save) -> None:
 
 def test_growth_unavailable_with_one_date(db, save) -> None:
     _import(db, save, "sm058-one", datetime(2026, 7, 3, 12, tzinfo=timezone.utc), 100)
+    add_canon(db, save)
     report = growth_report(db, save.id, _instance(db, save).id)
     assert report["available"] is False
     assert "2" in report["reason"]

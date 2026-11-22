@@ -15,7 +15,13 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import ImportJob, PlayerAttributeValue, PlayerInstance, PlayerSnapshot
+from ..models import (
+    ImportJob,
+    PlayerAttributeValue,
+    PlayerInstance,
+    PlayerObservationCanonical,
+    PlayerSnapshot,
+)
 
 
 @dataclass(frozen=True)
@@ -39,13 +45,19 @@ class SeriesPoint:
 
 @dataclass(frozen=True)
 class SeriesBuild:
-    """Collapsed series plus raw counts, so duplicates stay visible."""
+    """Canonical-aware series plus raw/excluded counts."""
 
     instance_id: int
     points: list[SeriesPoint]
     raw_snapshot_count: int
     unique_game_dates: int
     unique_observed_dates: int
+    canonical_point_count: int = 0
+    excluded_conflict_count: int = 0
+    excluded_snapshot_count: int = 0
+    pending_canonical_count: int = 0
+    legacy_mode: bool = False
+    canonicalization_pending: bool = False
 
 
 def build_series(
@@ -54,8 +66,13 @@ def build_series(
     instance_id: int,
     *,
     source: str | None = None,
+    legacy: bool = False,
 ) -> SeriesBuild:
-    """Build a save-scoped series; one point per game date, latest observation wins."""
+    """Build a canonical-only series; only explicit legacy mode may fall back to last-wins.
+
+    Resolved/resolved_auto/resolved_manual groups must carry a canonical snapshot belonging to this
+    save/instance and matching game_date. needs_review/excluded groups never enter the series.
+    """
     instance = session.get(PlayerInstance, instance_id)
     if instance is None or instance.fm_save_id != save_id:
         raise ValueError("player not found in this save")
@@ -65,18 +82,56 @@ def build_series(
         .where(PlayerSnapshot.player_instance_id == instance_id)
         .order_by(PlayerSnapshot.observed_at, PlayerSnapshot.id)
     )
-    rows = list(session.execute(query))
+    raw_rows = list(session.execute(query))
     if source is not None:
-        rows = [row for row in rows if row[1] == source]
-    raw_count = len(rows)
-    by_date: dict[date, SeriesPoint] = {}
-    observed_times: set[datetime] = set()
-    for snapshot, job_source, reader_version, game_build in rows:
-        observed_times.add(snapshot.observed_at)
-        game_date = snapshot.game_date or snapshot.observed_at.date()
-        by_date[game_date] = SeriesPoint(
+        raw_rows = [item for item in raw_rows if item[1] == source]
+    raw_count = len(raw_rows)
+    observed_times = {item[0].observed_at for item in raw_rows}
+    by_id = {item[0].id: item for item in raw_rows}
+    raw_by_date: dict[date, list] = {}
+    for item in raw_rows:
+        game_date = item[0].game_date or item[0].observed_at.date()
+        raw_by_date.setdefault(game_date, []).append(item)
+
+    canonicals = list(
+        session.scalars(
+            select(PlayerObservationCanonical).where(
+                PlayerObservationCanonical.fm_save_id == save_id,
+                PlayerObservationCanonical.player_instance_id == instance_id,
+            )
+        )
+    )
+    allowed_statuses = {"resolved", "resolved_auto", "resolved_manual"}
+    selected: list[SeriesPoint] = []
+    excluded_conflict = 0
+    excluded_snapshots = 0
+    pending = 0
+    covered_dates: set[date] = set()
+    for canonical in canonicals:
+        group = raw_by_date.get(canonical.game_date, [])
+        covered_dates.add(canonical.game_date)
+        if canonical.status not in allowed_statuses:
+            excluded_conflict += 1
+            excluded_snapshots += len(group)
+            continue
+        if canonical.canonical_snapshot_id is None:
+            excluded_conflict += 1
+            excluded_snapshots += len(group)
+            continue
+        item = by_id.get(canonical.canonical_snapshot_id)
+        if item is None:
+            excluded_conflict += 1
+            excluded_snapshots += len(group)
+            continue
+        snapshot, job_source, reader_version, game_build = item
+        snapshot_date = snapshot.game_date or snapshot.observed_at.date()
+        if snapshot_date != canonical.game_date or snapshot.player_instance_id != instance_id:
+            excluded_conflict += 1
+            excluded_snapshots += len(group)
+            continue
+        selected.append(SeriesPoint(
             instance_id=instance_id,
-            game_date=game_date,
+            game_date=canonical.game_date,
             observed_at=snapshot.observed_at,
             ca=snapshot.ca,
             pa=snapshot.pa,
@@ -88,14 +143,45 @@ def build_series(
             source=job_source,
             reader_version=reader_version,
             game_build=game_build,
-        )
-    points = [by_date[key] for key in sorted(by_date)]
+        ))
+
+    missing_dates = set(raw_by_date) - covered_dates
+    pending = len(missing_dates)
+    legacy_mode = False
+    pending_flag = False
+    if not canonicals:
+        pending = len(raw_by_date)
+        if legacy:
+            legacy_mode = True
+            pending_flag = True
+            for game_date in sorted(raw_by_date):
+                item = sorted(raw_by_date[game_date], key=lambda row: (row[0].observed_at, row[0].id))[-1]
+                snapshot, job_source, reader_version, game_build = item
+                selected.append(SeriesPoint(
+                    instance_id=instance_id, game_date=game_date, observed_at=snapshot.observed_at,
+                    ca=snapshot.ca, pa=snapshot.pa, wage=snapshot.wage,
+                    market_value=snapshot.market_value, contract_end=snapshot.contract_end,
+                    club_id=snapshot.club_id, position=snapshot.position,
+                    source=job_source, reader_version=reader_version, game_build=game_build,
+                ))
+        else:
+            pending_flag = True
+    elif pending:
+        pending_flag = True
+
+    points = sorted(selected, key=lambda point: point.game_date)
     return SeriesBuild(
         instance_id=instance_id,
         points=points,
         raw_snapshot_count=raw_count,
-        unique_game_dates=len(points),
+        unique_game_dates=len(raw_by_date),
         unique_observed_dates=len(observed_times),
+        canonical_point_count=len(points),
+        excluded_conflict_count=excluded_conflict,
+        excluded_snapshot_count=excluded_snapshots,
+        pending_canonical_count=pending,
+        legacy_mode=legacy_mode,
+        canonicalization_pending=pending_flag,
     )
 
 
@@ -115,6 +201,12 @@ def growth_report(session: Session, save_id: int, instance_id: int) -> dict[str,
         "raw_snapshot_count": series.raw_snapshot_count,
         "unique_game_dates": series.unique_game_dates,
         "unique_observed_dates": series.unique_observed_dates,
+        "canonical_point_count": series.canonical_point_count,
+        "excluded_conflict_count": series.excluded_conflict_count,
+        "excluded_snapshot_count": series.excluded_snapshot_count,
+        "pending_canonical_count": series.pending_canonical_count,
+        "legacy_mode": series.legacy_mode,
+        "canonicalization_pending": series.canonicalization_pending,
         "coverage": {
             "ca": _coverage(points, "ca"),
             "pa": _coverage(points, "pa"),
@@ -123,6 +215,8 @@ def growth_report(session: Session, save_id: int, instance_id: int) -> dict[str,
             "contract_end": _coverage(points, "contract_end"),
         },
     }
+    if series.canonicalization_pending and not points:
+        return {**base, "available": False, "reason": "canonicalization_pending：尚未建立可用的 canonical 观测，禁止使用 last-wins"}
     if len(points) < 2:
         return {**base, "available": False, "reason": "至少需要 2 个独立 game_date 才能计算成长"}
     first, last = points[0], points[-1]
