@@ -58,6 +58,9 @@ public sealed class AgentApplication
             case AgentCommand.Watch:
                 return await RunWatchAsync(options, cancellationToken).ConfigureAwait(false);
 
+            case AgentCommand.Auto:
+                return await RunAutoAsync(options, cancellationToken).ConfigureAwait(false);
+
             case AgentCommand.Sync:
                 return await RunSyncAsync(options, cancellationToken).ConfigureAwait(false);
 
@@ -209,6 +212,145 @@ public sealed class AgentApplication
 
         _stdout.WriteLine("监视已停止。");
         return AgentExitCodes.Success;
+    }
+
+    private async Task<int> RunAutoAsync(AgentOptions options, CancellationToken cancellationToken)
+    {
+        var minutes = options.IntervalMinutes ?? 0;
+        if (minutes <= 0)
+        {
+            WriteUsageError("auto 需要 --interval-minutes <分钟>。");
+            return AgentExitCodes.UsageError;
+        }
+
+        var configuration = LoadConfiguration();
+        if (configuration.ReaderPath.Length == 0)
+        {
+            return ReportMissingReader(configuration);
+        }
+
+        var queue = new ScanQueue(configuration.QueueDirectory);
+        queue.EnsureCreated();
+        var stateStore = new CaptureStateStore(configuration.QueueDirectory);
+        var readerTimeout = TimeSpan.FromSeconds(Math.Max(180, configuration.Config.TimeoutSeconds + 120));
+        var runner = new ReaderRunner(configuration.ReaderPath, readerTimeout);
+        var interval = TimeSpan.FromMinutes(minutes);
+        var maxRetries = 3;
+        var state = stateStore.Load();
+        _stdout.WriteLine($"自动采集启动：每 {minutes} 分钟检查；同存档同游戏日期只导入一次。按 Ctrl+C 停止。");
+
+        // Recover files left by a previous crash: retry before starting a new scan.
+        foreach (var pending in queue.ListOutstanding())
+        {
+            _stdout.WriteLine($"恢复待同步文件：{Path.GetFileName(pending)}");
+            await SyncOneAsync(pending, configuration, queue, cancellationToken).ConfigureAwait(false);
+        }
+
+        var round = 0;
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            round++;
+            var invocation = await runner
+                .RunAsync(new[] { "scan", "--output", queue.ScanDirectory, "--json" }, cancellationToken)
+                .ConfigureAwait(false);
+            var transport = MapReaderTransportFailure(invocation);
+            if (transport is not null)
+            {
+                state = state with { Status = "retry_pending", ConsecutiveFailures = state.ConsecutiveFailures + 1 };
+                stateStore.Save(state);
+                _stderr.WriteLine($"[第 {round} 轮] {transport.Value.Message}；{RetryDelay(state.ConsecutiveFailures)} 后重试。");
+                await DelayAsync(RetryDelay(state.ConsecutiveFailures), cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            var result = TryDeserialize<ScanResult>(invocation.Stdout);
+            if (result is null || result.State != ReaderState.ScanCompleted || result.OutputFile is null)
+            {
+                state = state with { Status = "retry_pending", ConsecutiveFailures = state.ConsecutiveFailures + 1 };
+                stateStore.Save(state);
+                _stderr.WriteLine($"[第 {round} 轮] 扫描未完成：{result?.FailureReason ?? "无有效结果"}；{RetryDelay(state.ConsecutiveFailures)} 后重试。");
+                await DelayAsync(RetryDelay(state.ConsecutiveFailures), cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            ScanFileInfo info;
+            try
+            {
+                info = await ScanFileReader.ReadInfoAsync(result.OutputFile, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException or JsonException or InvalidDataException)
+            {
+                queue.EnqueuePending(result.OutputFile);
+                state = state with { Status = "retry_pending", ConsecutiveFailures = state.ConsecutiveFailures + 1 };
+                stateStore.Save(state);
+                _stderr.WriteLine($"[第 {round} 轮] 无法读取游戏日期：{ex.Message}；文件留在 pending。");
+                await DelayAsync(RetryDelay(state.ConsecutiveFailures), cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            var saveKey = string.IsNullOrWhiteSpace(configuration.Config.SaveName) ? "default" : configuration.Config.SaveName;
+            var sameDate = string.Equals(saveKey, state.SaveName, StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(info.GameDate)
+                && string.Equals(info.GameDate, state.LastGameDate, StringComparison.Ordinal);
+            if (sameDate)
+            {
+                var duplicate = queue.ArchiveDuplicate(result.OutputFile);
+                state = state with { Status = "completed", ConsecutiveFailures = 0 };
+                stateStore.Save(state);
+                _stdout.WriteLine($"[第 {round} 轮] 游戏日期 {info.GameDate} 未变化，重复扫描已隔离到 {duplicate}。");
+                await DelayAsync(interval, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            state = state with { SaveName = saveKey, LastScanId = info.ScanId, Status = "importing" };
+            stateStore.Save(state);
+            var synced = await SyncOneAsync(result.OutputFile, configuration, queue, cancellationToken).ConfigureAwait(false);
+            if (synced)
+            {
+                state = state with
+                {
+                    LastGameDate = info.GameDate ?? state.LastGameDate,
+                    Status = "completed",
+                    ConsecutiveFailures = 0,
+                };
+                stateStore.Save(state);
+                _stdout.WriteLine($"[第 {round} 轮] 已采集 {info.GameDate ?? "日期未知"}（scan_id={info.ScanId}）。");
+            }
+            else
+            {
+                state = state with { Status = "retry_pending", ConsecutiveFailures = state.ConsecutiveFailures + 1 };
+                stateStore.Save(state);
+                if (state.ConsecutiveFailures >= maxRetries)
+                {
+                    state = state with { Status = "failed" };
+                    stateStore.Save(state);
+                    _stderr.WriteLine($"[第 {round} 轮] 连续失败 {state.ConsecutiveFailures} 次，保留 pending 文件等待人工处理。");
+                }
+            }
+
+            var delay = state.Status == "retry_pending" ? RetryDelay(state.ConsecutiveFailures) : interval;
+            await DelayAsync(delay, cancellationToken).ConfigureAwait(false);
+        }
+
+        _stdout.WriteLine("自动采集已停止。");
+        return AgentExitCodes.Success;
+    }
+
+    private static TimeSpan RetryDelay(int failures)
+    {
+        var seconds = Math.Min(60, Math.Max(5, 5 * (1 << Math.Min(4, Math.Max(0, failures - 1)))));
+        return TimeSpan.FromSeconds(seconds);
+    }
+
+    private static async Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private async Task<int> RunSyncAsync(AgentOptions options, CancellationToken cancellationToken)
@@ -473,6 +615,7 @@ public sealed class AgentApplication
         writer.WriteLine("  ScoutMind.Agent status [--json]");
         writer.WriteLine("  ScoutMind.Agent scan [--sync] [--json]");
         writer.WriteLine("  ScoutMind.Agent watch --interval-minutes <分钟>");
+        writer.WriteLine("  ScoutMind.Agent auto --interval-minutes <分钟>   # 同存档同游戏日期只导入一次");
         writer.WriteLine("  ScoutMind.Agent sync [--file <路径>]");
         writer.WriteLine("  ScoutMind.Agent config show");
         writer.WriteLine();

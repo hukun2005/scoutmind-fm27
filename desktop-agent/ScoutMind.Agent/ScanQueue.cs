@@ -30,12 +30,16 @@ public sealed class ScanQueue
     /// <summary>已成功同步的归档目录。</summary>
     public string SentDirectory => Path.Combine(Root, "sent");
 
+    /// <summary>同一游戏日期重复扫描的隔离目录（保留文件，不当作已同步）。</summary>
+    public string DuplicatesDirectory => Path.Combine(Root, "duplicates");
+
     /// <summary>确保三个目录存在。</summary>
     public void EnsureCreated()
     {
         Directory.CreateDirectory(ScanDirectory);
         Directory.CreateDirectory(PendingDirectory);
         Directory.CreateDirectory(SentDirectory);
+        Directory.CreateDirectory(DuplicatesDirectory);
     }
 
     /// <summary>列出所有待同步的扫描信封文件：先 <c>pending/</c>，再 <c>scans/</c>，各自按文件名排序。</summary>
@@ -61,6 +65,23 @@ public sealed class ScanQueue
         }
 
         Directory.CreateDirectory(SentDirectory);
+        File.Move(fullPath, destination, overwrite: true);
+        return destination;
+    }
+
+    /// <summary>把同一游戏日期的重复扫描移到 <c>duplicates/</c>，保留原始文件。</summary>
+    /// <param name="path">扫描信封文件路径。</param>
+    /// <returns>隔离后的路径；文件不存在时返回 <c>null</c>。</returns>
+    public string? ArchiveDuplicate(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        if (!File.Exists(fullPath))
+        {
+            return null;
+        }
+
+        Directory.CreateDirectory(DuplicatesDirectory);
+        var destination = Path.Combine(DuplicatesDirectory, Path.GetFileName(fullPath));
         File.Move(fullPath, destination, overwrite: true);
         return destination;
     }
