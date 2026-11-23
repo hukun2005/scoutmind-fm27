@@ -119,6 +119,34 @@ internal static class LayoutAndProbeTests
                 "ca_range 应为失败");
         });
 
+        harness.Run("完整性探测：重复定位对象不算重复 UID", () =>
+        {
+            var layout = new FM27_1_Layout();
+            var memory = new FakeMemory();
+            var players = Enumerable.Range(0, 8)
+                .Select(index => FakeSave.WritePlayer(memory, layout, index, name: $"UID {index}"))
+                .ToList();
+            players.Add(players[0]);
+            var outcome = new ObjectProbes(memory, layout).ProbeIntegrity(players, Array.Empty<LocatedObject>());
+            TestHarness.True(outcome.ObjectIds!.DuplicateObjectAddressCount == 1, "应识别 1 个重复对象地址");
+            TestHarness.True(outcome.ObjectIds.DuplicateUidCount == 0, "重复对象不能算重复 UID");
+            TestHarness.True(outcome.Checks.Any(item => item.Name == "unique_uids" && item.Status == CheckStatus.Passed), "UID 唯一性应通过");
+        });
+
+        harness.Run("完整性探测：零 UID 计入无效而不是重复", () =>
+        {
+            var layout = new FM27_1_Layout();
+            var memory = new FakeMemory();
+            var players = Enumerable.Range(0, 8)
+                .Select(index => FakeSave.WritePlayer(memory, layout, index, name: $"Zero {index}"))
+                .ToList();
+            memory.WriteUInt32(players[0].Db + layout["OBJ_DUNI"], 0);
+            var outcome = new ObjectProbes(memory, layout).ProbeIntegrity(players, Array.Empty<LocatedObject>());
+            TestHarness.True(outcome.ObjectIds!.ZeroUidCount == 1, "应识别 1 个零 UID");
+            TestHarness.True(outcome.ObjectIds.DuplicateUidCount == 0, "零 UID 不能算重复 UID");
+            TestHarness.True(outcome.Checks.Any(item => item.Name == "uid_valid" && item.Status == CheckStatus.Failed), "合法比例不足应失败");
+        });
+
         harness.Run("球员探测：没有对象时候返回失败而不是通过", () =>
         {
             var layout = new FM27_1_Layout();
