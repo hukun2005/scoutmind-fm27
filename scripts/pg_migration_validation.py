@@ -27,7 +27,6 @@ from sqlalchemy.exc import IntegrityError
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 OLD_REVISION = "f3a9c57e21d8"
-HEAD_TABLES = 39
 
 
 def run_alembic(*args: str, url: str) -> float:
@@ -46,6 +45,30 @@ def run_alembic(*args: str, url: str) -> float:
     if result.returncode != 0:
         raise RuntimeError(f"alembic {' '.join(args)} failed:\n{result.stdout}\n{result.stderr}")
     return elapsed
+
+
+def scripted_head(url: str) -> str:
+    """Read the head revision from the migration scripts instead of hard-coding it.
+
+    A hard-coded revision makes every new migration fail this job for the wrong reason; the check
+    that matters is "the database is at whatever head the scripts declare".
+    """
+    env = {**os.environ, "SCOUTMIND_DATABASE_URL": url}
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "heads"],
+        cwd=BACKEND,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"alembic heads failed:\n{result.stdout}\n{result.stderr}")
+    heads = [line.split()[0] for line in result.stdout.splitlines() if line.strip()]
+    if len(heads) != 1:
+        raise RuntimeError(f"expected exactly one head, got {heads}")
+    return heads[0]
 
 
 def fill_value(column):
@@ -89,6 +112,7 @@ def validate_schema(engine) -> dict:
         "users", "fm_saves", "players", "player_instances", "player_snapshots", "import_jobs",
         "transfer_history", "transfer_sources", "transfer_import_runs", "identity_conflicts",
         "identity_conflict_actions", "identity_matches", "field_evidence_samples", "player_observation_canonicals", "player_observation_canonical_actions", "capture_runs", "transfer_event_candidates", "alembic_version",
+        "unresolved_player_candidates", "unresolved_player_observations", "unresolved_player_actions",
     }
     missing = sorted(expected - tables)
     columns = {row["name"] for row in inspector.get_columns("transfer_history")}
@@ -129,7 +153,9 @@ def main() -> int:
     with engine.connect() as connection:
         revision = connection.execute(text("select version_num from alembic_version")).scalar_one()
     report["checks"]["revision"] = revision
-    assert revision == "f6a7b8c9d0e1", revision
+    head = scripted_head(url)
+    report["checks"]["head"] = head
+    assert revision == head, (revision, head)
     assert report["checks"]["schema"]["missing_tables"] == []
     assert report["checks"]["schema"]["missing_columns"] == []
     assert report["checks"]["schema"]["missing_indexes"] == []
