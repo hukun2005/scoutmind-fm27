@@ -479,7 +479,7 @@ public sealed partial class ObjectProbes
         var uids = new HashSet<uint>();
         var samples = new List<ObjectIdSample>();
         int duplicateAddresses = 0, readableDb = 0, readableUid = 0, validUid = 0;
-        int zeroUid = 0, sentinelUid = 0, unreadableUid = 0, nullNames = 0;
+        int zeroUid = 0, sentinelUid = 0, unreadableUid = 0, nullNames = 0, freeAgentCandidates = 0;
 
         foreach (var player in candidates)
         {
@@ -545,6 +545,7 @@ public sealed partial class ObjectProbes
             int? ca = null, pa = null;
             string? dob = null;
             ulong? contractAddress = null, teamAddress = null, clubAddress = null;
+            bool contractReadable = false;
             try { ca = _memory.UInt16(player.Block + _layout["PLAO_CA"]); } catch (MemoryUnreadableException) { }
             try { pa = _memory.UInt16(player.Block + _layout["PLAO_PA"]); } catch (MemoryUnreadableException) { }
             try
@@ -556,6 +557,7 @@ public sealed partial class ObjectProbes
             try
             {
                 contractAddress = _memory.Pointer(player.Person + _layout["PERO_FULL_CONTRACT"]);
+                contractReadable = true;
                 if (contractAddress is not null and not 0)
                 {
                     teamAddress = _memory.Pointer(contractAddress.Value + _layout["CON_TEAM"]);
@@ -565,12 +567,17 @@ public sealed partial class ObjectProbes
             }
             catch (MemoryUnreadableException) { }
 
-            if (sentinelUid > 0 || samples.Count < 20)
-            {
-                samples.Add(new ObjectIdSample(
-                    player.Address, player.Db, uidAddress, raw, sampleStatus, reason, name,
-                    ca, pa, dob, contractAddress, teamAddress, clubAddress));
-            }
+            var freeAgentCandidate = raw is 0xFFFFFFFF
+                && contractReadable
+                && contractAddress is 0
+                && ca is >= 1 and <= 200
+                && pa is >= 1 and <= 200
+                && !string.IsNullOrWhiteSpace(name);
+            if (freeAgentCandidate) freeAgentCandidates++;
+
+            samples.Add(new ObjectIdSample(
+                player.Address, player.Db, uidAddress, raw, sampleStatus, reason, name,
+                ca, pa, dob, contractReadable, freeAgentCandidate, contractAddress, teamAddress, clubAddress));
         }
 
         var uniqueCount = uniqueObjects.Count;
@@ -586,7 +593,9 @@ public sealed partial class ObjectProbes
             sentinelUid,
             duplicateUidCount,
             unreadableUid,
-            samples);
+            freeAgentCandidates,
+            samples,
+            samples.Where(item => item.Status == "sentinel").ToList());
 
         var checks = new List<FieldCheck>
         {
@@ -594,8 +603,8 @@ public sealed partial class ObjectProbes
                 $"至少定位到 {minimumPlayers} 名去重球员（候选 {candidates.Count}，重复地址 {duplicateAddresses}）", 1.0),
             Ratio("uid_readable", readableUid, Math.Max(1, uniqueCount),
                 $"UID 可读比例（DB 可读 {readableDb}/{uniqueCount}；不可读 {unreadableUid}）", 0.95),
-            Ratio("uid_valid", validUid, Math.Max(1, readableUid),
-                $"UID 合法比例（0={zeroUid}，哨兵={sentinelUid}）", 0.95),
+            Ratio("uid_valid", validUid, Math.Max(1, readableUid - freeAgentCandidates),
+                $"UID 合法比例（0={zeroUid}，哨兵={sentinelUid}，其中已确认自由球员候选={freeAgentCandidates}；分母排除候选）", 0.95),
             Ratio("unique_uids", uids.Count, Math.Max(1, validUid),
                 $"合法 UID 去重比例（重复 UID {duplicateUidCount}）", 0.95),
             Ratio("unique_names", names.Count, Math.Max(1, uniqueCount - nullNames), "姓名在样本内基本唯一", 0.9),
