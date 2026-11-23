@@ -12,6 +12,8 @@ public sealed record ObjectIdSample(
     int? Ca = null,
     int? Pa = null,
     string? DateOfBirth = null,
+    bool? ContractReadable = null,
+    bool? FreeAgentCandidate = null,
     ulong? ContractAddress = null,
     ulong? TeamAddress = null,
     ulong? ClubAddress = null);
@@ -28,4 +30,6 @@ public sealed record ObjectIdDiagnostics(
     int SentinelUidCount,
     int DuplicateUidCount,
     int UnreadableUidCount,
-    IReadOnlyList<ObjectIdSample> Samples);
+    int FreeAgentCandidateCount,
+    IReadOnlyList<ObjectIdSample> Samples,
+    IReadOnlyList<ObjectIdSample> SentinelSamples);

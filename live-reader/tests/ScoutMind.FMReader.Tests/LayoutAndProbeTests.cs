@@ -133,6 +133,21 @@ internal static class LayoutAndProbeTests
             TestHarness.True(outcome.Checks.Any(item => item.Name == "unique_uids" && item.Status == CheckStatus.Passed), "UID 唯一性应通过");
         });
 
+        harness.Run("完整性探测：确认自由球员的哨兵 UID 不计入适用分母", () =>
+        {
+            var layout = new FM27_1_Layout();
+            var memory = new FakeMemory();
+            var players = Enumerable.Range(0, 8)
+                .Select(index => FakeSave.WritePlayer(memory, layout, index, name: $"Free {index}"))
+                .ToList();
+            memory.WriteUInt32(players[0].Db + layout["OBJ_DUNI"], 0xFFFFFFFF);
+            memory.WritePointer(players[0].Person + layout["PERO_FULL_CONTRACT"], 0);
+            var outcome = new ObjectProbes(memory, layout).ProbeIntegrity(players, Array.Empty<LocatedObject>());
+            TestHarness.True(outcome.ObjectIds!.FreeAgentCandidateCount == 1, "应识别 1 个自由球员候选");
+            TestHarness.True(outcome.Checks.Any(item => item.Name == "uid_valid" && item.Status == CheckStatus.Passed), "适用 UID 仍应通过");
+            TestHarness.Equal(1, outcome.ObjectIds.SentinelSamples.Count, "哨兵明细必须完整");
+        });
+
         harness.Run("完整性探测：零 UID 计入无效而不是重复", () =>
         {
             var layout = new FM27_1_Layout();
