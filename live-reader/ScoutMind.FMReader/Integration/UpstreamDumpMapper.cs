@@ -27,6 +27,18 @@ public sealed class MappingDiagnostics
     /// <summary>带整数 <c>teamType</c> 的球员数（语义未验证，因此不使用）。</summary>
     public int PlayersWithTeamType { get; set; }
 
+    /// <summary>没有可用身份（哨兵 / 缺失 / 非法 ID）的球员数。</summary>
+    public int UnresolvedPlayers { get; set; }
+
+    /// <summary>上游 ID 为 <c>0xFFFFFFFF</c> 的球员数。</summary>
+    public int SentinelUidPlayers { get; set; }
+
+    /// <summary>上游完全没有 id 的球员数。</summary>
+    public int MissingUidPlayers { get; set; }
+
+    /// <summary>id 存在但不是合法身份的球员数。</summary>
+    public int InvalidUidPlayers { get; set; }
+
     /// <summary>额外告警。</summary>
     public List<string> Notes { get; } = new();
 }
@@ -37,12 +49,16 @@ public sealed class MappingDiagnostics
 /// <param name="Clubs">俱乐部数。</param>
 /// <param name="Coverage">覆盖域。</param>
 /// <param name="Warnings">告警。</param>
+/// <param name="PlayersWithValidUid">拥有合法 UID 的球员数。</param>
+/// <param name="PlayersUnresolved">只作为无身份观察输出的球员数。</param>
 public sealed record MappedPayload(
     string Payload,
     int Players,
     int Clubs,
     IReadOnlyDictionary<string, bool> Coverage,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    int PlayersWithValidUid = 0,
+    int PlayersUnresolved = 0);
 
 /// <summary>
 /// 把上游 FMSuperScout 的 dump（<c>meta</c> / <c>players</c> / <c>staff</c>）转换成 ScoutMind 标准扫描协议。
@@ -103,6 +119,8 @@ public sealed partial class UpstreamDumpMapper
         var warnings = new List<string>();
         var clubs = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
         var playerNodes = new JsonArray();
+        var validUidPlayers = 0;
+        var unresolvedPlayers = 0;
 
         var myClubName = ReadString(meta, "myClub");
         string? userClubUid = null;
@@ -116,28 +134,40 @@ public sealed partial class UpstreamDumpMapper
             warnings.Add("上游没有提供主执教俱乐部（meta.myClub 为空）：需要在 ScoutMind 里手动指定本队。");
         }
 
+        var gameDate = ReadString(meta, "gameDate");
+        var generated = ReadString(meta, "generated");
+        var rowIndex = 0;
         foreach (var player in players.EnumerateArray())
         {
+            rowIndex++;
             if (player.ValueKind != JsonValueKind.Object)
             {
                 continue;
             }
 
-            var node = MapPlayer(player, clubs, diagnostics, userClubUid);
-            if (node is not null)
+            var node = MapPlayer(player, rowIndex, generated, clubs, diagnostics, userClubUid);
+            if (node is null)
             {
-                playerNodes.Add(node);
+                continue;
+            }
+
+            playerNodes.Add(node);
+            if (node.ContainsKey("save_local_uid"))
+            {
+                validUidPlayers++;
+            }
+            else
+            {
+                unresolvedPlayers++;
             }
         }
 
-        var gameDate = ReadString(meta, "gameDate");
-        var generated = ReadString(meta, "generated");
         var coverage = BuildCoverage(players.GetArrayLength(), clubs.Count, diagnostics);
         warnings.AddRange(BuildWarnings(meta, diagnostics, coverage, players.GetArrayLength()));
 
         var payload = new JsonObject
         {
-            ["schema_version"] = "1.0",
+            ["schema_version"] = "1.1",
             ["source"] = "fm27_live_reader",
             ["reader_version"] = readerVersion,
             ["game"] = new JsonObject
@@ -165,26 +195,29 @@ public sealed partial class UpstreamDumpMapper
             playerNodes.Count,
             clubs.Count,
             coverage,
-            warnings);
+            warnings,
+            validUidPlayers,
+            unresolvedPlayers);
     }
 
     private JsonObject? MapPlayer(
         JsonElement player,
+        int rowIndex,
+        string? dumpGenerated,
         Dictionary<string, JsonObject> clubs,
         MappingDiagnostics diagnostics,
         string? userClubUid)
     {
-        var uid = ReadLong(player, "id");
         var name = ReadString(player, "name");
-        if (uid is null || string.IsNullOrWhiteSpace(name))
+        if (string.IsNullOrWhiteSpace(name))
         {
-            diagnostics.Notes.Add("存在没有 id 或姓名的球员行，已跳过。");
+            diagnostics.Notes.Add($"存在没有姓名的球员行（第 {rowIndex} 行），已跳过。");
             return null;
         }
 
+        var identity = ReadIdentity(player);
         var node = new JsonObject
         {
-            ["save_local_uid"] = uid.Value.ToString(CultureInfo.InvariantCulture),
             ["name"] = name,
             ["birth_date"] = BirthDate(player, diagnostics),
             ["nationality"] = Nationality(player),
@@ -198,6 +231,46 @@ public sealed partial class UpstreamDumpMapper
             ["foot"] = MapFoot(ReadString(player, "foot")),
             ["world_reputation"] = ReadInt(player, "worldRep"),
         };
+
+        if (identity.IsValid)
+        {
+            // 只有合法 UID 才写 save_local_uid；identity 块是新协议的显式声明，老后端仍可读旧字段。
+            node["save_local_uid"] = identity.Raw;
+            node["identity"] = new JsonObject
+            {
+                ["kind"] = "save_local_uid",
+                ["value"] = identity.Raw,
+            };
+        }
+        else
+        {
+            CountUnresolved(identity.Status, diagnostics);
+            var evidence = new JsonObject
+            {
+                ["source"] = "fmsuperscout_dump",
+                ["field"] = "id",
+                ["row_index"] = rowIndex,
+            };
+            if (dumpGenerated is not null)
+            {
+                evidence["dump_generated"] = dumpGenerated;
+            }
+
+            var unresolved = new JsonObject
+            {
+                ["kind"] = "unresolved",
+                ["reason"] = identity.Reason,
+                ["uid_status"] = identity.StatusText,
+                ["source_record_id"] = $"dump_row:{rowIndex}",
+                ["evidence"] = evidence,
+            };
+            if (identity.Raw is not null)
+            {
+                unresolved["raw_uid"] = identity.Raw;
+            }
+
+            node["identity"] = unresolved;
+        }
 
         var clubName = ReadString(player, "club");
         if (string.IsNullOrWhiteSpace(clubName))
@@ -342,6 +415,8 @@ public sealed partial class UpstreamDumpMapper
         {
             ["players"] = players > 0,
             ["clubs"] = clubs > 0,
+            ["identity"] = players > 0,
+            ["unresolved_identity"] = players > 0,
             ["contracts"] = diagnostics.InvalidContractDates < players,
             ["teams"] = false,
             ["team_tiers"] = false,
@@ -384,6 +459,23 @@ public sealed partial class UpstreamDumpMapper
         if (diagnostics.PlayersWithoutClub > 0)
         {
             warnings.Add($"{diagnostics.PlayersWithoutClub} 名球员没有俱乐部名称：保持为未知，不归入任何俱乐部。");
+        }
+
+        if (diagnostics.SentinelUidPlayers > 0)
+        {
+            warnings.Add(
+                $"{diagnostics.SentinelUidPlayers} 名球员的上游 ID 是哨兵 0xFFFFFFFF（4294967295）："
+                + "已按无身份观察（identity.kind=unresolved）输出，不写 save_local_uid，也不会合并成一个球员。");
+        }
+
+        if (diagnostics.MissingUidPlayers > 0)
+        {
+            warnings.Add($"{diagnostics.MissingUidPlayers} 名球员上游没有提供 ID：保留为无身份观察，不丢弃。");
+        }
+
+        if (diagnostics.InvalidUidPlayers > 0)
+        {
+            warnings.Add($"{diagnostics.InvalidUidPlayers} 名球员的 ID 不是合法身份（0 或非数字）：保留原始值并进入待确认。");
         }
 
         if (diagnostics.UnmappedAttributes.Count > 0)
@@ -517,6 +609,40 @@ public sealed partial class UpstreamDumpMapper
         }
 
         return value.TryGetValue<int>(out var number) ? number : null;
+    }
+
+    /// <summary>读取上游 <c>id</c> 并判定身份；缺失、哨兵与非法值都不会被当成合法 UID。</summary>
+    private static IdentityAssessment ReadIdentity(JsonElement player)
+    {
+        if (player.ValueKind != JsonValueKind.Object || !player.TryGetProperty("id", out var value))
+        {
+            return PlayerIdentityClassifier.Classify(null);
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number when value.TryGetInt64(out var number) => PlayerIdentityClassifier.Classify(number),
+            JsonValueKind.String => PlayerIdentityClassifier.ClassifyText(value.GetString()),
+            JsonValueKind.Null => PlayerIdentityClassifier.Classify(null),
+            _ => new IdentityAssessment(IdentityStatus.InvalidUid, null, "invalid_uid_type"),
+        };
+    }
+
+    private static void CountUnresolved(IdentityStatus status, MappingDiagnostics diagnostics)
+    {
+        diagnostics.UnresolvedPlayers++;
+        switch (status)
+        {
+            case IdentityStatus.SentinelUid:
+                diagnostics.SentinelUidPlayers++;
+                break;
+            case IdentityStatus.MissingUid:
+                diagnostics.MissingUidPlayers++;
+                break;
+            default:
+                diagnostics.InvalidUidPlayers++;
+                break;
+        }
     }
 
     private static long? ReadLong(JsonElement element, string name)

@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from ..uid_status import classify_uid
+
 ADAPTER_NAME = "fmscout"
 ADAPTER_VERSION = "1"
 
@@ -229,6 +231,11 @@ class AdapterReport:
     players_total: int = 0
     players_skipped: int = 0
     players_converted: int = 0
+    players_valid_uid: int = 0
+    players_unresolved: int = 0
+    players_sentinel_uid: int = 0
+    players_missing_uid: int = 0
+    players_invalid_uid: int = 0
     clubs_converted: int = 0
     user_club: str | None = None
     attributes_mapped: int = 0
@@ -255,6 +262,11 @@ class AdapterReport:
             "players_total": self.players_total,
             "players_skipped": self.players_skipped,
             "players_converted": self.players_converted,
+            "players_valid_uid": self.players_valid_uid,
+            "players_unresolved": self.players_unresolved,
+            "players_sentinel_uid": self.players_sentinel_uid,
+            "players_missing_uid": self.players_missing_uid,
+            "players_invalid_uid": self.players_invalid_uid,
             "clubs_converted": self.clubs_converted,
             "user_club": self.user_club,
             "attributes_mapped": self.attributes_mapped,
@@ -392,7 +404,26 @@ def convert_document(
             if related_name:
                 _ensure_club(clubs, related_name, league=None, reputation=None, user_club_name=user_club_name)
         agreed = _agreed_transfer(entry)
-        row, present, ignored = _player_row(entry, club_uid, ownership=ownership, agreed=agreed)
+        row, present, ignored = _player_row(
+            entry,
+            club_uid,
+            ownership=ownership,
+            agreed=agreed,
+            row_index=report.players_total,
+            dump_generated=report.dump_generated,
+        )
+        identity_status = (row.get("identity") or {})
+        if row.get("save_local_uid"):
+            report.players_valid_uid += 1
+        else:
+            report.players_unresolved += 1
+            status = str(identity_status.get("uid_status") or "invalid")
+            if status == "sentinel":
+                report.players_sentinel_uid += 1
+            elif status == "missing":
+                report.players_missing_uid += 1
+            else:
+                report.players_invalid_uid += 1
         attribute_seen.update({key: attribute_seen.get(key, 0) + 1 for key in row.get("attributes", {})})
         ignored_attributes.update(ignored)
         for key, value in present.items():
@@ -462,6 +493,12 @@ def convert_document(
         report.warnings.append(
             f"{report.players_skipped} 条无俱乐部的幽灵记录已跳过（上游同样会过滤这些尚未进入游戏的 newgen）"
         )
+    if report.players_unresolved:
+        report.warnings.append(
+            f"{report.players_unresolved} 名球员的上游 ID 不能作为身份（哨兵 {report.players_sentinel_uid}、"
+            f"缺失 {report.players_missing_uid}、非法 {report.players_invalid_uid}）：已输出 identity.kind=unresolved，"
+            "由 ScoutMind 保存为待确认候选，绝不写入 save_local_uid"
+        )
     if ignored_attributes:
         report.warnings.append(
             "以下属性 ScoutMind 没有对应字段，已忽略：" + "、".join(sorted(ignored_attributes))
@@ -490,6 +527,7 @@ def convert_document(
         },
         "coverage": {
             "players": True,
+            "identity": bool(rows),
             "attributes": bool(attribute_seen),
             # 历史转会与"未来已达成"是两件事：没有历史数组时 transfers 为 False，
             # 但 agreed_transfers/loan_transfers 仍按实际观测标记。
@@ -525,9 +563,17 @@ def _player_row(
     *,
     ownership: dict[str, Any],
     agreed: dict[str, Any] | None,
+    row_index: int = 0,
+    dump_generated: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, bool], set[str]]:
-    """Map one dump player row onto the scan protocol player record."""
-    uid = _text(entry.get("id")) or _text(entry.get("uid"))
+    """Map one dump player row onto the scan protocol player record.
+
+    The upstream ``id`` decides the identity mode: a legal handle becomes ``save_local_uid``; the
+    ``0xFFFFFFFF`` sentinel, a missing id or a value that cannot be a handle become an ``unresolved``
+    identity block, so the player is preserved without inventing an identity.
+    """
+    uid_raw = entry.get("id") if entry.get("id") is not None else entry.get("uid")
+    identity = classify_uid(uid_raw)
     name = _text(entry.get("name"))
     birth = _birth_date(entry)
     age = _int(entry.get("age"))
@@ -535,9 +581,8 @@ def _player_row(
     position = _position(entry)
     availability = _availability(entry, proneness)
     row: dict[str, Any] = {
-        "record_id": uid,
-        "save_local_uid": uid,
-        "game_unique_id": uid,
+        "record_id": identity.raw_uid if identity.is_valid else None,
+        "game_unique_id": identity.raw_uid if identity.is_valid else None,
         "name": name or "未命名球员",
         "birth_date": birth.isoformat() if birth else None,
         "age": age,
@@ -558,7 +603,23 @@ def _player_row(
         "ownership": ownership or None,
         "agreed_transfer": agreed,
     }
+    if identity.is_valid:
+        row["save_local_uid"] = identity.raw_uid
+        row["identity"] = {"kind": "save_local_uid", "value": identity.raw_uid}
+    else:
+        evidence: dict[str, Any] = {"source": "fmsuperscout_dump", "field": "id", "row_index": row_index}
+        if dump_generated:
+            evidence["dump_generated"] = dump_generated
+        row["identity"] = {
+            "kind": "unresolved",
+            "raw_uid": identity.raw_uid,
+            "reason": identity.reason or "invalid_uid",
+            "uid_status": identity.status,
+            "source_record_id": f"dump_row:{row_index}",
+            "evidence": evidence,
+        }
     present = {
+
         "ca": row["ca"] is not None,
         "pa": row["pa"] is not None,
         "market_value": row["market_value"] is not None,

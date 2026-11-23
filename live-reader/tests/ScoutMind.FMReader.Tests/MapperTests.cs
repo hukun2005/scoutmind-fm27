@@ -23,7 +23,7 @@ internal static class MapperTests
 
         harness.Run("协议：包含 schema_version / source / players / clubs / transfers", () =>
         {
-            TestHarness.Equal("1.0", root.GetProperty("schema_version").GetString(), "协议版本");
+            TestHarness.Equal("1.1", root.GetProperty("schema_version").GetString(), "协议版本");
             TestHarness.Equal("fm27_live_reader", root.GetProperty("source").GetString(), "来源标记");
             TestHarness.True(players.Count > 0, "应映射出球员");
             TestHarness.True(root.GetProperty("transfers").ValueKind == JsonValueKind.Array, "transfers 必须是数组");
@@ -51,6 +51,29 @@ internal static class MapperTests
             {
                 TestHarness.Equal(ca.GetInt32(), mappedFirst.GetProperty("ca").GetInt32(), "CA 必须与上游一致");
             }
+        });
+
+        harness.Run("身份：真实样本每行都带 identity 块，且只有合法 UID 写 save_local_uid", () =>
+        {
+            foreach (var item in players)
+            {
+                var identity = item.GetProperty("identity");
+                var kind = identity.GetProperty("kind").GetString();
+                if (kind == "save_local_uid")
+                {
+                    TestHarness.Equal(kind, "save_local_uid", "合法身份类型");
+                    TestHarness.True(item.TryGetProperty("save_local_uid", out var uid)
+                        && uid.GetString() == identity.GetProperty("value").GetString(), "identity.value 必须与 save_local_uid 一致");
+                }
+                else
+                {
+                    TestHarness.Equal("unresolved", kind, "无身份行必须是 unresolved");
+                    TestHarness.True(!item.TryGetProperty("save_local_uid", out _), "无身份行不得带 save_local_uid");
+                }
+            }
+
+            TestHarness.Equal(players.Count, players.Count(item => item.TryGetProperty("save_local_uid", out _)),
+                "真实样本 300 名球员都有合法 id");
         });
 
         harness.Run("球员：出生日期由 birthYear + birthDoy 还原", () =>

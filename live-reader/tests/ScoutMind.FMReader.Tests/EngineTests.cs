@@ -182,7 +182,7 @@ internal static class EngineTests
 
             using var document = JsonDocument.Parse(result.PayloadJson!);
             var root = document.RootElement;
-            TestHarness.Equal("1.0", root.GetProperty("schema_version").GetString(), "协议版本");
+            TestHarness.Equal("1.1", root.GetProperty("schema_version").GetString(), "协议版本");
             TestHarness.Equal("26620374", root.GetProperty("game").GetProperty("build").GetString(), "构建号");
             var player = root.GetProperty("players")[0];
             TestHarness.Equal("1001", player.GetProperty("save_local_uid").GetString(), "球员 ID");

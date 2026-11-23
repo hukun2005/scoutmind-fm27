@@ -13,6 +13,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from .uid_status import UID_SENTINEL, UID_VALID, classify_uid
+
 SOURCE_KINDS = (
     "fm27_live_reader",
     "fm_save_parser",
@@ -243,13 +245,153 @@ class AgreedTransferRecord(BaseModel):
     transfer_date: date | None = None
 
 
+#: Upper bound for the evidence block of one unresolved identity, so a payload cannot bloat the database.
+MAX_IDENTITY_EVIDENCE_JSON = 2000
+
+
+class PlayerIdentityRecord(BaseModel):
+    """Identity declaration of one player row.
+
+    ``kind='save_local_uid'`` is the schema-1.0 identity: the upstream UID is trusted and must be a valid,
+    non-sentinel handle. ``kind='unresolved'`` says the source could not name an identity (sentinel
+    ``0xFFFFFFFF``, no ID at all, or a value that cannot be a UID); such a row becomes an unresolved
+    observation and never creates a player instance.
+
+    The two modes are mutually exclusive. An unresolved row must not carry ``save_local_uid``, and a valid
+    row must never carry a sentinel: ``4294967295`` is "no identity", not the identity of fourteen players.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    kind: Literal["save_local_uid", "unresolved"]
+    value: str | None = Field(default=None, max_length=64)
+    raw_uid: str | None = Field(default=None, max_length=64)
+    reason: str | None = Field(default=None, max_length=64)
+    uid_status: Literal["valid", "sentinel", "missing", "invalid"] | None = None
+    source_record_id: str | None = Field(default=None, max_length=128)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+def _identity_code(status: str) -> str:
+    return {"sentinel": "sentinel_uid", "missing": "missing_uid"}.get(status, "invalid_uid")
+
+
+def normalize_player_identity(row: dict[str, Any]) -> dict[str, Any]:
+    """Resolve one row's identity mode into normalized protocol fields.
+
+    Returns ``save_local_uid``, ``identity``, ``uid_status`` and ``uid_reason``. Raises
+    :class:`RowValidationError` with a stable code when the row mixes modes or tries to pass a sentinel
+    off as a legal UID. A legacy row that only carries a sentinel ``save_local_uid`` is preserved as an
+    unresolved observation instead of being dropped or stored under the sentinel.
+    """
+    raw_identity = row.get("identity")
+    declared_uid = row.get("save_local_uid")
+
+    if raw_identity is None:
+        assessment = classify_uid(declared_uid)
+        if assessment.is_valid:
+            return {
+                "save_local_uid": assessment.raw_uid,
+                "identity": {"kind": "save_local_uid", "value": assessment.raw_uid},
+                "uid_status": UID_VALID,
+                "uid_reason": None,
+            }
+        if assessment.status == "missing":
+            raise RowValidationError("missing_uid", "球员缺少 save_local_uid 或 identity")
+        return {
+            "save_local_uid": None,
+            "identity": {
+                "kind": "unresolved",
+                "raw_uid": assessment.raw_uid,
+                "reason": assessment.reason or "invalid_uid",
+                "uid_status": assessment.status,
+                "evidence": {"protocol": "legacy_save_local_uid", "uid_status": assessment.status},
+            },
+            "uid_status": assessment.status,
+            "uid_reason": assessment.reason,
+        }
+
+    if not isinstance(raw_identity, dict):
+        raise RowValidationError("invalid_identity", "identity 必须是对象")
+    kind = raw_identity.get("kind")
+    if kind == "save_local_uid":
+        value = raw_identity.get("value") or declared_uid
+        if value is None or not str(value).strip():
+            raise RowValidationError("missing_uid", "identity.kind=save_local_uid 但缺少 value")
+        assessment = classify_uid(value)
+        if not assessment.is_valid:
+            raise RowValidationError(
+                _identity_code(assessment.status),
+                f"身份值 {assessment.raw_uid!r} 不能作为合法 UID（{assessment.reason}）",
+            )
+        declared = classify_uid(declared_uid)
+        if declared_uid is not None and not declared.is_valid:
+            raise RowValidationError(
+                "identity_conflict", "save_local_uid 不是合法 UID，与 identity 声明冲突"
+            )
+        if declared_uid is not None and declared.raw_uid != assessment.raw_uid:
+            raise RowValidationError("identity_conflict", "save_local_uid 与 identity.value 不一致")
+        return {
+            "save_local_uid": assessment.raw_uid,
+            "identity": {"kind": "save_local_uid", "value": assessment.raw_uid},
+            "uid_status": UID_VALID,
+            "uid_reason": None,
+        }
+
+    if kind != "unresolved":
+        raise RowValidationError("invalid_identity", f"未知 identity.kind {kind!r}")
+    if declared_uid not in (None, ""):
+        raise RowValidationError("identity_conflict", "unresolved 行不能同时携带 save_local_uid")
+
+    raw_uid = raw_identity.get("raw_uid")
+    assessment = classify_uid(raw_uid)
+    if assessment.is_valid:
+        raise RowValidationError(
+            "identity_conflict", "identity.raw_uid 是合法 UID；合法身份必须使用 save_local_uid 模式"
+        )
+    reason = raw_identity.get("reason") or assessment.reason
+    if not reason:
+        raise RowValidationError("invalid_identity", "unresolved 行必须给出 reason")
+    evidence = raw_identity.get("evidence") or {}
+    if not isinstance(evidence, dict):
+        raise RowValidationError("invalid_identity", "identity.evidence 必须是对象")
+    source_record_id = raw_identity.get("source_record_id")
+    if not evidence:
+        raise RowValidationError("invalid_identity", "unresolved 行必须带来源证据（identity.evidence）")
+    if assessment.status == "missing" and not (source_record_id or evidence):
+        raise RowValidationError("invalid_identity", "缺少原始 UID 的观察记录必须带来源证据")
+    if len(json.dumps(evidence, ensure_ascii=False, default=str)) > MAX_IDENTITY_EVIDENCE_JSON:
+        raise RowValidationError("invalid_identity", "identity.evidence 过大")
+    return {
+        "save_local_uid": None,
+        "identity": {
+            "kind": "unresolved",
+            "raw_uid": assessment.raw_uid,
+            "reason": str(reason)[:64],
+            "uid_status": assessment.status,
+            "source_record_id": source_record_id,
+            "evidence": evidence,
+        },
+        "uid_status": assessment.status,
+        "uid_reason": str(reason)[:64],
+    }
+
+
 class PlayerRecord(BaseModel):
-    """A player observation. Any field the scanner cannot read must be ``null``."""
+    """A player observation. Any field the scanner cannot read must be ``null``.
+
+    A row is either a legal-UID observation (``save_local_uid`` and/or ``identity.kind='save_local_uid'``)
+    or an unresolved observation (``identity.kind='unresolved'``). ``uid_status``/``uid_reason`` are
+    derived from the identity mode and overwritten on validation, so a payload cannot declare them.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
     record_id: str | None = None
-    save_local_uid: str = Field(min_length=1, max_length=64)
+    save_local_uid: str | None = Field(default=None, max_length=64)
+    identity: PlayerIdentityRecord | None = None
+    uid_status: str = "valid"
+    uid_reason: str | None = None
     game_unique_id: str | None = None
     name: str = Field(min_length=1, max_length=128)
     birth_date: date | None = None
@@ -276,13 +418,33 @@ class PlayerRecord(BaseModel):
     ownership: OwnershipRecord | None = None
     agreed_transfer: AgreedTransferRecord | None = None
 
-    @field_validator("name", "save_local_uid")
+    @field_validator("name")
     @classmethod
     def _strip(cls, value: str) -> str:
         stripped = value.strip()
         if not stripped:
             raise ValueError("value must not be blank")
         return stripped
+
+    @model_validator(mode="after")
+    def _identity_mode(self) -> "PlayerRecord":
+        """Normalize the identity mode; reuses the row-level rule so both entry points agree."""
+        normalized = normalize_player_identity(
+            {
+                "save_local_uid": self.save_local_uid,
+                "identity": self.identity.model_dump() if self.identity is not None else None,
+            }
+        )
+        self.save_local_uid = normalized["save_local_uid"]
+        self.identity = PlayerIdentityRecord.model_validate(normalized["identity"])
+        self.uid_status = normalized["uid_status"]
+        self.uid_reason = normalized["uid_reason"]
+        return self
+
+    @property
+    def has_valid_uid(self) -> bool:
+        """True when this row may be resolved to a save-local player instance."""
+        return self.identity is not None and self.identity.kind == "save_local_uid" and bool(self.save_local_uid)
 
 
 class FeeComponentRecord(BaseModel):
@@ -421,13 +583,19 @@ def validate_club_row(row: dict[str, Any]) -> ClubRecord:
 
 
 def validate_player_row(row: dict[str, Any]) -> PlayerRecord:
-    """Validate one player row, raising :class:`RowValidationError` with a stable code."""
-    if not isinstance(row.get("save_local_uid"), str) or not row["save_local_uid"].strip():
-        raise RowValidationError("missing_uid", "球员缺少 save_local_uid")
+    """Validate one player row, raising :class:`RowValidationError` with a stable code.
+
+    Legal-UID rows and unresolved rows both validate here; the caller decides what to persist from
+    ``record.identity.kind``. ``save_local_uid`` is never synthesized and a sentinel never validates.
+    """
     if not isinstance(row.get("name"), str) or not row["name"].strip():
         raise RowValidationError("missing_name", "球员缺少 name")
     try:
-        return PlayerRecord.model_validate(row)
+        normalized = normalize_player_identity(row)
+    except RowValidationError:
+        raise
+    try:
+        return PlayerRecord.model_validate({**row, **normalized})
     except Exception as exc:
         raise RowValidationError("invalid_player", f"球员数据无效：{_first_error(exc)}") from exc
 

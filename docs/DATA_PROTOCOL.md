@@ -47,6 +47,7 @@
 {
   "record_id": "p-1001",
   "save_local_uid": "770123",
+  "identity": {"kind": "save_local_uid", "value": "770123"},
   "game_unique_id": "1234567890",
   "name": "Adam Wharton",
   "birth_date": "2004-02-06",
@@ -60,10 +61,37 @@
   "attributes": {"passing": 15, "tackling": 13, "stamina": 16}
 }
 ```
-- `save_local_uid` 必填；`name` 必填；其余缺失写 `null`。
+- `name` 必填；其余缺失写 `null`。
+- 身份二选一，互斥：
+  - **合法 UID**：`save_local_uid`（1.0 写法）与/或 `identity: {"kind": "save_local_uid", "value": "<uid>"}`。只有通过校验的 UID 才会写入 `save_local_uid`。
+  - **Unresolved**：`identity: {"kind": "unresolved", "raw_uid": "4294967295", "reason": "sentinel_uid", "source_record_id": "dump_row:14", "evidence": {"source": "fmsuperscout_dump"}}`。此时**不得**带 `save_local_uid`；该行保存为待确认候选，不创建球员身份。
+- 哨兵 `4294967295`（`0xFFFFFFFF`）、`-1`、`0`、空字符串与非法文本都不会成为 `save_local_uid`：哨兵与非法值进入 Unresolved，空值按缺 UID 处理（该行拒绝）。
+- `uid_status`/`uid_reason` 由后端根据身份模式推导并覆盖，报文自报的值不会被采信。
 - `age` 可选：数据源直接给出年龄时写入，导入时优先使用它，不再由 `birth_date` 反推。
 - 属性键使用 `player_attributes` 字典（英文小写下划线，如 `passing`/`off_the_ball`）；未知键记录 `warnings` 并忽略，不写入伪值。
 - 身价、工资为整数（游戏货币单位），不做汇率换算。
+
+#### Unresolved 示例（自由球员 / 上游哨兵 ID）
+
+```json
+{
+  "name": "Free Agent Example",
+  "identity": {
+    "kind": "unresolved",
+    "raw_uid": "4294967295",
+    "reason": "sentinel_uid",
+    "uid_status": "sentinel",
+    "source_record_id": "dump_row:42",
+    "evidence": {"source": "fmsuperscout_dump", "field": "id", "row_index": 42, "dump_generated": "2026-11-23T10:00:00"}
+  },
+  "birth_date": "2003-07-01", "nationality": "England", "position": "ST",
+  "ca": 118, "pa": 132, "contract_end": null
+}
+```
+
+`identity.evidence` 必填（上限 2000 字符）。`reason` 缺失时由 `raw_uid` 的判定结果补全；`raw_uid` 若本身是合法 UID
+则拒绝（必须走合法 UID 模式）。
+
 
 #### 可选：赛季统计块
 
@@ -133,7 +161,9 @@
 | `scan_id` 已成功导入 | 整包跳过，`duplicate=true` |
 | `observed_at` 非 ISO-8601 / 缺失 | 整包拒绝（400） |
 | `source` 不在枚举内 | 整包拒绝（400） |
-| 球员缺 `save_local_uid` 或 `name` | 该行拒绝，写 `import_rows` |
+| 球员缺 `save_local_uid`、`identity` 或 `name` | 该行拒绝，写 `import_rows` |
+| 球员 `save_local_uid` 是哨兵（`4294967295` / `-1`）或非法值（`0`、非数字） | 转为 Unresolved 观察，绝不写成合法 UID；`identity.kind=unresolved` 必须自带 `evidence` |
+| Unresolved 行同时带 `save_local_uid`，或 `identity.value` 是哨兵 | 该行拒绝（`identity_conflict` / `sentinel_uid`） |
 | 同一 `save_local_uid` 但 `birth_date` 不一致 | 视为 ID 复用：新建 player+instance，写 warning，不覆盖旧身份 |
 | 重复提交同一球员同一 `observed_at` | 不新增快照（追加语义按 `(instance, observed_at)` 去重） |
 | 交易缺 `status` | 按 `unknown` 入库，但不进成交统计 |
@@ -148,6 +178,9 @@
 ## 6. 版本策略
 
 `schema_version` 采用 `major.minor`；`major` 变化表示不兼容，后端拒绝并提示升级；`minor` 变化向后兼容，未知字段忽略并记录 warning。读取器与协议版本必须写入 `import_jobs`，便于追溯。
+
+当前读取器输出 `1.1`：相对 `1.0` 只增加可选 `identity` 块（合法 UID 与 Unresolved 两种模式）。后端接受全部 `1.x`；
+`1.0` 报文里的哨兵 `save_local_uid` 会被降级为 Unresolved 观察，而不是写成身份。`2.0` 仍被拒绝。
 
 ## 6. 来源适配层（source = fmsuperscout）
 
