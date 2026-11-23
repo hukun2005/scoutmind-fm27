@@ -32,7 +32,7 @@ public sealed record ScanMetadata(
 /// <c>clubs</c> / <c>players</c> / <c>transfers</c> 保留扫描器输出的原始 JSON 元素，
 /// 读取器不解释字段语义，只负责计数与转发。
 /// </summary>
-/// <param name="SchemaVersion">数据协议版本，当前为 <c>1.0</c>。</param>
+/// <param name="SchemaVersion">数据协议版本；由扫描器声明，带身份块时 mapper 输出 <c>1.1</c>。</param>
 /// <param name="Source">数据来源标记，读取器固定写 <c>fm27_live_reader</c>。</param>
 /// <param name="ReaderVersion">读取器版本，写入导入任务便于追溯。</param>
 /// <param name="Game">游戏与构建信息。</param>

@@ -71,8 +71,14 @@ public static class ScanEnvelopeBuilder
         var warnings = new List<string>(payload.Warnings);
         warnings.AddRange(notes);
 
+        // The scanner's own protocol version wins: the mapper emits 1.1 when rows carry identity blocks, and
+        // rewriting that to the reader default would hide the additive contract from the backend.
+        var schemaVersion = string.IsNullOrWhiteSpace(payload.SchemaVersion)
+            ? ReaderInfo.SchemaVersion
+            : payload.SchemaVersion;
+
         var envelope = new ScanEnvelope(
-            SchemaVersion: ReaderInfo.SchemaVersion,
+            SchemaVersion: schemaVersion,
             Source: ReaderInfo.Source,
             ReaderVersion: readerVersion,
             Game: new ScanGame(
