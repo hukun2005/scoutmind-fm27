@@ -34,6 +34,7 @@ VdfParserTests.Run(harness);
 CompatibilityTests.Run(harness);
 ScanEnvelopeTests.Run(harness);
 await CliParserTests.RunAsync(harness);
+ProbeReportTests.Run(harness);
 await ScannerAdapterTests.RunAsync(harness);
 
 return harness.Summary();
