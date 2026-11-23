@@ -491,14 +491,21 @@ public sealed partial class ObjectProbes
 
             var dbReadable = _memory.IsReadable(player.Db, 4);
             if (dbReadable) readableDb++;
+            var uidOffset = _layout["OBJ_DUNI"];
+            var overflow = player.Db > ulong.MaxValue - uidOffset;
+            var uidAddress = overflow ? player.Db : player.Db + uidOffset;
+            var uidReadable = !overflow && _memory.IsReadable(uidAddress, 4);
             uint? raw = null;
             var sampleStatus = "unreadable";
-            string? reason = dbReadable ? null : "db_unreadable";
-            if (dbReadable)
+            string? reason = overflow ? "uid_address_overflow"
+                : !dbReadable ? "db_unreadable"
+                : !uidReadable ? "uid_unreadable"
+                : null;
+            if (uidReadable)
             {
                 try
                 {
-                    raw = _memory.UInt32(player.Db + _layout["OBJ_DUNI"]);
+                    raw = _memory.UInt32(uidAddress);
                     readableUid++;
                     sampleStatus = "read";
                 }
@@ -534,9 +541,9 @@ public sealed partial class ObjectProbes
 
             var name = ReadPlayerName(player.Person);
             if (name is null) nullNames++; else names.Add(name);
-            if (samples.Count < 20)
+            if (sentinelUid > 0 || samples.Count < 20)
             {
-                samples.Add(new ObjectIdSample(player.Address, player.Db, raw, sampleStatus, reason, name));
+                samples.Add(new ObjectIdSample(player.Address, player.Db, uidAddress, raw, sampleStatus, reason, name));
             }
         }
 

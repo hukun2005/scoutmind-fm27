@@ -4,6 +4,7 @@ namespace ScoutMind.FMReader.Probes;
 public sealed record ObjectIdSample(
     ulong ObjectAddress,
     ulong DbAddress,
+    ulong UidAddress,
     uint? RawUid,
     string Status,
     string? Reason,
