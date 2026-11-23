@@ -1,7 +1,7 @@
 # ScoutMind FM27 V3.2.2 — 实施报告（阶段性）
 
 - 基线：`main` `397007b`
-- 开发分支：`feature/v3.2.2-sm067-auto-snapshot`
+- 开发分支：`codex/v3.2.2-auto-snapshot`
 - 实施日期：2026-11-23
 - 状态：**部分阶段完成；未合并 main**
 - 真实 FM27：运行中（pid 105040），但自动采集的轻量日期探测尚未实现，真实自动采集验收 **NOT_RUN**
@@ -73,7 +73,7 @@
 | 新迁移 | `e5a1b2c3d4f6_capture_runs`、`f6a7b8c9d0e1_transfer_event_candidates` |
 | 历史迁移修改 | 无 |
 | SQLite 往返 | 两个新迁移均 upgrade → downgrade -1 → upgrade 通过 |
-| PostgreSQL 16 | 待 CI |
+| PostgreSQL 16 | **PASS**（run 45126784762） |
 | 真实库 | 未执行新迁移；避免在自动采集未完成时改真实 schema |
 
 ## 4. 测试
@@ -85,7 +85,7 @@
 | 新增 SM-070 事件 | 2 项 |
 | SM-068 suggestion | 现有 review 测试扩展 |
 | SM-069 属性趋势 | 1 项 |
-| Playwright | **2 passed** |
+| Playwright | **2 passed**（本地 chromium） |
 | .NET build | 0 error |
 | 前端 build（vue-tsc） | PASS |
 | 真实 FM27 自动采集 | **NOT_RUN** |
@@ -103,5 +103,12 @@
 ## 6. Git
 
 - 分支：`feature/v3.2.2-sm067-auto-snapshot`
-- 本报告提交后以远程分支 HEAD 为准。
+- 远程分支 HEAD：`a6bc4e9`（报告提交前）；CI run **45126784762** success。
 - main 仍为 `397007b`。
+
+
+## 7. CI
+
+- run **45126784762**：**success**
+- Backend、PostgreSQL 16、AI isolation、.NET、Frontend 全部通过
+- 真实 FM27 自动采集验收仍为 **NOT_RUN**（Agent 自动日期监控未实现）
