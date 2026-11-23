@@ -80,6 +80,7 @@ def test_adapter_does_not_merge_two_sentinel_players() -> None:
 def test_adapter_valid_rows_keep_working() -> None:
     document = _dump([{"id": 777, "name": "Normal", "club": "Club A", "ca": 140, "pa": 160, "worldRep": 5000}])
     payload, report = fmscout.convert_document(document)
+    assert payload["schema_version"] == "1.1", "输出 identity 块时必须声明 1.1（1.x 兼容）"
     row = payload["players"][0]
     assert row["save_local_uid"] == "777"
     assert row["record_id"] == "777"

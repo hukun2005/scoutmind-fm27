@@ -507,7 +507,8 @@ def convert_document(
         report.warnings.append("FMSuperScout 的导出不含转会与逐场统计，转会/表现模块只能显示已有数据")
 
     payload: dict[str, Any] = {
-        "schema_version": "1.0",
+        # 1.1 只增加可选 identity 块（1.0 兼容）；适配层现在会输出 unresolved 身份，必须如实声明版本。
+        "schema_version": "1.1",
         "source": "fmsuperscout",
         "reader_version": f"{ADAPTER_NAME}-adapter-{ADAPTER_VERSION}",
         "game": {
