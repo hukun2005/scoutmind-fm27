@@ -109,3 +109,20 @@
 | `loan_status` | `none` / `loaned_out` / `loaned_in` / `unknown` |
 | `source` / `confidence` | 来源与匹配置信度 |
 | `observed_at` / `raw_json` | 观测时间与原始行，便于回溯 |
+
+## 6. Unresolved 自由球员（V3.2.2.8 新增）
+
+上游没有可用身份的球员（哨兵 `4294967295`、缺失 ID、非法 ID）不写入 `player_instances`，改存为候选与观察。
+
+| 表 | 一行代表 | 关键规则 |
+| --- | --- | --- |
+| `unresolved_player_candidates` | 一个待确认的无身份球员 | `UNIQUE(fm_save_id, candidate_key)`；`candidate_key` 只在有**已验证**稳定 ID 时跨扫描复用，否则按 `row:<scan>:<index>` 一观察一候选；姓名与哨兵值都不是键 |
+| `unresolved_player_observations` | 某个扫描中的一条原始观察 | `UNIQUE(fm_save_id, scan_id, row_index)` 保证同一扫描重复导入不重复写；`raw_uid`/`uid_status` 保留原始证据；`payload_hash` 记录该行内容摘要 |
+| `unresolved_player_actions` | 一次人工决定（确认/忽略） | 追加写；模型层拒绝 `UPDATE`/`DELETE`；含目标球员、决定前后状态与证据快照 |
+
+- 状态：`pending` / `review_required` / `resolved` / `dismissed`；没有"默认已确认"的状态。
+- 候选上的 `observation_count` / `first_seen_at` / `last_seen_at` / `latest_ca` / `latest_pa` 是派生缓存，只有导入器写入；
+  `unresolved_player_observations` 是唯一事实来源。
+- 人工确认为 `resolved` 时在 `identity_matches` 追加一条 `strategy=unresolved_manual_link`，不会改写既有球员姓名，也不会补造快照。
+- 迁移 `a8c4d5e6f701` 只新增三张表与其索引/外键，不修改 `player_instances.save_local_uid`，也不触碰历史数据。
+

@@ -467,3 +467,52 @@
 
 `GET /squad/overview` 增加 `composition`：`available`、`counts`/`buckets`（`senior`/`reserve`/`youth`/`loaned_out`/`loaned_in`/`unknown`）、`gaps`。
 `GET /players` 的每一行增加 `save_local_uid`，用于填写阵容 CSV。
+
+## 15. 自由球员待确认（Unresolved，2026-11 新增）
+
+无可用身份的球员（上游哨兵 `4294967295`、缺失 ID 或非法 ID）不会写成 `save_local_uid`，也不会创建
+`PlayerInstance`。它们以「候选 + 观察」的形式保存，只有人工确认后才建立身份关联。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/unresolved-players` | 当前存档的候选列表；`status`、`name`、`position`、`min_ca`、`min_pa`、`page`、`page_size` |
+| `GET` | `/unresolved-players/{candidate_id}` | 详情：UID 原始状态、证据、匹配建议、审计历史 |
+| `GET` | `/unresolved-players/{candidate_id}/observations` | 分页的原始观察记录 |
+| `POST` | `/unresolved-players/{candidate_id}/resolve` | 人工关联到同一存档内的既有身份（必须 `confirm=true`） |
+| `POST` | `/unresolved-players/{candidate_id}/dismiss` | 忽略候选；观察记录保留 |
+
+列表响应：
+
+```json
+{
+  "items": [{
+    "id": 1, "save_id": 1, "status": "pending",
+    "display_name": "Free Agent One", "birth_date": "2003-07-01", "position": "ST",
+    "observation_count": 1, "first_seen_at": "2026-11-23T10:00:00Z", "last_seen_at": "2026-11-23T10:00:00Z",
+    "uid": {"status": "sentinel", "reason": "sentinel_uid", "raw_uid": "4294967295",
+            "note": "原始 UID 只作为证据保存，不会写入 save_local_uid"},
+    "latest_observation": {"observation_id": 11, "scan_id": "scan-1", "row_index": 14,
+                           "ca": 118, "pa": 132, "club_name": null, "contract_end": null},
+    "resolution": null, "dismissal": null, "suggestions_are_advisory": true
+  }],
+  "total": 14, "page": 1, "page_size": 20,
+  "counts": {"pending": 14, "review_required": 0, "resolved": 0, "dismissed": 0},
+  "note": "这些球员没有可用身份；确认之前不进入任何正式统计"
+}
+```
+
+`POST /unresolved-players/{id}/resolve` body：
+
+```json
+{"player_instance_id": 9, "confirm": true, "note": "人工核对姓名与生日"}
+```
+
+- `confirm` 必须为 `true`，否则 400 `confirmation_required`；
+- 目标必须是**同一存档**内的 `player_instance_id` 或 `player_id`，否则 404 `target_not_in_save`；
+- 已处理过的候选再次确认返回 409 `unresolved_already_decided`（并发用条件 UPDATE 拦截）；
+- 成功后在事务内写 `identity_matches`（`strategy=unresolved_manual_link`）与不可覆盖的
+  `unresolved_player_actions` 审计行，返回 `audit_action_id`。
+
+`POST /unresolved-players/{id}/dismiss` body：`{"reason": "不是目标球员", "note": "可选"}`；
+`reason` 必填；重复忽略返回 409。两个接口都不会删除观察记录，越权访问一律 404。
+
