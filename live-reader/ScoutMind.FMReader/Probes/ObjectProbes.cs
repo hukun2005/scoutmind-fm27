@@ -473,42 +473,146 @@ public sealed partial class ObjectProbes
     /// <returns>探测结果。</returns>
     public ProbeOutcome ProbeIntegrity(IReadOnlyList<LocatedObject> players, IReadOnlyList<LocatedObject> clubs, int minimumPlayers = 20)
     {
-        var sample = players.Take(256).ToList();
-        var uids = new HashSet<uint>();
+        var candidates = players.Take(256).ToList();
+        var uniqueObjects = new HashSet<ulong>();
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        int nullNames = 0;
-        foreach (var player in sample)
+        var uids = new HashSet<uint>();
+        var samples = new List<ObjectIdSample>();
+        int duplicateAddresses = 0, readableDb = 0, readableUid = 0, validUid = 0;
+        int zeroUid = 0, sentinelUid = 0, unreadableUid = 0, nullNames = 0, freeAgentCandidates = 0;
+
+        foreach (var player in candidates)
         {
+            if (!uniqueObjects.Add(player.Address))
+            {
+                duplicateAddresses++;
+                continue;
+            }
+
+            var dbReadable = _memory.IsReadable(player.Db, 4);
+            if (dbReadable) readableDb++;
+            var uidOffset = _layout["OBJ_DUNI"];
+            var overflow = player.Db > ulong.MaxValue - uidOffset;
+            var uidAddress = overflow ? player.Db : player.Db + uidOffset;
+            var uidReadable = !overflow && _memory.IsReadable(uidAddress, 4);
+            uint? raw = null;
+            var sampleStatus = "unreadable";
+            string? reason = overflow ? "uid_address_overflow"
+                : !dbReadable ? "db_unreadable"
+                : !uidReadable ? "uid_unreadable"
+                : null;
+            if (uidReadable)
+            {
+                try
+                {
+                    raw = _memory.UInt32(uidAddress);
+                    readableUid++;
+                    sampleStatus = "read";
+                }
+                catch (MemoryUnreadableException)
+                {
+                    unreadableUid++;
+                    sampleStatus = "uid_unreadable";
+                    reason = "uid_unreadable";
+                }
+            }
+            else
+            {
+                unreadableUid++;
+            }
+
+            if (raw is 0)
+            {
+                zeroUid++;
+                sampleStatus = "zero";
+                reason = "uid_zero";
+            }
+            else if (raw is 0xFFFFFFFF)
+            {
+                sentinelUid++;
+                sampleStatus = "sentinel";
+                reason = "uid_sentinel";
+            }
+            else if (raw is not null)
+            {
+                validUid++;
+                uids.Add(raw.Value);
+            }
+
+            var name = ReadPlayerName(player.Person);
+            if (name is null) nullNames++; else names.Add(name);
+
+            int? ca = null, pa = null;
+            string? dob = null;
+            ulong? contractAddress = null, teamAddress = null, clubAddress = null;
+            bool contractReadable = false;
+            try { ca = _memory.UInt16(player.Block + _layout["PLAO_CA"]); } catch (MemoryUnreadableException) { }
+            try { pa = _memory.UInt16(player.Block + _layout["PLAO_PA"]); } catch (MemoryUnreadableException) { }
             try
             {
-                uids.Add(_memory.UInt32(player.Db + _layout["OBJ_DUNI"]));
-                var name = ReadPlayerName(player.Person);
-                if (name is null)
-                {
-                    nullNames++;
-                }
-                else
-                {
-                    names.Add(name);
-                }
+                var birth = FmDate.Decode(_memory.UInt32(player.Person + _layout["PERO_DOB"]));
+                if (birth.Year != 0) dob = $"{birth.Year:D4}-{birth.DayOfYear:D3}";
             }
-            catch (MemoryUnreadableException)
+            catch (MemoryUnreadableException) { }
+            try
             {
-                // 跳过。
+                contractAddress = _memory.Pointer(player.Person + _layout["PERO_FULL_CONTRACT"]);
+                contractReadable = true;
+                if (contractAddress is not null and not 0)
+                {
+                    teamAddress = _memory.Pointer(contractAddress.Value + _layout["CON_TEAM"]);
+                    if (teamAddress is not null and not 0)
+                        clubAddress = _memory.Pointer(teamAddress.Value + _layout["TEAM_CLUB"]);
+                }
             }
+            catch (MemoryUnreadableException) { }
+
+            var freeAgentCandidate = raw is 0xFFFFFFFF
+                && contractReadable
+                && contractAddress is 0
+                && ca is >= 1 and <= 200
+                && pa is >= 1 and <= 200
+                && !string.IsNullOrWhiteSpace(name);
+            if (freeAgentCandidate) freeAgentCandidates++;
+
+            samples.Add(new ObjectIdSample(
+                player.Address, player.Db, uidAddress, raw, sampleStatus, reason, name,
+                ca, pa, dob, contractReadable, freeAgentCandidate, contractAddress, teamAddress, clubAddress));
         }
+
+        var uniqueCount = uniqueObjects.Count;
+        var duplicateUidCount = validUid - uids.Count;
+        var diagnostics = new ObjectIdDiagnostics(
+            candidates.Count,
+            uniqueCount,
+            duplicateAddresses,
+            readableDb,
+            readableUid,
+            validUid,
+            zeroUid,
+            sentinelUid,
+            duplicateUidCount,
+            unreadableUid,
+            freeAgentCandidates,
+            samples,
+            samples.Where(item => item.Status == "sentinel").ToList());
 
         var checks = new List<FieldCheck>
         {
-            Ratio("player_sample_size", Math.Min(sample.Count, minimumPlayers), minimumPlayers,
-                $"至少定位到 {minimumPlayers} 名球员（结构扫描需要足够样本）", 1.0),
-            Ratio("unique_uids", uids.Count, sample.Count, "OBJ_DUNI 在样本内唯一", 0.95),
-            Ratio("unique_names", names.Count, Math.Max(1, sample.Count - nullNames), "姓名在样本内基本唯一", 0.9),
-            Ratio("readable_names", sample.Count - nullNames, sample.Count, "姓名可读比例", 0.95),
+            Ratio("player_sample_size", Math.Min(uniqueCount, minimumPlayers), minimumPlayers,
+                $"至少定位到 {minimumPlayers} 名去重球员（候选 {candidates.Count}，重复地址 {duplicateAddresses}）", 1.0),
+            Ratio("uid_readable", readableUid, Math.Max(1, uniqueCount),
+                $"UID 可读比例（DB 可读 {readableDb}/{uniqueCount}；不可读 {unreadableUid}）", 0.95),
+            Ratio("uid_valid", validUid, Math.Max(1, readableUid - freeAgentCandidates),
+                $"UID 合法比例（0={zeroUid}，哨兵={sentinelUid}，其中已确认自由球员候选={freeAgentCandidates}；分母排除候选）", 0.95),
+            Ratio("unique_uids", uids.Count, Math.Max(1, validUid),
+                $"合法 UID 去重比例（重复 UID {duplicateUidCount}）", 0.95),
+            Ratio("unique_names", names.Count, Math.Max(1, uniqueCount - nullNames), "姓名在样本内基本唯一", 0.9),
+            Ratio("readable_names", uniqueCount - nullNames, Math.Max(1, uniqueCount), "姓名可读比例", 0.95),
             Ratio("club_sample_size", Math.Min(clubs.Count, 1), 1, "至少定位到 1 个俱乐部对象", 1.0),
         };
         var status = checks.Any(item => item.Status == CheckStatus.Failed) ? ProbeStatus.Failed : ProbeStatus.Passed;
-        return new ProbeOutcome("integrity", status, sample.Count, checks, null);
+        return new ProbeOutcome("integrity", status, uniqueCount, checks, null) { ObjectIds = diagnostics };
     }
 
     private string? ReadPlayerName(ulong person)

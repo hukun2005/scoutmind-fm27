@@ -1,3 +1,4 @@
+using System.Text.Json;
 namespace ScoutMind.Agent;
 
 /// <summary>
@@ -33,6 +34,9 @@ public sealed class ScanQueue
     /// <summary>同一游戏日期重复扫描的隔离目录（保留文件，不当作已同步）。</summary>
     public string DuplicatesDirectory => Path.Combine(Root, "duplicates");
 
+    /// <summary>校验失败文件的隔离目录；保留信封、meta 和 manifest。</summary>
+    public string QuarantineDirectory => Path.Combine(Root, "quarantine");
+
     /// <summary>确保三个目录存在。</summary>
     public void EnsureCreated()
     {
@@ -40,6 +44,7 @@ public sealed class ScanQueue
         Directory.CreateDirectory(PendingDirectory);
         Directory.CreateDirectory(SentDirectory);
         Directory.CreateDirectory(DuplicatesDirectory);
+        Directory.CreateDirectory(QuarantineDirectory);
     }
 
     /// <summary>列出所有待同步的扫描信封文件：先 <c>pending/</c>，再 <c>scans/</c>，各自按文件名排序。</summary>
@@ -67,6 +72,21 @@ public sealed class ScanQueue
         Directory.CreateDirectory(SentDirectory);
         File.Move(fullPath, destination, overwrite: true);
         return destination;
+    }
+
+    /// <summary>把完整性校验失败的信封/meta 隔离，保留证据并写 manifest。</summary>
+    public string? Quarantine(string envelopePath, string metaPath, object manifest)
+    {
+        if (!File.Exists(envelopePath) && !File.Exists(metaPath)) return null;
+        Directory.CreateDirectory(QuarantineDirectory);
+        var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssfff");
+        var stem = Path.GetFileNameWithoutExtension(envelopePath);
+        var folder = Path.Combine(QuarantineDirectory, $"{stem}-{stamp}");
+        Directory.CreateDirectory(folder);
+        if (File.Exists(envelopePath)) File.Move(envelopePath, Path.Combine(folder, Path.GetFileName(envelopePath)), overwrite: false);
+        if (File.Exists(metaPath)) File.Move(metaPath, Path.Combine(folder, Path.GetFileName(metaPath)), overwrite: false);
+        File.WriteAllText(Path.Combine(folder, "quarantine.json"), JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
+        return folder;
     }
 
     /// <summary>把同一游戏日期的重复扫描移到 <c>duplicates/</c>，保留原始文件。</summary>
