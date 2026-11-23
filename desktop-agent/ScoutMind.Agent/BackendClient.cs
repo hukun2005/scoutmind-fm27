@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace ScoutMind.Agent;
@@ -63,6 +64,29 @@ public sealed class BackendClient : IDisposable
 
     /// <summary>同步地址，便于日志与排错。</summary>
     public string Endpoint => _endpoint;
+
+    /// <summary>登记一次自动采集状态；失败不抛出，返回 false。</summary>
+    public async Task<bool> PostCaptureAsync(object body, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var url = _endpoint.Replace("/imports/scan", "/captures", StringComparison.Ordinal);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = JsonContent.Create(body),
+            };
+            if (!string.IsNullOrWhiteSpace(_apiToken))
+            {
+                request.Headers.Add("X-ScoutMind-Token", _apiToken);
+            }
+            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>上传一份已转换好的扫描协议报文。</summary>
     /// <param name="payload">UTF-8 编码的协议 JSON（见 <c>docs/DATA_PROTOCOL.md</c>）。</param>

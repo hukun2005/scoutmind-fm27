@@ -74,6 +74,7 @@ def growth_profile(session: Session, instance_id: int, context: dict[str, object
             ],
             "outlook": {"band": "unknown", "label": "数据不足", "rationale": reason, "probability": None},
             "data_gaps": [reason],
+            "attribute_trends": _attribute_trends(session, snapshots),
             "canonicalization": canonical_meta,
             "algorithm_version": ALGORITHM_VERSION,
         }
@@ -104,6 +105,7 @@ def growth_profile(session: Session, instance_id: int, context: dict[str, object
         "advice": advice,
         "outlook": outlook,
         "data_gaps": gaps,
+        "attribute_trends": _attribute_trends(session, snapshots),
         "canonicalization": canonical_meta,
         "algorithm_version": ALGORITHM_VERSION,
     }
@@ -492,3 +494,42 @@ def _delta(before: object, after: object) -> int | None:
     if before is None or after is None:
         return None
     return int(after) - int(before)  # type: ignore[call-overload]
+
+
+def _attribute_trends(session: Session, snapshots: list[PlayerSnapshot]) -> dict[str, object]:
+    """Average attribute value by category across canonical snapshots; never invents missing values."""
+    if len(snapshots) < 2:
+        return {"available": False, "reason": "至少需要 2 个独立 game_date", "categories": []}
+    ids = [snapshot.id for snapshot in snapshots]
+    rows = session.execute(
+        select(
+            PlayerAttributeValue.player_snapshot_id,
+            PlayerAttribute.category,
+            PlayerAttributeValue.value,
+        )
+        .join(PlayerAttribute, PlayerAttribute.id == PlayerAttributeValue.attribute_id)
+        .where(PlayerAttributeValue.player_snapshot_id.in_(ids))
+    ).all()
+    by_snapshot_category: dict[tuple[int, str], list[float]] = {}
+    for snapshot_id, category, value in rows:
+        by_snapshot_category.setdefault((snapshot_id, category), []).append(float(value))
+    categories = sorted({category for _, category in by_snapshot_category})
+    result = []
+    for category in categories:
+        series = []
+        for snapshot in snapshots:
+            values = by_snapshot_category.get((snapshot.id, category), [])
+            series.append({
+                "date": (snapshot.game_date or snapshot.observed_at.date()).isoformat(),
+                "snapshot_id": snapshot.id,
+                "average": round(sum(values) / len(values), 3) if values else None,
+                "count": len(values),
+            })
+        present = [item for item in series if item["average"] is not None]
+        delta = round(present[-1]["average"] - present[0]["average"], 3) if len(present) >= 2 else None
+        result.append({"category": category, "points": series, "delta": delta})
+    return {
+        "available": bool(result),
+        "reason": None if result else "没有属性数据",
+        "categories": result,
+    }
