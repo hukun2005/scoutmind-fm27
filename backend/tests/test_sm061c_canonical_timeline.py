@@ -15,8 +15,8 @@ from app.quality.dedup import build_canonicals
 from tests.helpers import player_row, scan_document
 
 
-def _import(db, save, scan_id: str, when: datetime, ca: int):
-    payload = scan_document(scan_id=scan_id, when=when, players=[player_row("C1", "Canonical One", ca=ca)])
+def _import(db, save, scan_id: str, when: datetime, ca: int, attributes: dict | None = None):
+    payload = scan_document(scan_id=scan_id, when=when, players=[player_row("C1", "Canonical One", ca=ca, attributes=attributes)])
     ScanImporter(db).import_payload(save.id, ScanPayload.model_validate(payload))
     db.commit()
 
@@ -156,3 +156,15 @@ def test_development_matches_canonical_series(db, save) -> None:
     profile = growth_profile(db, instance.id)
     assert [point["date"] for point in profile["points"]] == [point.game_date.isoformat() for point in series.points]
     assert profile["canonicalization"]["canonical_point_count"] == series.canonical_point_count
+
+
+def test_attribute_trends_use_canonical_snapshots(db, save) -> None:
+    from app.analytics.development import growth_profile
+
+    _import(db, save, "attr-a", datetime(2026, 7, 1, 9, tzinfo=timezone.utc), 100, {"pace": 10})
+    _import(db, save, "attr-b", datetime(2026, 7, 2, 9, tzinfo=timezone.utc), 102, {"pace": 12})
+    build_canonicals(db, save.id, dry_run=False)
+    profile = growth_profile(db, _instance(db, save).id)
+    assert profile["attribute_trends"]["available"] is True
+    category = next(item for item in profile["attribute_trends"]["categories"] if item["category"] == "physical")
+    assert category["delta"] == 2.0

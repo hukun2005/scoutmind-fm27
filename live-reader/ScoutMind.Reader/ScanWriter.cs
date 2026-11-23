@@ -172,12 +172,27 @@ public sealed class ScanWriter
         var metaPath = Path.Combine(_outputDirectory, $"scan-{stem}.meta.json");
 
         var envelopeJson = JsonSerializer.Serialize(envelope, ScoutMindJson.Options);
-        await File.WriteAllTextAsync(envelopePath, envelopeJson, Utf8NoBom, cancellationToken).ConfigureAwait(false);
+        await WriteAtomicAsync(envelopePath, envelopeJson, cancellationToken).ConfigureAwait(false);
 
         var metaJson = JsonSerializer.Serialize(meta with { OutputFile = envelopePath }, ScoutMindJson.Options);
-        await File.WriteAllTextAsync(metaPath, metaJson, Utf8NoBom, cancellationToken).ConfigureAwait(false);
+        await WriteAtomicAsync(metaPath, metaJson, cancellationToken).ConfigureAwait(false);
 
         return new ScanWritten(envelopePath, metaPath);
+    }
+
+    /// <summary>Write a temp file, flush it, then atomically replace the target.</summary>
+    private static async Task WriteAtomicAsync(string path, string content, CancellationToken cancellationToken)
+    {
+        var temporary = path + ".tmp";
+        await using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 65536, useAsync: true))
+        await using (var writer = new StreamWriter(stream, Utf8NoBom))
+        {
+            await writer.WriteAsync(content.AsMemory(), cancellationToken).ConfigureAwait(false);
+            await writer.FlushAsync().ConfigureAwait(false);
+            stream.Flush(flushToDisk: true);
+        }
+
+        File.Move(temporary, path, overwrite: true);
     }
 
     /// <summary>把外部提供的标识安全化为文件名片段。</summary>

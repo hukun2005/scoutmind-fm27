@@ -84,6 +84,14 @@ export interface CanonicalDetail {
   }
   snapshots: GovernanceSnapshot[]
   timeline: CanonicalTimelinePoint[]
+  suggestion?: {
+    risk_score: number
+    priority: string
+    evidence_completeness: number
+    recommended_snapshot_id: number | null
+    reason: string
+    auto_applied: boolean
+  }
 }
 
 export interface ReviewAction {

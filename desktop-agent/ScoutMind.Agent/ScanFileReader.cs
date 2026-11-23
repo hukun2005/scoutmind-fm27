@@ -12,6 +12,9 @@ namespace ScoutMind.Agent;
 /// <param name="AlreadyProtocol">文件本身是否已经是协议形态（无需转换）。</param>
 public sealed record ScanFilePayload(byte[] Json, string ScanId, bool AlreadyProtocol);
 
+/// <summary>读自扫描文件的日期/存档提示；缺失就是缺失，不推断。</summary>
+public sealed record ScanFileInfo(string ScanId, string? GameDate);
+
 /// <summary>
 /// 读取扫描文件并转换为 <c>docs/DATA_PROTOCOL.md</c> 定义的线上形态。
 /// 本地信封是 camelCase（<c>scan-*.json</c>），上传前必须转换键名，字段值不做任何改写。
@@ -84,6 +87,30 @@ public static class ScanFileReader
                 envelope.Scan.ScanId,
                 false);
         }
+    }
+
+    /// <summary>读取扫描文件的日期信息，不转换、不上传。</summary>
+    public static async Task<ScanFileInfo> ReadInfoAsync(string path, CancellationToken cancellationToken)
+    {
+        var text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+        using var document = JsonDocument.Parse(text);
+        var root = document.RootElement;
+        if (!root.TryGetProperty("scan", out var scan) || scan.ValueKind != JsonValueKind.Object)
+        {
+            return new ScanFileInfo(string.Empty, null);
+        }
+
+        var scanId = scan.TryGetProperty("scan_id", out var protocolId) && protocolId.ValueKind == JsonValueKind.String
+            ? protocolId.GetString() ?? string.Empty
+            : scan.TryGetProperty("scanId", out var localId) && localId.ValueKind == JsonValueKind.String
+                ? localId.GetString() ?? string.Empty
+                : string.Empty;
+        var gameDate = scan.TryGetProperty("game_date", out var snakeDate) && snakeDate.ValueKind == JsonValueKind.String
+            ? snakeDate.GetString()
+            : scan.TryGetProperty("gameDate", out var camelDate) && camelDate.ValueKind == JsonValueKind.String
+                ? camelDate.GetString()
+                : null;
+        return new ScanFileInfo(scanId, gameDate);
     }
 
     private static string ReadProtocolScanId(JsonElement root)

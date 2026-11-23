@@ -111,6 +111,9 @@
         <span>快照 {{ detail.snapshots.length }} 条</span>
         <span>不同内容 {{ detail.canonical.distinct_content_count }} 种</span>
         <span>{{ detail.canonical.reason }}</span>
+        <span v-if="detail.suggestion">
+          风险 {{ detail.suggestion.risk_score }} · {{ detail.suggestion.priority }} · 建议 #{{ detail.suggestion.recommended_snapshot_id ?? '—' }}（仅建议，未写入）
+        </span>
       </div>
 
       <h4 class="governance__subhead">核心字段差异</h4>

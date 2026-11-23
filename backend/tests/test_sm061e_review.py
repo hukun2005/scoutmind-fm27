@@ -141,6 +141,8 @@ def test_canonical_detail_and_overview(client, db, save) -> None:
     assert len(body["snapshots"]) == 2
     assert body["snapshots"][0]["attributes"] == []
     assert len(body["timeline"]) == 1
+    assert body["suggestion"]["auto_applied"] is False
+    assert body["suggestion"]["risk_score"] >= 0
     overview = client.get("/api/v1/data-quality/governance/overview")
     assert overview.status_code == 200
     stats = overview.json()

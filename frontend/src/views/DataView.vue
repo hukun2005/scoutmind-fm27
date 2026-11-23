@@ -12,6 +12,7 @@ import { validateFmscoutDump } from '../api/status'
 import { fetchSquadCsvTemplate, uploadSquadCsv } from '../api/clubResolution'
 import type { SquadCsvResult, SquadCsvRow } from '../types/clubResolution'
 import { getSaveSummary } from '../api/saves'
+import CapturePanel from '../components/CapturePanel.vue'
 import CoverageBar from '../components/CoverageBar.vue'
 import DataTable from '../components/DataTable.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -464,6 +465,8 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
         </span>
       </template>
     </el-alert>
+
+    <CapturePanel />
 
     <SectionCard title="上传扫描数据" subtitle="支持 .json 与 .ndjson（multipart 字段名 file）">
       <div class="upload-layout">
