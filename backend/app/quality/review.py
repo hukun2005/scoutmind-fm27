@@ -292,6 +292,27 @@ def canonical_detail(session: Session, save_id: int, canonical_id: int) -> dict[
         conflict_types = json.loads(canonical.conflict_types_json or "[]")
     except json.JSONDecodeError:
         conflict_types = []
+    max_attrs = max((len(item["attributes"]) for item in snapshots), default=0)
+    completeness = round(
+        sum(len(item["attributes"]) for item in snapshots) / (max_attrs * len(snapshots)), 4
+    ) if snapshots and max_attrs else 0.0
+    recommended = max(
+        snapshots,
+        key=lambda item: (len(item["attributes"]), item["observed_at"] or ""),
+        default=None,
+    )
+    risk = min(100, 20 + len(conflict_types) * 10 + max(0, canonical.snapshot_count - 1) * 5)
+    suggestion = {
+        "risk_score": risk,
+        "priority": "high" if risk >= 60 else "medium" if risk >= 40 else "low",
+        "evidence_completeness": completeness,
+        "recommended_snapshot_id": recommended["id"] if recommended else None,
+        "reason": (
+            "按属性完整度优先、同完整度取最新观测；仅为建议，未写入 canonical"
+            if recommended else "没有可推荐快照"
+        ),
+        "auto_applied": False,
+    }
     return {
         "canonical": {
             "id": canonical.id,
@@ -310,6 +331,7 @@ def canonical_detail(session: Session, save_id: int, canonical_id: int) -> dict[
         },
         "snapshots": snapshots,
         "timeline": timeline,
+        "suggestion": suggestion,
     }
 
 
