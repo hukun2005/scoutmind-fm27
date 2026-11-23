@@ -12,7 +12,7 @@
 | SM-113 上游 Mapper 哨兵 UID | **PASS** | `MapperSentinelUidTests` 12 例；真实 dump 无哨兵行（见 §12） |
 | SM-114 协议身份模式 | **PASS** | `test_unresolved_protocol.py` 23 例；1.0/1.1 兼容、2.0 拒绝 |
 | SM-115 Unresolved 模型 | **PASS** | 三张新表；`test_unresolved_persistence/idempotency/save_isolation` |
-| SM-116 Migration | **PASS（SQLite）** / **NOT_RUN（本机 PG）** | 全新库与真实存档副本 up→down→up；PG 由 CI job 覆盖（本机无 PG、Docker daemon 未运行） |
+| SM-116 Migration | **PASS** | 全新库与真实存档副本 up→down→up；CI 的 PostgreSQL 16 job 通过（含旧 schema 数据升级与事务回滚检查） |
 | SM-117 Importer 分流 | **PASS** | 合法 UID 走既有解析器；无 UID 走 savepoint 隔离持久化；新计数齐全 |
 | SM-118 Unresolved API | **PASS** | `test_unresolved_api_auth.py` 11 例 |
 | SM-119 前端界面 | **PASS** | `npm run build` 通过；Playwright 9/9（新增 7 例） |
@@ -75,7 +75,7 @@
 | --- | --- | --- |
 | 全新 SQLite | `alembic upgrade head` → `downgrade -1` → `upgrade head` | PASS（version `a8c4d5e6f701`，三表 + 14 个索引） |
 | 真实存档副本（105,027 instances / 198,711 snapshots / 106,106 players） | 同上 | PASS：升级后行数不变；降级移除三表；再升级回到 head |
-| PostgreSQL 16 | `scripts/pg_migration_validation.py` | **NOT_RUN（本机）**：本机没有 PostgreSQL 服务，Docker daemon 未运行；CI `postgres-migrations` job 会真实执行 |
+| PostgreSQL 16 | `scripts/pg_migration_validation.py` | **PASS（CI）**：`postgres-migrations` job 真实执行 upgrade → downgrade 到旧版本 → 写入旧 schema 数据 → upgrade → 计数一致 / 跨存档 scan_id / 事务回滚检查全部通过（run 45197114644） |
 | 历史迁移 checksum | `git diff --name-status 7043a1a..HEAD -- backend/alembic/versions` | 仅新增 `A a8c4d5e6f701_...`，无修改 |
 
 ## 5. Mapper 结果（SM-113）
@@ -199,10 +199,14 @@
 
 ## 14. CI
 
-- 推送分支后由 `.github/workflows/ci.yml` 执行：backend pytest + SQLite 迁移往返、security 回归、.NET（129 + 47 例）、
-  前端构建、Playwright、PostgreSQL 16 迁移。
-- 本地已执行：pytest 480 例（3 例 PG 相关 skip）、.NET 176 例、Playwright 9 例、`npm run build`、SQLite 迁移往返（含真实存档副本）。
-- CI Run：见推送后的 Actions 记录（本报告在推送前完成，CI 结果不在此处伪造）。
+- 分支 `codex/v3.2.2.8-unresolved-identity` 推送后，GitHub Actions **run 45197114644：success**，六个 job 全绿：
+  - `Backend (pytest + migrations)`：SQLite upgrade → downgrade → upgrade + 481 例 pytest；
+  - `PostgreSQL migration compatibility`：PostgreSQL 16 upgrade / downgrade / 旧数据再升级 / 计数与回滚检查；
+  - `.NET readers and agent`：129 例 FMReader + 47 例 Reader + agent 测试；
+  - `Frontend (typecheck + build)`、`Playwright (governance)`（9 例，含新增 7 例）、`security` 回归。
+- 本地已执行同样的检查（pytest 481 例，3 例 PG 环境相关 skip；.NET 176 例；Playwright 9 例；`npm run build`；
+  SQLite 迁移往返含真实存档副本）。
+- 运行链接：<https://github.com/hukun2005/scoutmind-fm27/actions/runs/45197114644>
 
 ## 15. Commit
 
@@ -216,6 +220,10 @@
 | `45b8acd` | SM-122：脱敏导出脚本与测试 |
 | `fb5102b` | 读取器信封保留协议版本 |
 | `5281060` | 协议/API/数据模型文档 |
+| `177c582` | V3.2.2.8 实施报告（初版） |
+| `2773b35` | SM-118：审计行拒绝改写 |
+| `f198f46` | CI：PostgreSQL 校验改为从迁移脚本读取 head |
+| `ff180a5` | 适配层输出 identity 块时声明 1.1 |
 
 ## 16. 未解决问题
 
@@ -224,8 +232,10 @@
 2. **读取器 1.1 信封未做第二次真实导入**：修复已合入并有单测；FM27 已退出，未重启游戏重复验收。
 3. **Agent 上传超时 60 s 对 44k 级导入过短**：导入仍在服务端完成，但 Agent 报 `同步失败` 并排队；
    队列重试因缺少 `.meta.json` 边车被隔离。建议后续把 sync 超时改为可配置、并在入队时复制边车。
-4. **PostgreSQL 16 本机未验证**：依赖 CI job；如 CI 未通过，需按日志修复后再合并。
+4. **PostgreSQL 16 只在 CI 验证**：本机没有 PostgreSQL 服务（Docker daemon 未运行），迁移的 PG 正确性依赖
+   `postgres-migrations` job（run 45197114644 已通过）。
 5. **真实导入记录 schema_version=1.0**：数据本身合法（1.x 兼容），但版本标记早于修复；重跑一次真实扫描即可消除。
+6. **适配层与读取器的版本声明分叉风险**：两处都输出 1.1，但常量各自维护；后续若再扩展协议，应抽一个共享版本常量。
 
 ## 17. 结论
 
