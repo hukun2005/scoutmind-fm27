@@ -133,3 +133,26 @@ def test_development_marks_legacy_when_canonical_missing(db, save) -> None:
     profile = growth_profile(db, _instance(db, save).id)
     assert profile["canonicalization"]["legacy_mode"] is True
     assert profile["canonicalization"]["canonicalization_pending"] is True
+
+
+def test_growth_backtest_cutoff_does_not_train_on_future(db, save) -> None:
+    from app.analytics.longitudinal import growth_backtest
+
+    for index, ca in enumerate((100, 102, 104, 106, 108)):
+        _import(db, save, f"cut-{index}", datetime(2026, 7, 1 + index, 12, tzinfo=timezone.utc), ca)
+    build_canonicals(db, save.id, dry_run=False)
+    result = growth_backtest(db, save.id, min_points=3)
+    assert result["available"] is True
+    assert result["cutoff_game_date"] < "2026-07-05"
+    assert result["unique_game_dates"] == 5
+
+
+def test_development_matches_canonical_series(db, save) -> None:
+    from app.analytics.development import growth_profile
+
+    _two_days(db, save)
+    instance = _instance(db, save)
+    series = build_series(db, save.id, instance.id)
+    profile = growth_profile(db, instance.id)
+    assert [point["date"] for point in profile["points"]] == [point.game_date.isoformat() for point in series.points]
+    assert profile["canonicalization"]["canonical_point_count"] == series.canonical_point_count
