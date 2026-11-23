@@ -216,13 +216,6 @@ public sealed class AgentApplication
 
     private async Task<int> RunAutoAsync(AgentOptions options, CancellationToken cancellationToken)
     {
-        var minutes = options.IntervalMinutes ?? 0;
-        if (minutes <= 0)
-        {
-            WriteUsageError("auto 需要 --interval-minutes <分钟>。");
-            return AgentExitCodes.UsageError;
-        }
-
         var configuration = LoadConfiguration();
         if (configuration.ReaderPath.Length == 0)
         {
@@ -231,6 +224,42 @@ public sealed class AgentApplication
 
         var queue = new ScanQueue(configuration.QueueDirectory);
         queue.EnsureCreated();
+        if (!string.IsNullOrWhiteSpace(options.AutoControl))
+        {
+            switch (options.AutoControl)
+            {
+                case "pause":
+                    CaptureControl.Set(configuration.QueueDirectory, "paused");
+                    _stdout.WriteLine("自动采集已请求暂停。");
+                    return AgentExitCodes.Success;
+                case "resume":
+                    CaptureControl.Set(configuration.QueueDirectory, "running");
+                    _stdout.WriteLine("自动采集已恢复；正在运行的 auto 会在下一轮继续。");
+                    return AgentExitCodes.Success;
+                case "status":
+                    _stdout.WriteLine($"自动采集控制状态：{CaptureControl.Status(configuration.QueueDirectory)}");
+                    return AgentExitCodes.Success;
+                default:
+                    WriteUsageError($"未知 auto 控制参数：{options.AutoControl}");
+                    return AgentExitCodes.UsageError;
+            }
+        }
+
+        var minutes = options.IntervalMinutes ?? 0;
+        if (minutes <= 0)
+        {
+            WriteUsageError("auto 需要 --interval-minutes <分钟>，或 --pause/--resume/--status。");
+            return AgentExitCodes.UsageError;
+        }
+
+        var captureLock = CaptureLock.TryAcquire(configuration.QueueDirectory, out var lockMessage);
+        if (captureLock is null)
+        {
+            _stderr.WriteLine(lockMessage);
+            return AgentExitCodes.UsageError;
+        }
+
+        using var _lock = captureLock;
         var stateStore = new CaptureStateStore(configuration.QueueDirectory);
         var readerTimeout = TimeSpan.FromSeconds(Math.Max(180, configuration.Config.TimeoutSeconds + 120));
         var runner = new ReaderRunner(configuration.ReaderPath, readerTimeout);
@@ -249,6 +278,17 @@ public sealed class AgentApplication
         var round = 0;
         while (!cancellationToken.IsCancellationRequested)
         {
+            if (CaptureControl.IsPaused(configuration.QueueDirectory))
+            {
+                if (state.Status != "paused")
+                {
+                    state = state with { Status = "paused" };
+                    stateStore.Save(state);
+                    _stdout.WriteLine("自动采集已暂停；不启动新扫描，待处理文件保留。");
+                }
+                await DelayAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+                continue;
+            }
             round++;
             var invocation = await runner
                 .RunAsync(new[] { "scan", "--output", queue.ScanDirectory, "--json" }, cancellationToken)

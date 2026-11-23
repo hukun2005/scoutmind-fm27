@@ -35,12 +35,14 @@ public enum AgentCommand
 /// <param name="Sync">scan 后是否立即同步。</param>
 /// <param name="IntervalMinutes">watch 的间隔分钟数。</param>
 /// <param name="FilePath">sync 指定的单个文件。</param>
+/// <param name="AutoControl">auto 的控制动作：pause / resume / status。</param>
 public sealed record AgentOptions(
     AgentCommand Command,
     bool Json,
     bool Sync,
     int? IntervalMinutes,
-    string? FilePath);
+    string? FilePath,
+    string? AutoControl = null);
 
 /// <summary>
 /// 代理命令行解析结果；失败时 <see cref="Error"/> 为中文说明。
@@ -77,6 +79,7 @@ public static class AgentCommandLine
         var sync = false;
         int? intervalMinutes = null;
         string? filePath = null;
+        string? autoControl = null;
         AgentCommand? command = null;
         var index = 0;
 
@@ -90,7 +93,7 @@ public static class AgentCommandLine
 
             if (argument is "--help" or "-h" or "help")
             {
-                return AgentParseResult.Success(new AgentOptions(AgentCommand.Help, json, false, null, null));
+                return AgentParseResult.Success(new AgentOptions(AgentCommand.Help, json, false, null, null, autoControl));
             }
 
             if (argument == "--json")
@@ -141,6 +144,13 @@ public static class AgentCommandLine
                 continue;
             }
 
+            if (command == AgentCommand.Auto && argument is "--pause" or "--resume" or "--status")
+            {
+                autoControl = argument[2..];
+                index++;
+                continue;
+            }
+
             var consumed = TryConsumeOption(args, index, command.Value, ref sync, ref intervalMinutes, ref filePath, out var error);
             if (error is not null)
             {
@@ -160,12 +170,12 @@ public static class AgentCommandLine
             return AgentParseResult.Failure("缺少子命令。可用子命令：status、scan、watch、sync、config show。");
         }
 
-        if (command is AgentCommand.Watch or AgentCommand.Auto && intervalMinutes is null)
+        if (command == AgentCommand.Watch && intervalMinutes is null)
         {
-            return AgentParseResult.Failure("watch/auto 需要 --interval-minutes <分钟>。");
+            return AgentParseResult.Failure("watch 需要 --interval-minutes <分钟>。");
         }
 
-        return AgentParseResult.Success(new AgentOptions(command.Value, json, sync, intervalMinutes, filePath));
+        return AgentParseResult.Success(new AgentOptions(command.Value, json, sync, intervalMinutes, filePath, autoControl));
     }
 
     private static int TryConsumeOption(
