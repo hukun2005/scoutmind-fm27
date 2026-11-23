@@ -77,6 +77,23 @@ public static class ScanEnvelopeTests
             Assert.False(ScanProtocolSerializer.LooksLikeProtocolPayload(camel.RootElement), "camelCase 不应判定为协议形态");
         });
 
+        harness.Case("信封保留扫描器声明的协议版本（含身份块时为 1.1）", () =>
+        {
+            const string json = "{\"schema_version\":\"1.1\",\"source\":\"fm27_live_reader\","
+                + "\"scan\":{\"scan_id\":\"scan-1\",\"observed_at\":\"2026-11-23T10:00:00\"},"
+                + "\"players\":[],\"clubs\":[],\"transfers\":[],\"warnings\":[],\"coverage\":{}}";
+            var payload = ScanPayloadParser.Parse(json);
+            var build = ScanEnvelopeBuilder.Build(
+                payload,
+                game: null,
+                readerVersion: "0.1.0",
+                fallbackScanId: "fallback",
+                now: DateTimeOffset.UtcNow);
+
+            Assert.Equal("1.1", build.Envelope.SchemaVersion, "信封必须沿用扫描器声明的 1.1，而不是固定写回 1.0");
+            Assert.Equal("scan-1", build.Envelope.Scan.ScanId, "scan_id 应保留");
+        });
+
         harness.Case("ReaderStatus 的时间戳序列化为 Z 形式", () =>
         {
             var status = new ReaderStatus(
