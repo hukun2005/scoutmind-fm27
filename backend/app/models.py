@@ -925,3 +925,67 @@ class PlayerObservationCanonicalAction(TimestampMixin, Base):
     new_status: Mapped[str] = mapped_column(String(24), nullable=False)
     reason: Mapped[str] = mapped_column(String(512), nullable=False)
     evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class CaptureRun(TimestampMixin, Base):
+    """One automatic capture attempt for a save/game-date scope.
+
+    The formal row for a game date is revision 0; supplemental scans use revision > 0 and never
+    overwrite it. Failures/attempts remain as history, not as snapshots.
+    """
+
+    __tablename__ = "capture_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "fm_save_id", "game_date", "reader_version", "scan_scope", "revision",
+            name="uq_capture_save_date_reader_scope_revision",
+        ),
+        Index("ix_capture_save_status", "fm_save_id", "status"),
+        Index("ix_capture_save_date", "fm_save_id", "game_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    game_date: Mapped[date | None] = mapped_column(Date)
+    reader_version: Mapped[str | None] = mapped_column(String(32))
+    game_build: Mapped[str | None] = mapped_column(String(64))
+    scan_scope: Mapped[str] = mapped_column(String(32), default="players", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="monitoring", nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime)
+    scan_id: Mapped[str | None] = mapped_column(String(64))
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"))
+    supplemental: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    observed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class TransferEventCandidate(TimestampMixin, Base):
+    """An observed club change; never promoted to a paid transfer without explicit evidence."""
+
+    __tablename__ = "transfer_event_candidates"
+    __table_args__ = (
+        UniqueConstraint(
+            "fm_save_id", "player_instance_id", "from_club_id", "to_club_id", "game_date",
+            name="uq_transfer_event_save_player_clubs_date",
+        ),
+        Index("ix_transfer_event_save_status", "fm_save_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(32), default="unknown_pending_verification", nullable=False)
+    from_club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"))
+    to_club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"))
+    game_date: Mapped[date] = mapped_column(Date, nullable=False)
+    evidence_level: Mapped[str] = mapped_column(String(24), default="Unverified", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
+    linked_transfer_id: Mapped[int | None] = mapped_column(ForeignKey("transfer_history.id"))
+    evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)

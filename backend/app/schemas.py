@@ -186,3 +186,30 @@ class CanonicalDecisionIn(BaseModel):
     selected_snapshot_id: int | None = Field(default=None, ge=1)
     reason: str = Field(min_length=1, max_length=512)
     evidence: dict | None = None
+
+
+class CaptureRunIn(BaseModel):
+    """Register/update one automatic capture attempt."""
+
+    game_date: date | None = None
+    reader_version: str | None = Field(default=None, max_length=32)
+    game_build: str | None = Field(default=None, max_length=64)
+    scan_scope: str = Field(default="players", min_length=1, max_length=32)
+    status: str = Field(default="monitoring", max_length=24)
+    scan_id: str | None = Field(default=None, max_length=64)
+    import_job_id: int | None = None
+    supplemental: bool = False
+    revision: int = Field(default=0, ge=0)
+    error_code: str | None = Field(default=None, max_length=64)
+    error_message: str | None = None
+    metadata: dict | None = None
+
+
+class CaptureRunUpdate(BaseModel):
+    status: str | None = Field(default=None, max_length=24)
+    attempt_count: int | None = Field(default=None, ge=0)
+    next_retry_at: datetime | None = None
+    scan_id: str | None = Field(default=None, max_length=64)
+    import_job_id: int | None = None
+    error_code: str | None = Field(default=None, max_length=64)
+    error_message: str | None = None
