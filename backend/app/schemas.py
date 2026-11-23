@@ -213,3 +213,22 @@ class CaptureRunUpdate(BaseModel):
     import_job_id: int | None = None
     error_code: str | None = Field(default=None, max_length=64)
     error_message: str | None = None
+
+
+class UnresolvedResolveIn(BaseModel):
+    """人工把一条待确认候选关联到一个既有身份。
+
+    必须显式 ``confirm=true``：接口不会把"看起来像"当成事实。目标只能是同一存档里的球员实例或球员。
+    """
+
+    player_instance_id: int | None = Field(default=None, ge=1)
+    player_id: int | None = Field(default=None, ge=1)
+    confirm: bool = False
+    note: str | None = Field(default=None, max_length=512)
+
+
+class UnresolvedDismissIn(BaseModel):
+    """人工忽略一条候选；观察记录保留，不物理删除。"""
+
+    reason: str = Field(min_length=1, max_length=256)
+    note: str | None = Field(default=None, max_length=512)
