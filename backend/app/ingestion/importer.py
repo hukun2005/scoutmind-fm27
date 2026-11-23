@@ -14,6 +14,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
+from typing import Callable
 from uuid import uuid4
 
 from sqlalchemy import delete, select
@@ -112,6 +113,18 @@ class DuplicateScanError(Exception):
         self.job = job
 
 
+class ImportInProgressError(Exception):
+    """Raised when the same scan is still being applied by this backend process.
+
+    ``running`` only survives in-process: a crashed job is recovered to ``failed`` at startup, so a
+    ``running`` row means a live import. Re-applying it would reset its rows and duplicate the work.
+    """
+
+    def __init__(self, job: ImportJob) -> None:
+        super().__init__(f"scan {job.scan_id} 正在导入中")
+        self.job = job
+
+
 class ScanImporter:
     """Applies a validated scan payload for one save."""
 
@@ -136,6 +149,8 @@ class ScanImporter:
                 ImportJob.scan_id == payload.scan.scan_id,
             )
         )
+        if existing is not None and existing.status == "running":
+            raise ImportInProgressError(existing)
         if existing is not None and existing.status in {"succeeded", "partial"}:
             return self._duplicate_outcome(existing)
 
@@ -996,4 +1011,35 @@ def _age(record: PlayerRecord, game_date: object) -> int | None:
 def describe_payload(payload: ScanPayload) -> str:
     """Short human-readable description used in logs and job summaries."""
     return f"{payload.source} scan {payload.scan.scan_id} at {iso(payload.scan.observed_at)} ({len(payload.players)} players)"
+
+
+def recover_interrupted_imports(session_factory: Callable[[], Session]) -> int:
+    """Fail jobs a previous process left in ``running`` so they can be retried.
+
+    ``_begin_job`` commits the job before applying rows, so a crash keeps a visible but stuck job.
+    Marking it failed with an ``interrupted`` import row makes the next upload of the same ``scan_id``
+    retry instead of looking like an import that is still in progress.
+    """
+    session = session_factory()
+    try:
+        jobs = list(session.scalars(select(ImportJob).where(ImportJob.status == "running")))
+        if not jobs:
+            return 0
+        now = utcnow()
+        for job in jobs:
+            job.status = "failed"
+            job.finished_at = now
+            session.add(
+                ImportRow(
+                    import_job_id=job.id,
+                    row_index=0,
+                    entity="scan",
+                    code="interrupted",
+                    message="后端在导入完成前退出：任务已标记失败，重新上传同一 scan_id 即可重试",
+                )
+            )
+        session.commit()
+        return len(jobs)
+    finally:
+        session.close()
 

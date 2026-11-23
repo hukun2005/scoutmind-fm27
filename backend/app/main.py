@@ -39,6 +39,7 @@ from .api import (
 from .api.deps import require_token
 from .config import settings
 from .db import SessionLocal, alembic_managed, get_db, schema_ready
+from .ingestion.importer import recover_interrupted_imports
 from .ingestion.protocol import ProtocolError
 from .models import AlgorithmVersion, ReaderCompatibility
 from .utils import iso, utcnow
@@ -218,6 +219,9 @@ def create_app() -> FastAPI:
         if not alembic_managed():
             logger.warning("数据库缺少 Alembic 版本表：后续迁移可能失败，请用 alembic upgrade head 建库")
         _seed_reference_rows()
+        recovered = recover_interrupted_imports(SessionLocal)
+        if recovered:
+            logger.warning("已把 %d 个中断的导入任务标记为失败（可重新上传同一 scan_id 重试）", recovered)
         if not settings.api_token:
             logger.warning("SCOUTMIND_API_TOKEN 未配置：本地 API 无鉴权，只能监听 127.0.0.1")
 

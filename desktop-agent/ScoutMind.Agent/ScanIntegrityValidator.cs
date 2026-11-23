@@ -21,6 +21,18 @@ public static class ScanIntegrityValidator
     public static async Task<ScanIntegrityResult> ValidateAsync(
         string envelopePath,
         string metaPath,
+        CancellationToken cancellationToken) =>
+        await ValidateAsync(envelopePath, metaPath, ScanManifest.PathFor(envelopePath), cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <summary>
+    /// Validates envelope, meta and (when present) the manifest: payload and metadata digests must match the
+    /// bytes about to be uploaded, and the manifest scan id must agree with the envelope.
+    /// </summary>
+    public static async Task<ScanIntegrityResult> ValidateAsync(
+        string envelopePath,
+        string metaPath,
+        string manifestPath,
         CancellationToken cancellationToken)
     {
         if (!File.Exists(envelopePath))
@@ -29,12 +41,13 @@ public static class ScanIntegrityValidator
             return Fail("meta_missing", $"meta 不存在：{metaPath}");
 
         var bytes = await File.ReadAllBytesAsync(envelopePath, cancellationToken).ConfigureAwait(false);
+        var metaBytes = await File.ReadAllBytesAsync(metaPath, cancellationToken).ConfigureAwait(false);
         var actualSize = bytes.LongLength;
         var actualHash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
         JsonDocument meta;
         try
         {
-            meta = JsonDocument.Parse(await File.ReadAllTextAsync(metaPath, cancellationToken).ConfigureAwait(false));
+            meta = JsonDocument.Parse(metaBytes);
         }
         catch (JsonException ex)
         {
@@ -76,6 +89,21 @@ public static class ScanIntegrityValidator
                 if (!string.IsNullOrWhiteSpace(metaScanId)
                     && !string.Equals(metaScanId, envelopeScanId, StringComparison.Ordinal))
                     return Fail("scan_id_mismatch", $"meta scanId {metaScanId} 与信封 {envelopeScanId} 不一致", actualHash, actualSize, metaScanId);
+
+                if (File.Exists(manifestPath))
+                {
+                    var manifest = ScanManifest.TryRead(manifestPath);
+                    if (manifest is null)
+                        return Fail("manifest_invalid", "manifest 无法解析", actualHash, actualSize, envelopeScanId);
+                    if (!manifest.MatchesPayload(bytes))
+                        return Fail("payload_sha256_mismatch", "信封与 manifest 的 payload_sha256 不一致", actualHash, actualSize, envelopeScanId);
+                    if (!manifest.MatchesMetadata(metaBytes))
+                        return Fail("metadata_sha256_mismatch", "meta 与 manifest 的 metadata_sha256 不一致", actualHash, actualSize, envelopeScanId);
+                    if (!string.IsNullOrWhiteSpace(manifest.ScanId)
+                        && !string.Equals(manifest.ScanId, envelopeScanId, StringComparison.Ordinal))
+                        return Fail("manifest_scan_id_mismatch", $"manifest scan_id {manifest.ScanId} 与信封 {envelopeScanId} 不一致", actualHash, actualSize, envelopeScanId);
+                }
+
                 return new ScanIntegrityResult(true, "ok", "完整性与基本结构校验通过", actualHash, actualSize, envelopeScanId);
             }
         }

@@ -22,8 +22,27 @@ public sealed record BackendSyncResult(
     int Attempts);
 
 /// <summary>
+/// 后端导入任务状态。<c>Status</c> 直接来自 <c>import_jobs.status</c>：
+/// <c>running</c> / <c>succeeded</c> / <c>partial</c> / <c>failed</c>。
+/// </summary>
+/// <param name="Id">任务 id。</param>
+/// <param name="ScanId">扫描 id。</param>
+/// <param name="Status">后端状态。</param>
+/// <param name="PlayerCount">已写入的球员快照数。</param>
+/// <param name="TransferCount">已写入的转会数。</param>
+public sealed record BackendJobState(int Id, string ScanId, string Status, int PlayerCount, int TransferCount)
+{
+    /// <summary>后端是否已经结束该任务（成功、部分成功或失败）。</summary>
+    public bool IsTerminal => Status is "succeeded" or "partial" or "failed";
+
+    /// <summary>是否已经完成到可以归档（成功或部分成功）。</summary>
+    public bool IsComplete => Status is "succeeded" or "partial";
+}
+
+/// <summary>
 /// 后端导入客户端：<c>POST {backendBaseUrl}/imports/scan</c>，可选 <c>X-ScoutMind-Token</c> 头。
 /// 后端以 <c>scan_id</c> 幂等，因此只在传输层失败时重试一次，避免重复扫描或重复入库。
+/// 超时并不等于失败：调用方可以再用 <see cref="GetJobAsync"/> 核实服务端是否已经完成。
 /// </summary>
 public sealed class BackendClient : IDisposable
 {
@@ -31,6 +50,7 @@ public sealed class BackendClient : IDisposable
 
     private readonly HttpClient _httpClient;
     private readonly string _endpoint;
+    private readonly string _importsEndpoint;
     private readonly string? _apiToken;
     private bool _disposed;
 
@@ -57,6 +77,7 @@ public sealed class BackendClient : IDisposable
         }
 
         _endpoint = baseUri.ToString().TrimEnd('/') + "/imports/scan";
+        _importsEndpoint = baseUri.ToString().TrimEnd('/') + "/imports";
         _apiToken = string.IsNullOrWhiteSpace(apiToken) ? null : apiToken.Trim();
         _httpClient = handler is null ? new HttpClient() : new HttpClient(handler);
         _httpClient.Timeout = timeout <= TimeSpan.Zero ? TimeSpan.FromSeconds(60) : timeout;
@@ -157,6 +178,64 @@ public sealed class BackendClient : IDisposable
             $"无法连接后端 {_endpoint}：{transportError}",
             false,
             2);
+    }
+
+    /// <summary>
+    /// 按 scan_id 查询最近一次导入任务。用于核实“上传超时但服务端可能已完成”的情况。
+    /// </summary>
+    /// <param name="scanId">扫描 id。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>任务状态；查不到或后端不可达时为 <c>null</c>。</returns>
+    public async Task<BackendJobState?> GetJobAsync(string scanId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(scanId))
+        {
+            return null;
+        }
+
+        try
+        {
+            var url = $"{_importsEndpoint}?limit=5&scan_id={Uri.EscapeDataString(scanId)}";
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (_apiToken is not null)
+            {
+                request.Headers.TryAddWithoutValidation("X-ScoutMind-Token", _apiToken);
+            }
+
+            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            using var document = JsonDocument.Parse(body);
+            if (!document.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            foreach (var item in items.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var id = item.TryGetProperty("id", out var idValue) && idValue.TryGetInt32(out var parsedId) ? parsedId : 0;
+                var status = item.TryGetProperty("status", out var statusValue) ? statusValue.GetString() : null;
+                if (string.IsNullOrWhiteSpace(status)) continue;
+                var players = item.TryGetProperty("player_count", out var playerValue) && playerValue.TryGetInt32(out var parsedPlayers)
+                    ? parsedPlayers
+                    : 0;
+                var transfers = item.TryGetProperty("transfer_count", out var transferValue) && transferValue.TryGetInt32(out var parsedTransfers)
+                    ? parsedTransfers
+                    : 0;
+                return new BackendJobState(id, scanId, status, players, transfers);
+            }
+
+            return null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return null;
+        }
     }
 
     /// <inheritdoc />

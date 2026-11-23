@@ -14,10 +14,10 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..analytics.longitudinal import quality_summary
-from ..ingestion.importer import ImportOutcome, ScanImporter
+from ..ingestion.importer import ImportInProgressError, ImportOutcome, ScanImporter
 from ..ingestion.squad_csv import csv_template, import_squad_csv
 from ..ingestion.protocol import ProtocolError, ScanPayload
-from ..models import Club, DataSource, FmSave, ImportJob, PlayerInstance, PlayerSnapshot, PlayerStatistic, Transfer
+from ..models import Club, DataSource, FmSave, ImportJob, ImportRow, PlayerInstance, PlayerSnapshot, PlayerStatistic, Transfer
 from ..schemas import SaveCreate
 from ..utils import iso, payload_checksum, utcnow
 from .deps import get_active_save, get_current_user
@@ -215,17 +215,55 @@ def data_quality_summary(
 @router.get("/imports")
 def list_imports(
     save_id: int | None = Query(default=None),
+    scan_id: str | None = Query(default=None, max_length=64),
+    status: str | None = Query(default=None, max_length=16),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
-    """Import history for the save."""
+    """Import history for the save, optionally narrowed to one scan or one status.
+
+    The Agent uses this to verify whether a timed-out upload actually finished server-side instead of
+    assuming failure and re-uploading.
+    """
     target = save_id or save.id
+    if target != save.id:
+        raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
     query = select(ImportJob).where(ImportJob.fm_save_id == target)
+    if scan_id:
+        query = query.where(ImportJob.scan_id == scan_id)
+    if status:
+        query = query.where(ImportJob.status == status)
     total = db.scalar(select(func.count()).select_from(query.subquery()))
-    rows = db.scalars(query.order_by(ImportJob.received_at.desc()).limit(limit).offset(offset))
+    rows = db.scalars(query.order_by(ImportJob.received_at.desc(), ImportJob.id.desc()).limit(limit).offset(offset))
     return {"items": [_job_payload(row) for row in rows], "total": int(total or 0)}
+
+
+@router.get("/imports/{job_id}")
+def get_import(
+    job_id: int,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    """One import job: status, counts and the rejected-row codes needed to explain a failure."""
+    job = db.get(ImportJob, job_id)
+    if job is None or job.fm_save_id != save.id:
+        raise HTTPException(status_code=404, detail={"code": "import_not_found", "message": "导入批次不存在"})
+    rejected = db.execute(
+        select(ImportRow.code, ImportRow.entity, func.count())
+        .where(ImportRow.import_job_id == job.id, ImportRow.entity != "scan")
+        .group_by(ImportRow.code, ImportRow.entity)
+        .order_by(ImportRow.code)
+    ).all()
+    return {
+        **_job_payload(job),
+        "rejected_rows": int(sum(row[2] for row in rejected)),
+        "rejected_codes": [
+            {"code": code, "entity": entity, "count": int(count)} for code, entity, count in rejected
+        ],
+        "retryable": job.status in {"failed", "partial", "running"},
+    }
 
 
 @router.post("/imports/scan", status_code=201)
@@ -253,12 +291,32 @@ async def import_scan(
         except ValueError as exc:  # pydantic raises ValidationError, a ValueError subclass
             raise ProtocolError(f"FMSuperScout 适配结果不符合扫描协议：{exc}") from exc
         async with upload_slot(), import_slot():
-            outcome = importer.import_payload(target_save.id, validated, raw)
+            try:
+                outcome = importer.import_payload(target_save.id, validated, raw)
+            except ImportInProgressError as busy:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "import_in_progress",
+                        "message": "同一扫描正在导入中，请稍后重试",
+                        "job_id": busy.job.id,
+                    },
+                ) from busy
         body = _outcome_payload(outcome)
         body["adapted_by"] = report
         return body
     async with upload_slot(), import_slot():
-        outcome = importer.import_bytes(target_save.id, raw)
+        try:
+            outcome = importer.import_bytes(target_save.id, raw)
+        except ImportInProgressError as busy:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "import_in_progress",
+                    "message": "同一扫描正在导入中，请稍后重试",
+                    "job_id": busy.job.id,
+                },
+            ) from busy
     return _outcome_payload(outcome)
 
 
