@@ -75,8 +75,8 @@
 | 新迁移 | `e5a1b2c3d4f6_capture_runs`、`f6a7b8c9d0e1_transfer_event_candidates` |
 | 历史迁移修改 | 无 |
 | SQLite 往返 | 两个新迁移均 upgrade → downgrade -1 → upgrade 通过 |
-| PostgreSQL 16 | **PASS**（run 45126784762） |
-| 真实库 | 未执行新迁移；避免在自动采集未完成时改真实 schema |
+| PostgreSQL 16 | **PASS**（run 45130339549） |
+| 真实库 | 已备份到 `backend/data/backup-before-v3.2.2-20261123.db`，已升级到 `f6a7b8c9d0e1`；快照仍为 198,711 |
 
 ## 4. 测试
 
@@ -88,9 +88,10 @@
 | SM-068 suggestion | 现有 review 测试扩展 |
 | SM-069 属性趋势 | 1 项 |
 | Playwright | **2 passed**（本地 chromium） |
+| Agent auto | 构建通过；无 Agent 测试项目，**NOT_RUN** 自动化 |
 | .NET build | 0 error |
 | 前端 build（vue-tsc） | PASS |
-| 真实 FM27 自动采集 | **NOT_RUN** |
+| 真实 FM27 自动采集 | **PARTIAL**：Agent `auto` 已实现扫描后日期判断；轻量预扫描日期探测 NOT_RUN |
 
 ## 5. 未完成/阻塞
 
@@ -105,12 +106,12 @@
 ## 6. Git
 
 - 分支：`feature/v3.2.2-sm067-auto-snapshot`
-- 远程分支 HEAD：`a6bc4e9`（报告提交前）；CI run **45126784762** success。
+- 远程分支 HEAD：`dd01da1`；CI run **45130339549** success。
 - main 仍为 `397007b`。
 
 
 ## 7. CI
 
-- run **45126784762**：**success**
+- run **45130339549**：**success**
 - Backend、PostgreSQL 16、AI isolation、.NET、Frontend 全部通过
 - 真实 FM27 自动采集验收仍为 **NOT_RUN**（Agent 自动日期监控未实现）
