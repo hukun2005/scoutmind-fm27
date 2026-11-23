@@ -77,6 +77,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '身份复核中心' },
   },
   {
+    path: '/unresolved',
+    name: 'unresolved',
+    component: () => import('../views/UnresolvedPlayerView.vue'),
+    meta: { title: '自由球员待确认' },
+  },
+  {
     path: '/data',
     name: 'data',
     component: () => import('../views/DataView.vue'),
