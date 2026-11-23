@@ -127,3 +127,23 @@ def test_api_review_flow(client, db, save) -> None:
     assert response.json()["canonical"]["status"] == "resolved_manual"
     history = client.get(f"/api/v1/data-quality/canonical/{canonical.id}/history").json()
     assert history["items"][0]["action"] == "select_snapshot"
+
+
+def test_canonical_detail_and_overview(client, db, save) -> None:
+    _import(db, save, "r-detail-a", datetime(2026, 7, 1, 9, tzinfo=timezone.utc), 100)
+    _import(db, save, "r-detail-b", datetime(2026, 7, 1, 20, tzinfo=timezone.utc), 105)
+    build_canonicals(db, save.id, dry_run=False)
+    canonical = db.scalar(select(PlayerObservationCanonical).where(PlayerObservationCanonical.status == "needs_review"))
+    detail = client.get(f"/api/v1/data-quality/canonical/{canonical.id}")
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body["canonical"]["player_name"] == "Review One"
+    assert len(body["snapshots"]) == 2
+    assert body["snapshots"][0]["attributes"] == []
+    assert len(body["timeline"]) == 1
+    overview = client.get("/api/v1/data-quality/governance/overview")
+    assert overview.status_code == 200
+    stats = overview.json()
+    assert stats["canonical_groups"] == 1
+    assert stats["needs_review"] == 1
+    assert stats["total_snapshots"] == 2

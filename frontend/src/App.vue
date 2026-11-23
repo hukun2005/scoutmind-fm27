@@ -45,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'performance', label: '表现分析', to: '/performance', icon: 'performance', hint: '分位置产出与能力对比' },
   { key: 'agent', label: 'AI 体育总监', to: '/agent', icon: 'agent', hint: '自然语言提问，工具级证据' },
   { key: 'data', label: '数据中心', to: '/data', icon: 'data', hint: '数据导入、覆盖度与兼容性' },
+  { key: 'governance', label: '数据治理', to: '/governance', icon: 'data', hint: '同日冲突、canonical 审核与成长时间轴' },
   { key: 'identity', label: '身份复核', to: '/identity', icon: 'players', hint: '同 UID 冲突的人工确认与审计' },
 ]
 
