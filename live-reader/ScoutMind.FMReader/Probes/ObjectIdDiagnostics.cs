@@ -8,7 +8,13 @@ public sealed record ObjectIdSample(
     uint? RawUid,
     string Status,
     string? Reason,
-    string? Name);
+    string? Name,
+    int? Ca = null,
+    int? Pa = null,
+    string? DateOfBirth = null,
+    ulong? ContractAddress = null,
+    ulong? TeamAddress = null,
+    ulong? ClubAddress = null);
 
 /// <summary>Separates duplicate object addresses, unreadable DB/UIDs, zero/sentinel values and duplicate UIDs.</summary>
 public sealed record ObjectIdDiagnostics(
