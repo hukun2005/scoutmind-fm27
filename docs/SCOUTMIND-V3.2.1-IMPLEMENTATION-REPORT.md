@@ -2,7 +2,7 @@
 
 - 分支：`codex/scoutmind-v3.2-field-capture`
 - 起始 HEAD：`6f4c469`
-- 最终 HEAD：`1a365cb`
+- 功能 HEAD：`25fd471`；后续仅文档提交
 - 日期：2026-11-23
 - 范围：SM-061C / SM-061D / SM-061E / SM-061F / SM-066C / SM-066D
 - **未合并 main**
@@ -25,7 +25,7 @@
 
 ## 2. 当前远程与提交
 
-- 远程分支 HEAD：`1a365cb44f72558c8f5dad9daf74a54dadfe68d5`
+- 远程分支：功能提交 `25fd471`，报告/文档提交在其后；以 `origin/codex/scoutmind-v3.2-field-capture` 为准
 - 关键提交：
   - `c9983a6` SM-061C/D
   - `9ea39a7` 500k 价格统计性能修复
