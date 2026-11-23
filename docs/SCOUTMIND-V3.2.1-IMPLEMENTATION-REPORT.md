@@ -20,8 +20,8 @@
 | 43,901 组人工冲突治理 | **PARTIAL** | 机制就绪，尚无人工逐组完成 |
 | 后端全量测试 | **PASS** | 404 passed, 3 skipped |
 | SQLite migration 往返 | **PASS** | c8 / d9 均验证 |
-| PostgreSQL 16 | **NOT_RUN** | GitHub Billing 阻止 CI 启动 |
-| GitHub Actions | **BLOCKED** | 非代码失败；5 job 均 1–4 秒未启动 |
+| PostgreSQL 16 | **PASS** | run 45108778416 PostgreSQL migration compatibility success |
+| GitHub Actions | **PASS** | 公开仓库后重跑 run 45108778416，5 job 全绿 |
 
 ## 2. 当前远程与提交
 
@@ -118,19 +118,20 @@
 | FMReader 单测 | 114 passed |
 | 浏览器验证 | PASS（overview + detail + 行点击） |
 | 自动化前端 workflow 测试 | **NOT_RUN**（项目无前端单测运行器，本轮未新增） |
-| PostgreSQL 16 | **NOT_RUN**（CI Billing） |
+| PostgreSQL 16 | **PASS**（run 45108778416） |
 
-## 9. CI 阻塞
+## 9. CI 结果
 
-- run **45108104957**（`25fd471`）：5 job 全部在 1–4 秒内失败；
-- annotation：*“The job was not started because recent account payments have failed or your spending limit needs to be increased.”*
-- 这是 GitHub 账户 Billing 问题，**不是代码或迁移失败**；
-- 不能把本提交的 PostgreSQL 16 写成 PASS；需恢复 Billing 后重跑 CI。
+- 仓库已设为公开，GitHub Actions 恢复；
+- run **45108778416**（main `43c7e9d`，重跑）：**success**；
+- Backend、PostgreSQL 16、AI isolation、.NET、Frontend 五个 job 全部成功；
+- PostgreSQL 16 已实际执行 `b7c1e2f4a901 → c8d2e5f7a013 → d9e3f6a8b124` 迁移验证；
+- 此前 Billing 阻塞已解除，不再有 NOT_RUN 的 CI 门禁。
 
 ## 10. 未解决问题
 
 1. 43,901 组真实冲突仍待人工逐组审核；机制完成不等于数据治理完成；
-2. PostgreSQL 16 对本轮新 migration 未执行（CI BLOCKED）；
+2. ~~PostgreSQL 16 对本轮新 migration 未执行~~ **已解除：run 45108778416 实测通过**；
 3. `source_changed` 目前仍进入 needs_review，是否忽略来源差异需产品确认；
 4. 真实库当前只有 1 个 game_date，成长趋势仍不可计算（不是 canonical 问题）；
 5. 前端审核 workflow 无自动化浏览器测试，仅人工/截图验证；
@@ -138,4 +139,4 @@
 
 ## 11. 结论
 
-V3.2.1 的 canonical 治理链路已经打通：真实 54,570 组 canonical 写入、43,901 组冲突被明确隔离、人工审核与追加审计可用、治理中心可浏览和操作。真实数据治理仍是 **PARTIAL**，因为 43,901 组冲突尚未逐组完成人工审核；CI 仍是 **BLOCKED**，因为 GitHub Billing 阻止了 PostgreSQL 16 验证。未合并 main，未开始 V3.3。
+V3.2.1 的 canonical 治理链路已经打通：真实 54,570 组 canonical 写入、43,901 组冲突被明确隔离、人工审核与追加审计可用、治理中心可浏览和操作。真实数据治理仍是 **PARTIAL**，因为 43,901 组冲突尚未逐组完成人工审核；CI 已恢复为 **PASS**；真实数据人工审核仍是 **PARTIAL**。未合并 main，未开始 V3.3。
