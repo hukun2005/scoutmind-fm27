@@ -83,6 +83,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '数据与诊断' },
   },
   {
+    path: '/governance',
+    name: 'governance',
+    component: () => import('../views/GovernanceView.vue'),
+    meta: { title: '数据治理中心' },
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/',
   },

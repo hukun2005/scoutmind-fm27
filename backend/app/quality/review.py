@@ -10,10 +10,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import (
+    Club,
+    ImportJob,
     Player,
     PlayerInstance,
     PlayerObservationCanonical,
     PlayerObservationCanonicalAction,
+    PlayerAttribute,
+    PlayerAttributeValue,
     PlayerSnapshot,
 )
 
@@ -207,4 +211,159 @@ def _action_payload(action: PlayerObservationCanonicalAction) -> dict[str, Any]:
         "evidence": evidence,
         "reviewer_user_id": action.reviewer_user_id,
         "created_at": action.created_at.isoformat() if action.created_at else None,
+    }
+
+
+def canonical_detail(session: Session, save_id: int, canonical_id: int) -> dict[str, Any]:
+    """Snapshot diff payload plus the player's canonical timeline."""
+    canonical = _canonical_or_error(session, save_id, canonical_id)
+    instance = session.get(PlayerInstance, canonical.player_instance_id)
+    player = session.get(Player, instance.player_id) if instance else None
+    rows = session.execute(
+        select(PlayerSnapshot, ImportJob.source, ImportJob.reader_version, ImportJob.game_build)
+        .outerjoin(ImportJob, ImportJob.id == PlayerSnapshot.import_job_id)
+        .where(
+            PlayerSnapshot.player_instance_id == canonical.player_instance_id,
+            PlayerSnapshot.game_date == canonical.game_date,
+        )
+        .order_by(PlayerSnapshot.observed_at, PlayerSnapshot.id)
+    ).all()
+    snapshot_ids = [row[0].id for row in rows]
+    attributes: dict[int, list[dict[str, Any]]] = {snapshot_id: [] for snapshot_id in snapshot_ids}
+    if snapshot_ids:
+        attr_rows = session.execute(
+            select(
+                PlayerAttributeValue.player_snapshot_id,
+                PlayerAttribute.key,
+                PlayerAttribute.name,
+                PlayerAttribute.name_zh,
+                PlayerAttribute.category,
+                PlayerAttributeValue.value,
+            )
+            .join(PlayerAttribute, PlayerAttribute.id == PlayerAttributeValue.attribute_id)
+            .where(PlayerAttributeValue.player_snapshot_id.in_(snapshot_ids))
+            .order_by(PlayerAttribute.sort_order, PlayerAttribute.key)
+        )
+        for snapshot_id, key, name, name_zh, category, value in attr_rows:
+            attributes.setdefault(snapshot_id, []).append({
+                "key": key, "name": name, "name_zh": name_zh,
+                "category": category, "value": float(value),
+            })
+    club_names = {
+        club.id: club.name for club in session.scalars(
+            select(Club).where(Club.fm_save_id == save_id, Club.id.in_({snapshot.club_id for snapshot, *_ in rows if snapshot.club_id}))
+        )
+    } if any(snapshot.club_id for snapshot, *_ in rows) else {}
+    snapshots = []
+    for snapshot, source, reader_version, game_build in rows:
+        snapshots.append({
+            "id": snapshot.id,
+            "observed_at": snapshot.observed_at.isoformat() if snapshot.observed_at else None,
+            "game_date": (snapshot.game_date or snapshot.observed_at.date()).isoformat(),
+            "ca": snapshot.ca, "pa": snapshot.pa, "wage": snapshot.wage,
+            "market_value": snapshot.market_value,
+            "contract_end": snapshot.contract_end.isoformat() if snapshot.contract_end else None,
+            "club_id": snapshot.club_id,
+            "club_name": club_names.get(snapshot.club_id),
+            "position": snapshot.position,
+            "height_cm": snapshot.height_cm,
+            "foot": snapshot.foot,
+            "source": source, "reader_version": reader_version, "game_build": game_build,
+            "attributes": attributes.get(snapshot.id, []),
+        })
+    timeline_rows = list(session.scalars(
+        select(PlayerObservationCanonical)
+        .where(
+            PlayerObservationCanonical.fm_save_id == save_id,
+            PlayerObservationCanonical.player_instance_id == canonical.player_instance_id,
+        )
+        .order_by(PlayerObservationCanonical.game_date)
+    ))
+    timeline = [{
+        "id": row.id,
+        "game_date": row.game_date.isoformat(),
+        "status": row.status,
+        "canonical_snapshot_id": row.canonical_snapshot_id,
+        "conflict": row.conflict,
+        "snapshot_count": row.snapshot_count,
+        "reason": row.reason,
+    } for row in timeline_rows]
+    try:
+        conflict_types = json.loads(canonical.conflict_types_json or "[]")
+    except json.JSONDecodeError:
+        conflict_types = []
+    return {
+        "canonical": {
+            "id": canonical.id,
+            "fm_save_id": canonical.fm_save_id,
+            "player_instance_id": canonical.player_instance_id,
+            "player_name": player.full_name if player else None,
+            "player_uid": instance.save_local_uid if instance else None,
+            "game_date": canonical.game_date.isoformat(),
+            "status": canonical.status,
+            "conflict": canonical.conflict,
+            "conflict_types": conflict_types,
+            "snapshot_count": canonical.snapshot_count,
+            "distinct_content_count": canonical.distinct_content_count,
+            "canonical_snapshot_id": canonical.canonical_snapshot_id,
+            "reason": canonical.reason,
+        },
+        "snapshots": snapshots,
+        "timeline": timeline,
+    }
+
+
+def governance_overview(session: Session, save_id: int) -> dict[str, Any]:
+    """KPI block for the Data Governance Center; read-only."""
+    from ..models import PlayerSnapshot
+    from .rules import run_quality_rules
+
+    snapshot_count = session.scalar(
+        select(func.count()).select_from(PlayerSnapshot).join(PlayerInstance, PlayerInstance.id == PlayerSnapshot.player_instance_id)
+        .where(PlayerInstance.fm_save_id == save_id)
+    ) or 0
+    game_dates = session.scalar(
+        select(func.count(func.distinct(PlayerSnapshot.game_date))).join(
+            PlayerInstance, PlayerInstance.id == PlayerSnapshot.player_instance_id
+        ).where(PlayerInstance.fm_save_id == save_id)
+    ) or 0
+    players = session.scalar(
+        select(func.count(func.distinct(PlayerInstance.id))).where(PlayerInstance.fm_save_id == save_id)
+    ) or 0
+    counts = {status: 0 for status in ("resolved", "resolved_manual", "needs_review", "excluded", "review_required", "resolved_auto")}
+    for status, count in session.execute(
+        select(PlayerObservationCanonical.status, func.count())
+        .where(PlayerObservationCanonical.fm_save_id == save_id)
+        .group_by(PlayerObservationCanonical.status)
+    ):
+        counts[status] = int(count)
+    conflict_types: dict[str, int] = {}
+    for raw in session.scalars(
+        select(PlayerObservationCanonical.conflict_types_json).where(
+            PlayerObservationCanonical.fm_save_id == save_id,
+            PlayerObservationCanonical.status == "needs_review",
+        )
+    ):
+        try:
+            for item in json.loads(raw or "[]"):
+                conflict_types[item] = conflict_types.get(item, 0) + 1
+        except json.JSONDecodeError:
+            continue
+    report = run_quality_rules(session, save_id)
+    anomaly_count = sum(finding["count"] for finding in report["findings"] if finding["severity"] in {"error", "warning"})
+    return {
+        "save_id": save_id,
+        "total_snapshots": int(snapshot_count),
+        "unique_game_dates": int(game_dates),
+        "players": int(players),
+        "canonical_groups": sum(counts.values()),
+        "resolved_auto": counts["resolved"] + counts["resolved_auto"],
+        "resolved_manual": counts["resolved_manual"],
+        "needs_review": counts["needs_review"],
+        "excluded": counts["excluded"],
+        "review_required": counts["review_required"],
+        "quality_anomalies": int(anomaly_count),
+        "quality_error_groups": report["severity_counts"].get("error", 0),
+        "quality_warning_groups": report["severity_counts"].get("warning", 0),
+        "conflict_types": [{"type": key, "count": value} for key, value in sorted(conflict_types.items(), key=lambda item: -item[1])],
     }

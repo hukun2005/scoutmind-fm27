@@ -13,7 +13,10 @@ from ..db import get_db
 from ..models import FmSave, ImportJob, PlayerObservationCanonical
 from ..schemas import CanonicalDecisionIn
 from ..quality.dedup import build_canonicals, canonical_summary
-from ..quality.review import ReviewError, decide, history as review_history, review_queue
+from ..quality.review import (
+    ReviewError, canonical_detail, decide, governance_overview,
+    history as review_history, review_queue,
+)
 from ..quality.rules import rule_catalog, run_quality_rules
 from .deps import get_active_save, get_current_user
 
@@ -128,5 +131,25 @@ def canonical_decision(
     try:
         return decide(db, save.id, canonical_id, reviewer_user_id=user.id, action=body.action,
                       selected_snapshot_id=body.selected_snapshot_id, reason=body.reason, evidence=body.evidence)
+    except ReviewError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
+
+
+@router.get("/data-quality/governance/overview", summary="数据治理总览")
+def governance_overview_route(
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return governance_overview(db, save.id)
+
+
+@router.get("/data-quality/canonical/{canonical_id}", summary="Canonical 快照差异与时间轴")
+def canonical_detail_route(
+    canonical_id: int,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    try:
+        return canonical_detail(db, save.id, canonical_id)
     except ReviewError as exc:
         raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
