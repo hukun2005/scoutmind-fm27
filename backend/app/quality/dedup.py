@@ -104,9 +104,15 @@ def _classify(
             changed.add("height_cm")
         if differs(lambda item: item.foot):
             changed.add("foot")
-    if differs(lambda item: sources.get(item.id, ())):
+    if differs(lambda item: sources.get(item.id, (None, None, None))[0]):
         categories.add("source_changed")
         changed.add("source")
+    if differs(lambda item: sources.get(item.id, (None, None, None))[1]):
+        categories.add("reader_version_changed")
+        changed.add("reader_version")
+    if differs(lambda item: sources.get(item.id, (None, None, None))[2]):
+        categories.add("source_changed")
+        changed.add("game_build")
     for name in ("ca", "pa", "wage", "market_value", "contract_end", "club_id", "position", "height_cm", "foot"):
         presence = {getattr(value, name) is not None for value in values}
         if len(presence) > 1:
@@ -117,7 +123,7 @@ def _classify(
     return sorted(categories), sorted(changed)
 
 
-def build_canonicals(session: Session, save_id: int, *, dry_run: bool = True) -> dict[str, Any]:
+def build_canonicals(session: Session, save_id: int, *, dry_run: bool = True, batch_size: int = 1000) -> dict[str, Any]:
     """Evaluate duplicate groups and optionally persist canonical decisions (never deletes)."""
     rows = list(
         session.execute(
@@ -211,6 +217,8 @@ def build_canonicals(session: Session, save_id: int, *, dry_run: bool = True) ->
         row.conflict_types_json = json.dumps(conflict_types, ensure_ascii=False)
         row.changed_fields_json = json.dumps(changed_fields, ensure_ascii=False)
         wrote += 1
+        if batch_size > 0 and wrote % batch_size == 0:
+            session.flush()
     if not dry_run:
         session.commit()
     return {
