@@ -32,12 +32,14 @@ public enum CliCommand
 /// <param name="OutputDirectory">扫描输出目录（仅 scan）。</param>
 /// <param name="TimeoutSeconds">扫描超时秒数（仅 scan）。</param>
 /// <param name="Engine">扫描后端：<c>native</c> 内置引擎或 <c>external</c> 外部扫描器；为空时自动选择。</param>
+/// <param name="ReportPath">probe 结构化诊断报告的输出路径（仅 probe）。</param>
 public sealed record CliOptions(
     CliCommand Command,
     bool Json,
     string? OutputDirectory,
     int? TimeoutSeconds,
-    string? Engine = null);
+    string? Engine = null,
+    string? ReportPath = null);
 
 /// <summary>
 /// 命令行解析结果。失败时 <see cref="Error"/> 为面向用户的中文说明，调用方应以退出码 64 结束。
@@ -76,6 +78,7 @@ public static class CliCommandParser
         string? outputDirectory = null;
         int? timeoutSeconds = null;
         string? engine = null;
+        string? reportPath = null;
         var index = 0;
 
         while (index < args.Count)
@@ -158,6 +161,29 @@ public static class CliCommandParser
                 continue;
             }
 
+            if (command == CliCommand.Probe && argument == "--report")
+            {
+                if (reportPath is not null)
+                {
+                    return CliParseResult.Failure("选项 --report 重复指定。");
+                }
+
+                if (index + 1 >= args.Count)
+                {
+                    return CliParseResult.Failure("选项 --report 需要一个文件路径。");
+                }
+
+                var reportTarget = args[index + 1];
+                if (string.IsNullOrWhiteSpace(reportTarget) || reportTarget.StartsWith("--", StringComparison.Ordinal))
+                {
+                    return CliParseResult.Failure("选项 --report 需要一个非空文件路径。");
+                }
+
+                reportPath = reportTarget;
+                index += 2;
+                continue;
+            }
+
             if (command == CliCommand.Scan)
             {
                 switch (argument)
@@ -217,7 +243,7 @@ public static class CliCommandParser
             return CliParseResult.Failure("缺少子命令。可用子命令：status、probe、scan、compatibility list。");
         }
 
-        return CliParseResult.Success(new CliOptions(command.Value, json, outputDirectory, timeoutSeconds, engine));
+        return CliParseResult.Success(new CliOptions(command.Value, json, outputDirectory, timeoutSeconds, engine, reportPath));
     }
 
     private static string ToDisplayName(CliCommand command) => command switch

@@ -23,6 +23,20 @@ public static class CliParserTests
             Assert.True(options.Json, "应识别 --json");
         });
 
+        harness.Case("probe --report 解析为报告路径，且仅 probe 接受该选项", () =>
+        {
+            var parsed = CliCommandParser.Parse(new[] { "probe", "--report", @"C:\out\probe.json", "--json" });
+            Assert.True(parsed.Ok, "合法参数应解析成功");
+            Assert.Equal(CliCommand.Probe, parsed.Options!.Command, "子命令应为 probe");
+            Assert.Equal(@"C:\out\probe.json", parsed.Options.ReportPath, "报告路径应被解析");
+
+            Assert.False(CliCommandParser.Parse(new[] { "probe", "--report" }).Ok, "--report 缺少值必须失败");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "probe", "--report", "a", "--report", "b" }).Ok,
+                "重复 --report 必须失败");
+            Assert.False(CliCommandParser.Parse(new[] { "scan", "--report", "a" }).Ok, "scan 不接受 --report");
+        });
+
         harness.Case("未知子命令与未知选项 → 解析失败", () =>
         {
             var unknownCommand = CliCommandParser.Parse(new[] { "frobnicate" });

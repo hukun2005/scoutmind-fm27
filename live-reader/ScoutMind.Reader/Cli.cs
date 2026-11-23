@@ -166,6 +166,25 @@ public sealed class Cli
             WriteScanConfigHuman(scannerConfig);
         }
 
+        if (!string.IsNullOrWhiteSpace(options.ReportPath))
+        {
+            try
+            {
+                var written = ProbeReportWriter.Write(
+                    options.ReportPath,
+                    ReaderInfo.Version,
+                    probe,
+                    backend.LastReport,
+                    DateTimeOffset.UtcNow);
+                _stderr.WriteLine($"结构化诊断报告已写入 {written}");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                _stderr.WriteLine($"写入结构化诊断报告失败：{ex.Message}");
+                return ExitCodes.UsageError;
+            }
+        }
+
         if (options.Json)
         {
             WriteJson(probe);
@@ -499,7 +518,7 @@ public sealed class Cli
     {
         writer.WriteLine("用法：");
         writer.WriteLine("  ScoutMind.LiveReader status [--json]");
-        writer.WriteLine("  ScoutMind.LiveReader probe [--json]");
+        writer.WriteLine("  ScoutMind.LiveReader probe [--json] [--report <文件>]");
         writer.WriteLine("  ScoutMind.LiveReader scan [--output <目录>] [--timeout <秒>] [--json]");
         writer.WriteLine("  ScoutMind.LiveReader compatibility list [--json]");
         writer.WriteLine();

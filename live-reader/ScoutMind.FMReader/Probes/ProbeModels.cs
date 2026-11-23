@@ -81,6 +81,29 @@ public enum OverallStatus
     Unknown,
 }
 
+/// <summary>
+/// UID 适用性摘要：只从真实探测得到的 <see cref="ObjectIdDiagnostics"/> 派生，数字不硬编码。
+/// </summary>
+/// <param name="TotalObjects">候选对象数（去重前）。</param>
+/// <param name="UniqueObjects">去重后的对象数。</param>
+/// <param name="ValidUids">可读且不是哨兵的 UID 数。</param>
+/// <param name="SentinelUids">值为 <c>0xFFFFFFFF</c> 的 UID 数。</param>
+/// <param name="ZeroUids">值为 0 的 UID 数。</param>
+/// <param name="UnreadableUids">UID 不可读的对象数。</param>
+/// <param name="DuplicateAddresses">重复对象地址数。</param>
+/// <param name="DuplicateValidUids">重复的合法 UID 数。</param>
+/// <param name="FreeAgentCandidates">合同为空且 UID 为哨兵的候选数。</param>
+public sealed record UidDiagnosticsSummary(
+    int TotalObjects,
+    int UniqueObjects,
+    int ValidUids,
+    int SentinelUids,
+    int ZeroUids,
+    int UnreadableUids,
+    int DuplicateAddresses,
+    int DuplicateValidUids,
+    int FreeAgentCandidates);
+
 /// <summary>一次诊断的完整结果，可直接序列化成 JSON 报告。</summary>
 /// <param name="GeneratedAt">生成时间（ISO-8601）。</param>
 /// <param name="EngineVersion">引擎版本。</param>
@@ -119,4 +142,30 @@ public sealed record DiagnosticReport(
     /// <returns>证据种类 → 数量。</returns>
     public IReadOnlyDictionary<EvidenceKind, int> EvidenceCounts() =>
         Specifications.GroupBy(item => item.Kind).ToDictionary(group => group.Key, group => group.Count());
+
+    /// <summary>
+    /// UID 分类摘要，来自 integrity 探测写入的 <see cref="ProbeOutcome.ObjectIds"/>；没有该探测时为 <c>null</c>。
+    /// </summary>
+    public UidDiagnosticsSummary? UidDiagnostics
+    {
+        get
+        {
+            var ids = Probes.Select(item => item.ObjectIds).FirstOrDefault(item => item is not null);
+            return ids is null
+                ? null
+                : new UidDiagnosticsSummary(
+                    ids.CandidateCount,
+                    ids.UniqueObjectCount,
+                    ids.ValidUidCount,
+                    ids.SentinelUidCount,
+                    ids.ZeroUidCount,
+                    ids.UnreadableUidCount,
+                    ids.DuplicateObjectAddressCount,
+                    ids.DuplicateUidCount,
+                    ids.FreeAgentCandidateCount);
+        }
+    }
+
+    /// <summary>是否可以据此开始正式扫描（与 <see cref="ScanAllowed"/> 同义，供报告字段命名对齐）。</summary>
+    public bool ScanReadiness => ScanAllowed;
 }
