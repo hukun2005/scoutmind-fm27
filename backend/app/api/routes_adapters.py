@@ -103,7 +103,8 @@ async def validate_dump(
         raise HTTPException(status_code=422, detail={"code": "not_fmscout_dump", "message": str(exc)}) from exc
 
     players = payload["players"]
-    ids = [row["save_local_uid"] for row in players]
+    ids = [row.get("save_local_uid") or "" for row in players]
+    unresolved = sum(1 for uid in ids if not uid)
     duplicates = duplicate_player_ids(players)
     coverage = report.payload()["coverage"]
     known_counts = _existing_instances(db, save_id or save.id, ids)
@@ -149,6 +150,13 @@ async def validate_dump(
                 {"label": "已在存档中的球员", "value": known_counts["existing"]},
                 {"label": "将新建的球员", "value": known_counts["new"]},
                 {"label": "缺少稳定 ID 的行", "value": known_counts["no_id"]},
+                {
+                    "label": "无身份候选（Unresolved）",
+                    "value": unresolved,
+                    "detail": None
+                    if not unresolved
+                    else "哨兵/缺失 ID 会保存为待确认候选，不会写成 save_local_uid",
+                },
                 {
                     "label": "我的俱乐部（meta.myClub）",
                     "value": report.user_club or "未识别",

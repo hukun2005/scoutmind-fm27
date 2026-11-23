@@ -24,6 +24,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -989,3 +990,132 @@ class TransferEventCandidate(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
     linked_transfer_id: Mapped[int | None] = mapped_column(ForeignKey("transfer_history.id"))
     evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class UnresolvedPlayerCandidate(TimestampMixin, Base):
+    """A player an upstream source could not identify, kept as a candidate instead of a fake identity.
+
+    The row never participates in canonical observations, valuations, squad analysis or scouting until a
+    human resolves it. ``candidate_key`` scopes correlation to one save: it comes from a stable upstream
+    identity when one exists, otherwise it is unique per observation, so two sentinel rows from the same
+    scan stay two candidates. Name, birth date and the sentinel value are evidence, never keys.
+    """
+
+    __tablename__ = "unresolved_player_candidates"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", "candidate_key", name="uq_unresolved_candidate_save_key"),
+        Index("ix_unresolved_candidate_save_status", "fm_save_id", "status"),
+        Index("ix_unresolved_candidate_save_name", "fm_save_id", "normalized_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    candidate_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    # stable_id: a verified stable upstream identity; observation: this candidate is one observation only.
+    source_identity_kind: Mapped[str] = mapped_column(String(24), default="observation", nullable=False)
+    source_identity_value: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    birth_date: Mapped[date | None] = mapped_column(Date)
+    nationality: Mapped[str | None] = mapped_column(String(64))
+    position: Mapped[str | None] = mapped_column(String(16))
+    # Upstream identity evidence, kept verbatim for review.
+    raw_uid: Mapped[str | None] = mapped_column(String(64))
+    uid_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    uid_reason: Mapped[str | None] = mapped_column(String(64))
+    # Derived cache for list filters and sorting. ``unresolved_player_observations`` stays the source of truth;
+    # only the importer writes these columns.
+    observation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
+    latest_ca: Mapped[int | None] = mapped_column(Integer)
+    latest_pa: Mapped[int | None] = mapped_column(Integer)
+    resolution_method: Mapped[str | None] = mapped_column(String(32))
+    resolved_player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"), index=True)
+    resolved_player_instance_id: Mapped[int | None] = mapped_column(ForeignKey("player_instances.id"))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    resolved_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    dismissed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    dismiss_reason: Mapped[str | None] = mapped_column(String(256))
+    evidence_summary_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+    observations: Mapped[list[UnresolvedPlayerObservation]] = relationship(
+        back_populates="candidate", cascade="all, delete-orphan"
+    )
+
+
+class UnresolvedPlayerObservation(TimestampMixin, Base):
+    """One raw observation of an unidentified player inside one scan.
+
+    ``(fm_save_id, scan_id, row_index)`` is the idempotency key: re-importing the same scan never duplicates
+    an observation. Candidate correlation is not implied by the key; see
+    :class:`UnresolvedPlayerCandidate`.
+    """
+
+    __tablename__ = "unresolved_player_observations"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", "scan_id", "row_index", name="uq_unresolved_observation_scan_row"),
+        Index("ix_unresolved_observation_candidate", "candidate_id", "observed_at"),
+        Index("ix_unresolved_observation_save_scan", "fm_save_id", "scan_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("unresolved_player_candidates.id"), nullable=False, index=True
+    )
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), index=True)
+    scan_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    row_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    game_date: Mapped[date | None] = mapped_column(Date)
+    raw_uid: Mapped[str | None] = mapped_column(String(64))
+    uid_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    birth_date: Mapped[date | None] = mapped_column(Date)
+    nationality: Mapped[str | None] = mapped_column(String(64))
+    position: Mapped[str | None] = mapped_column(String(16))
+    ca: Mapped[int | None] = mapped_column(Integer)
+    pa: Mapped[int | None] = mapped_column(Integer)
+    club_name: Mapped[str | None] = mapped_column(String(128))
+    contract_end: Mapped[date | None] = mapped_column(Date)
+    raw_evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    candidate: Mapped[UnresolvedPlayerCandidate] = relationship(back_populates="observations")
+
+
+class UnresolvedPlayerAction(Base):
+    """Append-only audit record for one manual decision on an unresolved candidate.
+
+    The table deliberately has no ``updated_at``; the model refuses updates and deletes, so a decision
+    can be superseded by a later row but never rewritten.
+    """
+
+    __tablename__ = "unresolved_player_actions"
+    __table_args__ = (Index("ix_unresolved_action_candidate", "candidate_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("unresolved_player_candidates.id"), nullable=False, index=True
+    )
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    action: Mapped[str] = mapped_column(String(24), nullable=False)
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    previous_status: Mapped[str | None] = mapped_column(String(16))
+    new_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"))
+    note: Mapped[str | None] = mapped_column(String(512))
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+@event.listens_for(UnresolvedPlayerAction, "before_update")
+@event.listens_for(UnresolvedPlayerAction, "before_delete")
+def _reject_unresolved_action_rewrite(*_args: object) -> None:
+    """Audit rows are immutable: a wrong decision is corrected by appending, never by editing."""
+    raise ValueError("unresolved_player_actions 是不可覆盖的审计表：禁止更新或删除")
+

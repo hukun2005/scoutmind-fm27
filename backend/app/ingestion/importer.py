@@ -42,6 +42,7 @@ from ..models import (
 from ..utils import iso, payload_checksum, utcnow
 from .attributes import ATTRIBUTE_KEYS, ensure_attributes, position_group
 from .identity import resolve_player_instance
+from .unresolved import persist_unresolved_observation
 from .protocol import (
     STATISTIC_FIELDS,
     FeeComponentRecord,
@@ -84,6 +85,20 @@ class ImportOutcome:
     pending_transfers_created: int = 0
     candidates_created: int = 0
     rows_rejected: int = 0
+    #: Legal-UID player rows applied (new snapshots plus already-known observations).
+    players_imported: int = 0
+    #: Unresolved candidates created by this scan.
+    unresolved_created: int = 0
+    #: Unresolved observations written by this scan.
+    unresolved_observations_created: int = 0
+    #: Unresolved observations already stored for this (save, scan, row).
+    unresolved_observations_skipped: int = 0
+    #: Unresolved rows that correlated to an existing candidate through a stable identity.
+    unresolved_candidates_matched: int = 0
+    #: Rows deliberately not written because an identical observation already existed.
+    rows_skipped: int = 0
+    #: Club-change candidates created from snapshot diffs (never completed transfers).
+    canonical_candidates_created: int = 0
     warnings: list[str] = field(default_factory=list)
     errors: list[dict[str, object]] = field(default_factory=list)
     coverage: dict[str, float] = field(default_factory=dict)
@@ -241,9 +256,14 @@ class ScanImporter:
         self._upsert_transfers(job, payload, clubs, instance_by_record, outcome)
         # A club change between two snapshots is only a candidate event; it must be confirmed before it counts.
         self._detect_club_changes(job, payload, instance_by_record, outcome)
+        outcome.canonical_candidates_created = outcome.candidates_created
+        outcome.rows_skipped = outcome.snapshots_skipped + outcome.unresolved_observations_skipped
         outcome.coverage = self._coverage(payload, outcome)
-        outcome.status = "failed" if outcome.rows_rejected and not outcome.snapshots_created else (
-            "partial" if outcome.rows_rejected else "succeeded"
+        outcome.status = (
+            "failed"
+            if outcome.rows_rejected
+            and not (outcome.snapshots_created or outcome.unresolved_observations_created)
+            else ("partial" if outcome.rows_rejected else "succeeded")
         )
         self._touch_source(job, payload, outcome)
         job.status = outcome.status
@@ -259,7 +279,11 @@ class ScanImporter:
                 row_index=0,
                 entity="scan",
                 code="summary",
-                message=f"{label} 导入 {outcome.snapshots_created} 名球员快照、{outcome.transfers_created} 笔交易",
+                message=(
+                    f"{label} 导入 {outcome.snapshots_created} 名球员快照、"
+                    f"{outcome.unresolved_observations_created} 条无 UID 观察、"
+                    f"{outcome.transfers_created} 笔交易"
+                ),
             )
         )
         return outcome
@@ -343,6 +367,9 @@ class ScanImporter:
             except RowValidationError as exc:
                 self._reject(job, index, "player", exc, outcome, raw)
                 continue
+            if not record.has_valid_uid:
+                self._persist_unresolved(job, payload, index, record, raw, clubs, outcome)
+                continue
             resolved = resolve_player_instance(self.session, job.fm_save_id, record, outcome.warnings)
             instance = resolved.instance
             if resolved.created_player:
@@ -356,6 +383,7 @@ class ScanImporter:
                 instance.club_id = club.id
             self._create_snapshot(job, payload, record, instance, club, clubs, attribute_ids, outcome)
             self._upsert_statistics(job, payload, record, instance, outcome)
+            outcome.players_imported += 1
             if record.record_id:
                 instance_by_record[record.record_id] = instance.id
             instance_by_record[record.save_local_uid] = instance.id
@@ -363,6 +391,41 @@ class ScanImporter:
                 instance.last_seen_at = observed_at
         self.session.flush()
         return instance_by_record
+
+    def _persist_unresolved(
+        self,
+        job: ImportJob,
+        payload: ScanPayload,
+        index: int,
+        record: PlayerRecord,
+        raw_row: dict[str, object],
+        clubs: dict[str, Club],
+        outcome: ImportOutcome,
+    ) -> None:
+        """Store a row without a usable identity; never resolve it to a player instance.
+
+        The savepoint keeps a failing row from aborting the whole scan while still making the failure
+        visible: the row is recorded and the job ends ``partial``, never ``succeeded``.
+        """
+        club_name = None
+        if record.club_uid:
+            club = clubs.get(record.club_uid)
+            club_name = club.name if club is not None else record.club_uid
+        try:
+            with self.session.begin_nested():
+                persist_unresolved_observation(
+                    self.session,
+                    job=job,
+                    payload=payload,
+                    row_index=index,
+                    record=record,
+                    raw_row=raw_row,
+                    outcome=outcome,
+                    club_name=club_name,
+                )
+        except Exception as exc:  # noqa: BLE001 - one row must not abort the scan; the failure is recorded
+            reason = RowValidationError("unresolved_persist_failed", f"无 UID 球员持久化失败：{exc}")
+            self._reject(job, index, "player", reason, outcome, raw_row)
 
     def _create_snapshot(
         self,
