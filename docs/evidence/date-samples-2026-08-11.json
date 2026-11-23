@@ -1,0 +1,11 @@
+{
+  "experiment": "V3.2.2.3 date discovery samples",
+  "game": {"build": "26620374", "plugin": "27.1", "process_id": 105040},
+  "samples": [
+    {"label": "A", "user_confirmed_date": "2026-08-09", "evidence": "docs/evidence/fm27-date-2026-08-09.png"},
+    {"label": "B", "user_confirmed_date": "2026-08-10", "evidence": "docs/evidence/fm27-date-2026-08-10.png", "note": "screen showed transfer centre; date label user-confirmed"},
+    {"label": "C", "user_confirmed_date": "2026-08-11", "evidence": "docs/evidence/fm27-date-2026-08-11.png", "note": "inbox header shows 8月11日周二"}
+  ],
+  "exact_memory_clock": "BLOCKED",
+  "next_match_proxy": "NOT_RUN"
+}

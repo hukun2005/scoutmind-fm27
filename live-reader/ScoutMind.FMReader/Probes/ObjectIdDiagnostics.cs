@@ -1,0 +1,35 @@
+namespace ScoutMind.FMReader.Probes;
+
+/// <summary>Per-object OBJ_DUNI diagnostics; failures are not counted as duplicate UIDs.</summary>
+public sealed record ObjectIdSample(
+    ulong ObjectAddress,
+    ulong DbAddress,
+    ulong UidAddress,
+    uint? RawUid,
+    string Status,
+    string? Reason,
+    string? Name,
+    int? Ca = null,
+    int? Pa = null,
+    string? DateOfBirth = null,
+    bool? ContractReadable = null,
+    bool? FreeAgentCandidate = null,
+    ulong? ContractAddress = null,
+    ulong? TeamAddress = null,
+    ulong? ClubAddress = null);
+
+/// <summary>Separates duplicate object addresses, unreadable DB/UIDs, zero/sentinel values and duplicate UIDs.</summary>
+public sealed record ObjectIdDiagnostics(
+    int CandidateCount,
+    int UniqueObjectCount,
+    int DuplicateObjectAddressCount,
+    int ReadableDbCount,
+    int ReadableUidCount,
+    int ValidUidCount,
+    int ZeroUidCount,
+    int SentinelUidCount,
+    int DuplicateUidCount,
+    int UnreadableUidCount,
+    int FreeAgentCandidateCount,
+    IReadOnlyList<ObjectIdSample> Samples,
+    IReadOnlyList<ObjectIdSample> SentinelSamples);

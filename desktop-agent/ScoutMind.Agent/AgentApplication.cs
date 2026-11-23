@@ -476,6 +476,25 @@ public sealed class AgentApplication
         ScanQueue queue,
         CancellationToken cancellationToken)
     {
+        var metaPath = Path.ChangeExtension(path, ".meta.json");
+        var integrity = await ScanIntegrityValidator.ValidateAsync(path, metaPath, cancellationToken).ConfigureAwait(false);
+        if (!integrity.Valid)
+        {
+            var folder = queue.Quarantine(path, metaPath, new
+            {
+                quarantined_at = DateTimeOffset.UtcNow.ToString("O"),
+                code = integrity.Code,
+                message = integrity.Message,
+                actual_sha256 = integrity.ActualSha256,
+                actual_size = integrity.ActualSize,
+                scan_id = integrity.ScanId,
+                source_envelope = path,
+                source_meta = metaPath,
+            });
+            _stderr.WriteLine($"完整性校验失败（{Path.GetFileName(path)}）：{integrity.Code} {integrity.Message}；已隔离到 {folder}");
+            return false;
+        }
+
         ScanFilePayload payload;
         try
         {

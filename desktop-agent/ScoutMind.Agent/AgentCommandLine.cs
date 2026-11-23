@@ -174,6 +174,10 @@ public static class AgentCommandLine
         {
             return AgentParseResult.Failure("watch 需要 --interval-minutes <分钟>。");
         }
+        if (command == AgentCommand.Auto && autoControl is null && intervalMinutes is null)
+        {
+            return AgentParseResult.Failure("auto 需要 --interval-minutes <分钟>，或 --pause/--resume/--status。");
+        }
 
         return AgentParseResult.Success(new AgentOptions(command.Value, json, sync, intervalMinutes, filePath, autoControl));
     }
