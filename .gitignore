@@ -49,3 +49,7 @@ live-reader/tests/**/bin/
 live-reader/tests/**/obj/
 live-reader/tools/**/bin/
 live-reader/tools/**/obj/
+
+# local date-discovery diagnostics (may contain memory addresses)
+artifacts/diagnostics/
+

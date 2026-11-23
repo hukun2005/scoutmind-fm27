@@ -541,9 +541,35 @@ public sealed partial class ObjectProbes
 
             var name = ReadPlayerName(player.Person);
             if (name is null) nullNames++; else names.Add(name);
+
+            int? ca = null, pa = null;
+            string? dob = null;
+            ulong? contractAddress = null, teamAddress = null, clubAddress = null;
+            try { ca = _memory.UInt16(player.Block + _layout["PLAO_CA"]); } catch (MemoryUnreadableException) { }
+            try { pa = _memory.UInt16(player.Block + _layout["PLAO_PA"]); } catch (MemoryUnreadableException) { }
+            try
+            {
+                var birth = FmDate.Decode(_memory.UInt32(player.Person + _layout["PERO_DOB"]));
+                if (birth.Year != 0) dob = $"{birth.Year:D4}-{birth.DayOfYear:D3}";
+            }
+            catch (MemoryUnreadableException) { }
+            try
+            {
+                contractAddress = _memory.Pointer(player.Person + _layout["PERO_FULL_CONTRACT"]);
+                if (contractAddress is not null and not 0)
+                {
+                    teamAddress = _memory.Pointer(contractAddress.Value + _layout["CON_TEAM"]);
+                    if (teamAddress is not null and not 0)
+                        clubAddress = _memory.Pointer(teamAddress.Value + _layout["TEAM_CLUB"]);
+                }
+            }
+            catch (MemoryUnreadableException) { }
+
             if (sentinelUid > 0 || samples.Count < 20)
             {
-                samples.Add(new ObjectIdSample(player.Address, player.Db, uidAddress, raw, sampleStatus, reason, name));
+                samples.Add(new ObjectIdSample(
+                    player.Address, player.Db, uidAddress, raw, sampleStatus, reason, name,
+                    ca, pa, dob, contractAddress, teamAddress, clubAddress));
             }
         }
 

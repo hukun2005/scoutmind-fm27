@@ -66,6 +66,7 @@ internal static class Program
                     plugin_version = probe.Status.PluginVersion,
                     gate = probe.Status.Gate is null ? null : probe.Status.Gate.Message,
                     diagnostics = probe.Status.Diagnostics,
+                    report = args.Contains("--summary", StringComparer.Ordinal) ? null : probe.Report,
                 }));
                 return probe.Passed ? 0 : 3;
             }
@@ -668,5 +669,6 @@ internal static class Program
         {
             WriteIndented = true,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
         });
 }
