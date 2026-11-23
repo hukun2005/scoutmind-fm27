@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using ScoutMind.Contracts;
@@ -111,6 +112,8 @@ public static class ScanEnvelopeBuilder
 /// <param name="Warnings">告警集合。</param>
 /// <param name="Diagnostics">诊断集合（检测阶段 + 扫描阶段）。</param>
 /// <param name="ReaderVersion">读取器版本。</param>
+/// <param name="EnvelopeSha256">信封 JSON 的 SHA-256（小写十六进制）。</param>
+/// <param name="EnvelopeSize">信封 JSON 的字节数。</param>
 public sealed record ScanMeta(
     int SchemaVersion,
     string ScanId,
@@ -126,7 +129,9 @@ public sealed record ScanMeta(
     int TransfersCount,
     List<string> Warnings,
     List<string> Diagnostics,
-    string ReaderVersion);
+    string ReaderVersion,
+    string? EnvelopeSha256 = null,
+    long? EnvelopeSize = null);
 
 /// <summary>
 /// 本次写出的文件路径。
@@ -172,9 +177,13 @@ public sealed class ScanWriter
         var metaPath = Path.Combine(_outputDirectory, $"scan-{stem}.meta.json");
 
         var envelopeJson = JsonSerializer.Serialize(envelope, ScoutMindJson.Options);
+        var envelopeBytes = Utf8NoBom.GetBytes(envelopeJson);
+        var checksum = Convert.ToHexString(SHA256.HashData(envelopeBytes)).ToLowerInvariant();
         await WriteAtomicAsync(envelopePath, envelopeJson, cancellationToken).ConfigureAwait(false);
 
-        var metaJson = JsonSerializer.Serialize(meta with { OutputFile = envelopePath }, ScoutMindJson.Options);
+        var metaJson = JsonSerializer.Serialize(
+            meta with { OutputFile = envelopePath, EnvelopeSha256 = checksum, EnvelopeSize = envelopeBytes.LongLength },
+            ScoutMindJson.Options);
         await WriteAtomicAsync(metaPath, metaJson, cancellationToken).ConfigureAwait(false);
 
         return new ScanWritten(envelopePath, metaPath);

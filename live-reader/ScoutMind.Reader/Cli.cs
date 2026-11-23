@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using ScoutMind.Contracts;
+using ScoutMind.FMReader.Engine;
 
 namespace ScoutMind.Reader;
 
@@ -65,6 +66,9 @@ public sealed class Cli
             case CliCommand.Probe:
                 return await RunProbeAsync(options, cancellationToken).ConfigureAwait(false);
 
+            case CliCommand.Date:
+                return await RunDateAsync(options, cancellationToken).ConfigureAwait(false);
+
             case CliCommand.Scan:
                 return await RunScanAsync(options, cancellationToken).ConfigureAwait(false);
 
@@ -75,6 +79,29 @@ public sealed class Cli
                 WriteUsageError("未知子命令。");
                 return ExitCodes.UsageError;
         }
+    }
+
+    private async Task<int> RunDateAsync(CliOptions options, CancellationToken cancellationToken)
+    {
+        var probe = new FmDateProbe();
+        var result = await probe.ProbeAsync(cancellationToken).ConfigureAwait(false);
+        if (options.Json)
+        {
+            WriteJson(result);
+        }
+        else
+        {
+            _stdout.WriteLine($"日期探测：{result.State}");
+            if (result.GameDate is not null) _stdout.WriteLine($"游戏日期：{result.GameDate}");
+            foreach (var line in result.Diagnostics) _stdout.WriteLine(line);
+        }
+
+        return result.State switch
+        {
+            FmDateProbeState.DateDetected => ExitCodes.Success,
+            FmDateProbeState.GameNotRunning => ExitCodes.NotFound,
+            _ => ExitCodes.Incompatible,
+        };
     }
 
     private int RunStatus(CliOptions options)

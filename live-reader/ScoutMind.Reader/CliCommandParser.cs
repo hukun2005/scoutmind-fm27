@@ -17,6 +17,9 @@ public enum CliCommand
     /// <summary>执行一次扫描并落盘。</summary>
     Scan,
 
+    /// <summary>轻量读取游戏日期（不启动完整扫描）。</summary>
+    Date,
+
     /// <summary>列出兼容清单条目。</summary>
     CompatibilityList,
 }
@@ -109,6 +112,10 @@ public static class CliCommandParser
                         break;
                     case "scan":
                         command = CliCommand.Scan;
+                        index++;
+                        break;
+                    case "date":
+                        command = CliCommand.Date;
                         index++;
                         break;
                     case "compatibility":
