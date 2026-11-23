@@ -476,11 +476,33 @@ public sealed class AgentApplication
         ScanQueue queue,
         CancellationToken cancellationToken)
     {
-        var metaPath = Path.ChangeExtension(path, ".meta.json");
-        var integrity = await ScanIntegrityValidator.ValidateAsync(path, metaPath, cancellationToken).ConfigureAwait(false);
+        var claimed = queue.Claim(path);
+        if (claimed is null)
+        {
+            _stderr.WriteLine($"扫描文件不存在：{path}");
+            return false;
+        }
+
+        var metaPath = ScanQueue.MetaPathFor(claimed);
+        var manifestPath = ScanQueue.ManifestPathFor(claimed);
+        ScanManifest manifest;
+        try
+        {
+            manifest = await ScanManifest.EnsureAsync(claimed, metaPath, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            _stderr.WriteLine($"无法为 {Path.GetFileName(claimed)} 建立 manifest：{ex.Message}");
+            queue.EnqueuePending(claimed);
+            return false;
+        }
+
+        var integrity = await ScanIntegrityValidator
+            .ValidateAsync(claimed, metaPath, manifestPath, cancellationToken)
+            .ConfigureAwait(false);
         if (!integrity.Valid)
         {
-            var folder = queue.Quarantine(path, metaPath, new
+            var folder = queue.QuarantineAll(claimed, new
             {
                 quarantined_at = DateTimeOffset.UtcNow.ToString("O"),
                 code = integrity.Code,
@@ -488,72 +510,114 @@ public sealed class AgentApplication
                 actual_sha256 = integrity.ActualSha256,
                 actual_size = integrity.ActualSize,
                 scan_id = integrity.ScanId,
-                source_envelope = path,
+                manifest_scan_id = manifest.ScanId,
+                manifest_payload_sha256 = manifest.PayloadSha256,
+                source_envelope = claimed,
                 source_meta = metaPath,
             });
-            _stderr.WriteLine($"完整性校验失败（{Path.GetFileName(path)}）：{integrity.Code} {integrity.Message}；已隔离到 {folder}");
+            _stderr.WriteLine($"完整性校验失败（{Path.GetFileName(claimed)}）：{integrity.Code} {integrity.Message}；已隔离到 {folder}");
             return false;
         }
 
         ScanFilePayload payload;
         try
         {
-            payload = await ScanFileReader.LoadAsync(path, cancellationToken).ConfigureAwait(false);
+            payload = await ScanFileReader.LoadAsync(claimed, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
         {
-            _stderr.WriteLine($"读取扫描文件失败（{path}）：{ex.Message}");
-            queue.EnqueuePending(path);
+            _stderr.WriteLine($"读取扫描文件失败（{claimed}）：{ex.Message}");
+            queue.EnqueuePending(claimed);
             return false;
         }
+
+        using var client = new BackendClient(
+            configuration.Config.BackendBaseUrl,
+            configuration.Config.ApiToken,
+            _syncTimeout);
 
         BackendSyncResult result;
         try
         {
-            using var client = new BackendClient(
-                configuration.Config.BackendBaseUrl,
-                configuration.Config.ApiToken,
-                _syncTimeout);
             result = await client.PostScanAsync(payload.Json, cancellationToken).ConfigureAwait(false);
         }
         catch (ArgumentException ex)
         {
             _stderr.WriteLine($"后端地址配置错误：{ex.Message}");
-            queue.EnqueuePending(path);
+            queue.EnqueuePending(claimed);
             return false;
         }
 
-        if (!result.Ok)
+        if (result.Ok)
         {
-            _stderr.WriteLine($"同步失败（{Path.GetFileName(path)}）：{result.Error}");
-            if (result.ResponseBody is not null)
-            {
-                _stderr.WriteLine($"后端响应：{result.ResponseBody}");
-            }
+            var duplicateNote = result.Duplicate ? "（后端报告 duplicate=true，未重复写入）" : string.Empty;
+            var statusCode = result.StatusCode?.ToString(CultureInfo.InvariantCulture) ?? "—";
+            var archived = queue.ArchiveAll(claimed);
+            _stdout.WriteLine($"已同步 {Path.GetFileName(claimed)}：scan_id={payload.ScanId}，HTTP {statusCode}{duplicateNote}；归档 {archived}");
+            return true;
+        }
 
-            var pending = queue.EnqueuePending(path);
-            if (pending is not null)
-            {
-                _stderr.WriteLine($"已加入待重试队列：{pending}");
-            }
+        // A timeout is not a verdict: ask the backend whether the import already finished.
+        var job = await client.GetJobAsync(payload.ScanId, cancellationToken).ConfigureAwait(false);
+        if (job is { IsComplete: true })
+        {
+            var archived = queue.ArchiveAll(claimed);
+            _stdout.WriteLine(
+                $"上传未收到响应，但后端已完成导入：任务 #{job.Id} status={job.Status}，球员 {job.PlayerCount}；归档 {archived}");
+            return true;
+        }
 
+        if (job is { Status: "failed" })
+        {
+            var folder = queue.FailAll(claimed, new
+            {
+                failed_at = DateTimeOffset.UtcNow.ToString("O"),
+                code = "backend_import_failed",
+                message = result.Error,
+                http_status = result.StatusCode,
+                response = result.ResponseBody,
+                job_id = job.Id,
+                job_status = job.Status,
+            });
+            _stderr.WriteLine($"后端导入失败（任务 #{job.Id}）：{result.Error}；已移入 {folder}");
             return false;
         }
 
-        var duplicateNote = result.Duplicate ? "（后端报告 duplicate=true，未重复写入）" : string.Empty;
-        var statusCode = result.StatusCode?.ToString(CultureInfo.InvariantCulture) ?? "—";
-        _stdout.WriteLine($"已同步 {Path.GetFileName(path)}：scan_id={payload.ScanId}，HTTP {statusCode}{duplicateNote}");
-
-        try
+        if (result.StatusCode is 400 or 422)
         {
-            queue.Archive(path);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _stderr.WriteLine($"扫描已同步，但归档失败：{ex.Message}");
+            var folder = queue.FailAll(claimed, new
+            {
+                failed_at = DateTimeOffset.UtcNow.ToString("O"),
+                code = "backend_rejected",
+                message = result.Error,
+                http_status = result.StatusCode,
+                response = result.ResponseBody,
+            });
+            _stderr.WriteLine($"后端拒绝该报文（HTTP {result.StatusCode}）：{result.Error}；已移入 {folder}");
+            return false;
         }
 
-        return true;
+        if (job is not null)
+        {
+            _stderr.WriteLine($"后端仍在导入（任务 #{job.Id} status={job.Status}）：保留待重试，不归档。");
+        }
+        else
+        {
+            _stderr.WriteLine($"同步失败（{Path.GetFileName(claimed)}）：{result.Error}");
+        }
+
+        if (result.ResponseBody is not null)
+        {
+            _stderr.WriteLine($"后端响应：{result.ResponseBody}");
+        }
+
+        var pending = queue.EnqueuePending(claimed);
+        if (pending is not null)
+        {
+            _stderr.WriteLine($"已加入待重试队列：{pending}");
+        }
+
+        return false;
     }
 
     private AgentRuntimeConfiguration LoadConfiguration(bool echoDiagnostics = true)
