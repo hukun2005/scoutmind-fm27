@@ -10,8 +10,8 @@
 
 | 任务 | 状态 | 说明 |
 | --- | --- | --- |
-| SM-067 自动历史快照 | **PARTIAL** | 采集记录表/API/前端面板完成；桌面代理自动日期监控未完成 |
-| SM-073 可靠性/断点恢复 | **PARTIAL** | ScanWriter 原子写完成；持久任务状态/退避/恢复未完成 |
+| SM-067 自动历史快照 | **PARTIAL** | 采集表/API/前端面板 + Agent `auto`（扫描后日期判断、同日隔离）；轻量日期探测未完成 |
+| SM-073 可靠性/断点恢复 | **PARTIAL** | ScanWriter 原子写、Agent 状态文件、启动恢复、指数退避完成；无完整故障矩阵测试 |
 | SM-068 Canonical 审核辅助 | **PARTIAL** | 风险分、证据完整度、推荐候选（只读）已加入详情/界面 |
 | SM-069 成长历史 2.0 | **PARTIAL** | 属性分类趋势完成；真实仅 1 个 game_date，无法验证趋势 |
 | SM-070 Transfer Event | **PARTIAL** | 俱乐部变化候选（Unverified）表/API/检测完成；完整事件分类/验证未完成 |
@@ -28,11 +28,13 @@
   - 正式采集 revision 0；同日补充扫描 revision > 0，不覆盖正式记录。
 - API：`GET/POST /captures`、`PATCH /captures/{id}`、`GET /captures/summary`；
 - DataView 新增“自动历史快照”面板（采集记录/完成/重试/失败/最近记录）。
-- 未实现：Agent 自动日期/存档监控、扫描任务自动创建、暂停/恢复。
+- Agent 新增 `auto --interval-minutes`：扫描后读取 game_date；同存档同日期重复扫描移入 `duplicates/`，不重复导入；状态持久化到 `capture-state.json`；启动恢复 pending 文件；同步失败指数退避/最多 3 次。
+- 未实现：扫描前的轻量日期探测（因此每个 interval 仍会全量扫描），暂停/恢复、严格存档指纹。
 
 ### SM-073
 - `ScanWriter` 改为临时文件 + flush + 原子 `File.Move(overwrite)`；
-- 未实现：持久队列 manifest、退避重试、进程崩溃恢复、文件校验和。
+- 已实现：状态文件、启动时 pending 恢复、同步失败指数退避；ScanWriter 原子写。
+- 未实现：完整故障矩阵（扫描中退出/导入中退出/磁盘不足等）、文件 SHA-256 校验、并发锁。
 
 ### SM-068
 - canonical 详情新增只读 `suggestion`：

@@ -17,6 +17,9 @@ public enum AgentCommand
     /// <summary>按固定间隔重复「扫描 + 同步」。</summary>
     Watch,
 
+    /// <summary>按游戏日期自动采集：同日重复扫描只隔离，不重复导入。</summary>
+    Auto,
+
     /// <summary>同步本地待上传的扫描结果。</summary>
     Sync,
 
@@ -113,6 +116,10 @@ public static class AgentCommandLine
                         command = AgentCommand.Watch;
                         index++;
                         break;
+                    case "auto":
+                        command = AgentCommand.Auto;
+                        index++;
+                        break;
                     case "sync":
                         command = AgentCommand.Sync;
                         index++;
@@ -128,7 +135,7 @@ public static class AgentCommandLine
                         break;
                     default:
                         return AgentParseResult.Failure(
-                            $"未知子命令：{argument}。可用子命令：status、scan、watch、sync、config show。");
+                            $"未知子命令：{argument}。可用子命令：status、scan、watch、auto、sync、config show。");
                 }
 
                 continue;
@@ -153,9 +160,9 @@ public static class AgentCommandLine
             return AgentParseResult.Failure("缺少子命令。可用子命令：status、scan、watch、sync、config show。");
         }
 
-        if (command == AgentCommand.Watch && intervalMinutes is null)
+        if (command is AgentCommand.Watch or AgentCommand.Auto && intervalMinutes is null)
         {
-            return AgentParseResult.Failure("watch 需要 --interval-minutes <分钟>。");
+            return AgentParseResult.Failure("watch/auto 需要 --interval-minutes <分钟>。");
         }
 
         return AgentParseResult.Success(new AgentOptions(command.Value, json, sync, intervalMinutes, filePath));
@@ -179,7 +186,7 @@ public static class AgentCommandLine
             return 1;
         }
 
-        if (argument == "--interval-minutes" && command == AgentCommand.Watch)
+        if (argument == "--interval-minutes" && command is AgentCommand.Watch or AgentCommand.Auto)
         {
             if (intervalMinutes is not null)
             {
@@ -247,6 +254,7 @@ public static class AgentCommandLine
         AgentCommand.Status => "status",
         AgentCommand.Scan => "scan",
         AgentCommand.Watch => "watch",
+    AgentCommand.Auto => "auto",
         AgentCommand.Sync => "sync",
         AgentCommand.ConfigShow => "config show",
         _ => "help",
