@@ -232,6 +232,26 @@ def test_foreign_save_id_is_rejected(client: TestClient, db: Session, save) -> N
     assert response.json()["error"]["code"] == "save_not_found"
 
 
+def test_audit_rows_cannot_be_rewritten(client: TestClient, db: Session, save) -> None:
+    """The decision audit is append-only: an ORM update is refused, never silently applied."""
+    import pytest
+
+    _seed(db, save)
+    candidate = _candidates(db)[1]
+    assert (
+        client.post(
+            f"{PREFIX}/unresolved-players/{candidate.id}/dismiss", json={"reason": "不是目标球员"}
+        ).status_code
+        == 200
+    )
+    action = db.scalar(select(UnresolvedPlayerAction))
+    assert action is not None
+    action.note = "改写历史"
+    with pytest.raises(ValueError, match="不可覆盖"):
+        db.commit()
+    db.rollback()
+
+
 def test_resolve_target_must_belong_to_same_save(client: TestClient, db: Session, save) -> None:
     _seed(db, save)
     candidate = _candidates(db)[0]
