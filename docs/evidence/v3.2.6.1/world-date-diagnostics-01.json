@@ -1,0 +1,117 @@
+{
+  "build": "26620374",
+  "plugin_version": "27.1",
+  "process_detected": true,
+  "status": "heuristic",
+  "confidence": "heuristic",
+  "process": {
+    "pid": 106216,
+    "process_start_time": "2026-11-24T13:52:44.2786474Z",
+    "module_base": "0x7FFD3CA10000",
+    "build": "26620374",
+    "plugin_version": "27.1",
+    "session_key": "106216:2026-11-24T13:52:44.2786474Z:26620374"
+  },
+  "session": {
+    "session_id": "106216:2026-11-24T13:52:44.2786474Z:26620374",
+    "game_version": "26620374",
+    "save_key": null
+  },
+  "date_summary": {
+    "selected_date": "2026-11-06",
+    "candidate_count": 1,
+    "verified_candidate_count": 0,
+    "rejected_count": 1
+  },
+  "candidates": [
+    {
+      "index": 1,
+      "address": "0x1F58806A9D4",
+      "base_address": "0x1F58806A990",
+      "region_start": "0x1F588032000",
+      "region_offset": "0x389D4",
+      "module": "heap",
+      "data_type": "u32",
+      "raw_bytes": "0x07EA0136 0x07EB0020 0xFFFFFFFF",
+      "raw_value": "0x07EA0136",
+      "date": "2026-11-06",
+      "reference_date": "2027-02-01",
+      "reference_gap_days": 87,
+      "signature": "date@+0x44|reference@+0x48|guard=0xFFFFFFFF@+0x4C|zero@+0x50,0x54",
+      "source": "world_date_signature_scan",
+      "structure_fingerprint": "b16a56d8d23b4675",
+      "logical_signature": "heap:b16a56d8d23b4675",
+      "relative_address": "0x44",
+      "related_object": null,
+      "structure_evidence": "结构满足“日期 + 参考日期 + 哨兵 + 两个零字段”；没有可用的对象类型证据。",
+      "classification": "UNKNOWN_DATE",
+      "rejection_reason": "NONE",
+      "confidence": "heuristic",
+      "first_seen": "2026-11-24T13:54:04.1119754Z",
+      "last_seen": "2026-11-24T13:54:23.4438213Z",
+      "read_count": 6,
+      "consecutive_consistent_reads": 3,
+      "session_key": "106216:2026-11-24T13:52:44.2786474Z:26620374",
+      "observed_dates": [
+        "2026-11-06"
+      ],
+      "rejection_detail": null
+    }
+  ],
+  "rejected_candidates": [
+    {
+      "index": 1,
+      "address": "0x1F625BD10B8",
+      "base_address": "0x1F625BD1074",
+      "region_start": "0x1F62550B000",
+      "region_offset": "0x6C60B8",
+      "module": "heap",
+      "data_type": "u32",
+      "raw_bytes": "0x080C2933 0x07F252B7 0xFFFFFFFF",
+      "raw_value": "0x080C2933",
+      "date": "2060-11-02",
+      "reference_date": "2034-07-02",
+      "reference_gap_days": -9620,
+      "signature": "date@+0x44|reference@+0x48|guard=0xFFFFFFFF@+0x4C|zero@+0x50,0x54",
+      "source": "world_date_signature_scan",
+      "structure_fingerprint": "29ebfffc5bc11e94",
+      "logical_signature": "heap:29ebfffc5bc11e94",
+      "relative_address": "0x44",
+      "related_object": null,
+      "structure_evidence": "结构满足“日期 + 参考日期 + 哨兵 + 两个零字段”；没有可用的对象类型证据。",
+      "classification": "UNKNOWN_DATE",
+      "rejection_reason": "OUT_OF_SUPPORTED_RANGE",
+      "confidence": "discovered",
+      "first_seen": "2026-11-24T13:54:04.1119754Z",
+      "last_seen": "2026-11-24T13:54:23.4438213Z",
+      "read_count": 6,
+      "consecutive_consistent_reads": 3,
+      "session_key": "106216:2026-11-24T13:52:44.2786474Z:26620374",
+      "observed_dates": [
+        "2060-11-02"
+      ],
+      "rejection_detail": "参考日期间隔 -9620 天，不在 30..400 天。"
+    }
+  ],
+  "selection_reason": "没有界面日期证据：仅按“结构合理 + 日期最新 + 复读稳定”选择 2026-11-06，等级只能是 heuristic。",
+  "verification_evidence": [],
+  "limitations": [
+    "候选结构只证明内存中存在该日期编码，不能单独证明它就是当前游戏日期。",
+    "存档身份识别尚未实现：安全门因此保持 BLOCKED。",
+    "本轮结果没有包含真实 FM27 的双重启验证证据。",
+    "扫描预算不足，可能有候选未纳入本轮诊断。"
+  ],
+  "snapshot": {
+    "status": "BLOCKED",
+    "allowed": false,
+    "reasons": [
+      "日期可信度只有 heuristic，未达到 restart_verified。",
+      "存档身份未经验证（即使同一天同一存档也只允许一次快照）。"
+    ]
+  },
+  "next_action": "当前只是启发式日期：请在游戏界面读取世界日期，并用 --verify 重新运行；在此之前不要依赖该日期。",
+  "diagnostics": [
+    "达到扫描预算，定位提前停止。",
+    "签名命中 2 条，全部进入候选/淘汰诊断；扫描 2147483648 字节，截断=True。"
+  ]
+}

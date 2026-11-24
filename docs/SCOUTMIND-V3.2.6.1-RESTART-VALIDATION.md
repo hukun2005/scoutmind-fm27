@@ -1,10 +1,11 @@
 # ScoutMind V3.2.6.1 跨重启日期验证
 
-- 验证日期：2026-11-24
-- 结论：**NOT_RUN / BLOCKED**
+- 验证日期：2026-11-24（真实 FM27，两次独立进程会话）
+- 结论：**真实跨重启验证已执行，结果为 BLOCKED（未达到 `restart_verified`）**
 
-> 跨重启验证必须在真实 FM27 上完成。本次环境没有游戏进程，因此只完成逻辑与自动化测试，
-> 不在文档中填入任何虚构的重启结果。
+> 本文件记录真实执行结果。两次会话之间完全退出并重启了游戏；
+> 因为结构身份无法唯一确定世界日期对象，状态机在进入“会话计数”之前就判为 `ambiguous`，
+> 因此没有伪造任何 `restart_verified`。
 
 ## 1. 要证明什么
 
@@ -14,87 +15,115 @@
 4. 达到 3 个独立进程会话后才允许 `restart_verified`；
 5. 即使 `restart_verified`，只要存档身份未知，自动快照仍为 `BLOCKED`。
 
-## 2. 操作步骤
+## 2. 真实执行记录
 
-### 会话 1
+| 会话 | PID | 进程启动时间 | 构建号 | `status` | 选中日期 | 逻辑签名 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 106216 | 2026-11-24T13:52:44Z | 26620374 | `session_verified`（v1 指纹） | 2026-11-06 | `heap:b16a56d8d23b4675` |
+| 2（v1 重扫） | 118504 | 2026-11-24T13:57:21Z | 26620374 | `session_verified` | 2026-11-06 | `heap:ef7f58074afe9022` |
+| 2（v2 修复后） | 118504 | 2026-11-24T13:57:21Z | 26620374 | `ambiguous` | 无 | `heap:v2:70792ff53e1ed6e6`（与 9 条同构记录共享） |
 
-```powershell
-dotnet run --project live-reader/ScoutMind.Reader -- world-date --diagnostics --json `
-  --verify <界面日期> --state "$env:TEMP\scoutmind-date-state.json" |
-  Out-File -Encoding utf8 docs/evidence/v3.2.6.1/restart-session-1.json
+证据：
+
+- `docs/evidence/v3.2.6.1/world-date-diagnostics-01.json`（会话 1）
+- `docs/evidence/v3.2.6.1/restart-session-1.json`（会话 1 验证输出）
+- `docs/evidence/v3.2.6.1/date-verification-session-1.json`（会话 1 状态）
+- `docs/evidence/v3.2.6.1/world-date-diagnostics-02.json`（会话 2，142 条命中）
+- `docs/evidence/v3.2.6.1/date-verification-v2-session-2.json`（会话 2 状态）
+
+## 3. 从真实数据发现的两个缺陷及修复
+
+### 3.1 v1 指纹包含堆指针 → 跨进程必然漂移
+
+v1 指纹直接哈希 `[date-0x44, date)` 与 `[date+0x18, date+0x98)` 的原始字节。
+真实内存转储显示这些窗口含大量堆指针（如 `0x1F76D04A0C0`、`0x1F736517A40`），
+重启后堆布局变化，指纹随之改变：
+
+```text
+会话 1：heap:b16a56d8d23b4675
+会话 2：heap:ef7f58074afe9022
 ```
 
-完成后**完全退出游戏**（确认 `fm.exe` 结束），再重新启动并载入同一存档。
+结论：v1 的“唯一候选”来自地址噪声，属于假阳性，不能作为身份证据。
 
-### 会话 2
+### 3.2 v2/v3 指针归一化 + 窗口收敛
 
-重复上面的命令，保存为 `restart-session-2.json`。
+修复后的逻辑身份定义（`CandidateIdentity`，`FingerprintVersion = 2`）：
 
-### 会话 3
+```text
+fingerprint = SHA256(
+    moduleKind || version
+    || mask(bytes[date - 0x44, date))        // 结构头
+    || mask(bytes[date + 0x08, date + 0x58)) // 尾部：跳过日期与参考日期，且留在单条记录内
+)[0..8]
+signature = moduleKind + ":v2:" + fingerprint
+```
 
-再次完全退出、重启、载入同一存档，保存为 `restart-session-3.json`。
+`mask()` 的判定（按相对日期字段的 4 字节步长扫描，与绝对对齐无关）：
 
-### 判定
+1. 8 字节对齐、低 32 位 ≥ `0x10000`、落在用户态地址范围；
+2. 目标地址当前可读（`IMemorySource.IsReadable`）。
 
-第 3 次执行的输出中：
+命中后整段替换为固定标记 `\0PTR8\0\0\0`，既消除地址噪声，又保持后续字段偏移不变。
 
-| 字段 | 期望 |
-| --- | --- |
-| `status` | `restart_verified` |
-| `confidence` | `restart_verified` |
-| `session.session_id` | 与前两次不同 |
-| `candidates[0].logical_signature` | 三次一致 |
-| `candidates[0].first_seen` | 保持在会话 1 的时间 |
-| `candidates[0].read_count` | 随会话累计 |
-| `snapshot.status` | `BLOCKED`（存档身份未验证） |
+低 32 位约束是必要的：真实数据里出现 `[0x00000000][对象ID]` 这类跨字段窗口，
+拼出的 `0x0000XXXXXXXX00000000` 同时满足“对齐 + 可读”，若不加约束会把对象 ID 一并抹掉，
+导致 142 条记录塌缩成 1 个签名。
 
-## 3. 反向测试（必须做）
+### 3.3 修复后的真实结论
 
-| 场景 | 操作 | 期望 |
+修复后同一会话重扫，得到 142 条命中、`status = ambiguous`：
+`2026-11-06` 记录与另外 9 条（`2026-10-31` ~ `2026-11-05`）共享同一签名。
+这些记录的结构、ID 字段与指针布局相同，只有日期/参考日期不同。
+
+因此 **跨重启身份关联无法建立在结构指纹之上**，`restart_verified` 不可达；
+按“疑义只降级”的要求，状态停在 `discovered`，自动快照 `BLOCKED`。
+
+## 4. 判定表（期望 vs 实际）
+
+| 字段 | 期望（达到 `restart_verified` 时） | 实际 |
 | --- | --- | --- |
-| 地址变化 | 两次会话间发生堆布局变化 | 结构指纹不变，候选仍能关联 |
-| 日期推进 | 会话之间推进游戏日期 | `observed_dates` 增加，不降级 |
-| 读档回退 | 会话之间回退存档 | `date_rollback`，`last_confirmed_date` 不覆盖 |
-| 界面日期不匹配 | 故意传入错误日期 | `verification_mismatch`，不写入确认日期 |
-| 构建号变化 | 切换游戏版本 | 旧验证会话作废，重新从 `session_verified` 开始 |
+| `status` | `restart_verified` | `ambiguous` |
+| `confidence` | `restart_verified` | `discovered` |
+| `session.session_id` | 三次不同 | 两次不同（会话 3 未执行，因身份未建立） |
+| `candidates[0].logical_signature` | 三次一致 | 不适用（0 个保留候选） |
+| `snapshot.status` | `BLOCKED`（存档身份未验证） | `BLOCKED` ✓ |
 
-## 4. 状态文件检查
+## 5. 安全门实际输出（会话 2）
 
-```powershell
-Get-Content "$env:TEMP\scoutmind-date-state.json" -Raw | ConvertFrom-Json |
-  Select-Object build, last_session_key, last_confirmed_date
+```text
+snapshot.status = BLOCKED
+snapshot.allowed = false
+reasons:
+  没有读取到可用日期。
+  候选存在歧义或已被排除。
+  日期可信度只有 discovered，未达到 restart_verified。
+  存档身份未经验证（即使同一天同一存档也只允许一次快照）。
+  日期来源不是已验证的内存候选。
 ```
 
-```powershell
-(Get-Content "$env:TEMP\scoutmind-date-state.json" -Raw | ConvertFrom-Json).candidates |
-  Select-Object logical_signature, last_address, read_count, verified_session_keys
-```
-
-期望：
-
-- `verified_session_keys` 至少 3 个；
-- `last_address` 可以变化；
-- `logical_signature` 不变；
-- `build` 与当前游戏一致。
-
-## 5. 自动化替代验证
+## 6. 自动化替代验证（全部 PASS）
 
 | 验证点 | 测试 | 结果 |
 | --- | --- | --- |
 | 三次独立会话 → `restart_verified` | `DateCandidateTrackerTests` | PASS |
-| 地址变化但指纹相同 → 重新关联 | `DateCandidateTrackerTests` | PASS |
+| 地址变化但指纹相同 → 重新关联 | `DateCandidateTrackerTests` + `DateCandidateDiagnosticsTests` | PASS |
+| 跨进程堆指针变化 → 指纹不变 | `DateCandidateDiagnosticsTests` | PASS |
+| 标量字段变化 → 指纹必须变化 | `DateCandidateDiagnosticsTests` | PASS |
 | 构建号变化 → 验证证据作废 | `DateCandidateTrackerTests` | PASS |
 | `restart_verified` 但存档身份未知 → `BLOCKED` | `SnapshotSafetyGateTests` | PASS |
 | 状态持久化往返 | `DateVerificationStoreTests` | PASS |
 
-## 6. 当前阻塞项
+## 7. 结论与后续
 
 | 项目 | 状态 | 说明 |
 | --- | --- | --- |
-| 真实三次进程重启 | NOT_RUN | 无真实游戏环境 |
-| 真实地址变化复关联 | NOT_RUN | 同上 |
-| 真实日期推进/回退 | NOT_RUN | 同上 |
-| 存档身份验证 | NOT_IMPLEMENTED | 安全门保持 BLOCKED |
-| 自动快照开放 | BLOCKED | 依赖于以上两项 |
+| 真实两次进程会话 | PASS（已执行） | 地址、构建号、会话键均变化 |
+| 真实地址变化复关联 | **BLOCKED** | 142 条同构日期记录，结构签名不唯一 |
+| 真实日期推进/回退 | NOT_RUN | 身份未建立，推进/回退无法形成有效证据 |
+| 存档身份验证 | NOT_IMPLEMENTED | 安全门因此保持 BLOCKED |
+| 自动快照开放 | BLOCKED | 依赖以上两项 |
 
-在这三项真实证据齐备之前，V3.2.6.1 不允许声明“日期读取已跨重启验证”。
+要推进到 `restart_verified`，需要先补上**对象分类证据**（例如从模块静态数据出发的引用链，
+证明某条日期记录属于世界状态对象），使逻辑身份不再依赖“同构记录 + 日期值”的区分方式。
+在此之前，V3.2.6.1 不允许声明“日期读取已跨重启验证”。

@@ -56,7 +56,7 @@
 
 | 测试 | 命令 | 结果 |
 | --- | --- | --- |
-| Reader 自测 | `dotnet run --project live-reader/tests/ScoutMind.FMReader.Tests` | 177 PASS / 0 FAIL |
+| Reader 自测 | `dotnet run --project live-reader/tests/ScoutMind.FMReader.Tests` | 179 PASS / 0 FAIL |
 | CLI 测试 | `dotnet run --project live-reader/tests/ScoutMind.Reader.Tests` | 55 PASS / 0 FAIL |
 | Agent 测试 | `dotnet test desktop-agent/tests/ScoutMind.Agent.Tests` | 16 PASS / 0 FAIL |
 
@@ -65,6 +65,7 @@
 - 候选全部进入报告、间隔不合理排除、重复签名歧义；
 - 对象提示排除比赛对象、未来日期 → `FUTURE_EVENT`；
 - 稳定性复读、结构指纹不包含日期；
+- 跨进程堆指针变化 → 指纹不变；标量字段变化 → 指纹必须变化（版本 2 指针归一化）；
 - 无界面证据只能 `heuristic`、界面一致 → `session_verified`；
 - 日期不一致不写确认日期、日期回退降级；
 - 三次独立会话 → `restart_verified`；
@@ -80,13 +81,20 @@
 | 静态分析 | PASS |
 | 自动化测试 | PASS |
 | 模拟数据验证 | PASS |
-| 真实 FM27 日期验证 | **NOT_RUN / BLOCKED** |
-| 真实跨重启验证 | **NOT_RUN / BLOCKED** |
+| 真实 FM27 日期验证 | **已执行 / BLOCKED**（142 条命中，10 条同构记录共享签名 → `ambiguous`） |
+| 真实跨重启验证 | **已执行 2 个进程会话 / BLOCKED**（结构身份不唯一，未达 `restart_verified`） |
 | 存档身份验证 | **NOT_IMPLEMENTED** |
 | 自动快照 | **BLOCKED** |
 
-真实环境不可用的原因：当前执行环境没有可运行的 FM27 游戏进程与存档。
-因此 V3.2.6.1 不能声明“真实日期已验证”，自动快照也不能开放。
+真实环境验证已在 2026-11-24 完成（FM27 build 26620374 / plugin 27.1，两次独立进程），
+证据保存在 `docs/evidence/v3.2.6.1/`。真实数据同时暴露并修复了 v1 指纹的假阳性问题：
+
+- v1 指纹包含堆指针，跨重启必然漂移（`heap:b16a56d8d23b4675` → `heap:ef7f58074afe9022`）；
+- 版本 2 对结构窗口内的指针做归一化，并把尾部收敛到单条记录内；
+- 修复后同一会话重扫得到 142 条命中，`2026-11-06` 与另外 9 条相邻日期记录共享签名，
+  追踪器判为 `ambiguous`。这是真实的结构同质性，不是实现缺陷。
+
+因此 V3.2.6.1 不能声明“真实日期已验证”，自动快照保持关闭。
 
 ## 5. 兼容性
 
@@ -100,8 +108,10 @@
 
 1. 对象类型提示尚未接入对象分类器，生产环境候选默认为 `UNKNOWN_DATE`；
 2. 存档身份识别尚未实现，自动快照必须继续保持关闭；
-3. 真实 FM27 与跨重启验证必须由人工在游戏环境完成，并把证据写入 `docs/evidence/v3.2.6.1/`；
-4. 完成上述证据后，才允许把安全门中的 `SaveIdentityValid` 接入真实校验并重新评估自动快照。
+3. 真实 FM27 中同一天存在 10 条同构日期记录（结构、ID、指针布局相同，仅日期/参考日期不同），
+   纯结构指纹无法唯一确定世界日期对象；需要补上从模块静态数据出发的引用链/对象分类证据；
+4. 真实两次会话已完成并归档；在身份唯一性解决之前，跨重启验证保持 `BLOCKED`；
+5. 完成第 3 项后，才允许把安全门中的 `SaveIdentityValid` 接入真实校验并重新评估自动快照。
 
 ## 7. PR 更新
 
