@@ -35,6 +35,7 @@ public static class WorldDateDiagnostics
     /// <param name="processSessionValid">进程会话是否有效。</param>
     /// <param name="now">当前时间。</param>
     /// <param name="cancellationToken">取消令牌。</param>
+    /// <param name="moduleRegions">模块区域；提供时为候选建立模块静态引用链。</param>
     /// <returns>诊断输出。</returns>
     public static WorldDateDiagnosticsOutcome Analyze(
         IMemorySource memory,
@@ -47,13 +48,15 @@ public static class WorldDateDiagnostics
         bool readerVersionSupported = false,
         bool processSessionValid = true,
         DateTimeOffset? now = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<ModuleRegion>? moduleRegions = null)
     {
         ArgumentNullException.ThrowIfNull(memory);
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(previousState);
 
-        var collection = WorldDateCandidateCollector.Collect(memory, maxBytes, hints, budget: null, cancellationToken);
+        var collection = WorldDateCandidateCollector.Collect(
+            memory, maxBytes, hints, budget: null, cancellationToken, moduleRegions);
         var tracked = DateCandidateTracker.Observe(
             session, saveKey, operatorVisibleDate, collection, previousState, now ?? DateTimeOffset.UtcNow);
 
@@ -63,6 +66,11 @@ public static class WorldDateDiagnostics
         if (collection.Truncated)
         {
             limitations.Add("扫描预算不足，可能有候选未纳入本轮诊断。");
+        }
+
+        if (collection.Observations.Any(item => item.ReferenceChain is not null))
+        {
+            limitations.Add("引用链只证明该记录可由模块静态数据可达，不能单独证明它就是当前世界日期。");
         }
 
         var gate = SnapshotSafetyGate.Evaluate(new SnapshotSafetyInput(

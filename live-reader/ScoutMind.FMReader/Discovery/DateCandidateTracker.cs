@@ -97,7 +97,7 @@ public static class DateCandidateTracker
 
         var previousCandidates = buildChanged
             ? new Dictionary<string, TrackedCandidateState>(StringComparer.Ordinal)
-            : previous.Candidates.ToDictionary(item => item.LogicalSignature, StringComparer.Ordinal);
+            : BuildPreviousLookup(previous.Candidates);
 
         var visible = operatorVisibleDate?.ToString("yyyy-MM-dd");
         var rolledBack = operatorVisibleDate is not null
@@ -137,12 +137,33 @@ public static class DateCandidateTracker
             }
         }
 
-        // 逻辑签名重复：同签名多命中无法唯一确定，全部排除（不是随便挑一个）。
+        // 同结构重复：若有且只有一条能由模块静态引用链解析，则保留它，其余按“无引用链证据”排除；
+        // 否则同签名多命中无法唯一确定，全部排除（不是随便挑一个）。
         foreach (var group in entries
                      .Where(item => item.Rejection == DateRejectionReason.None)
                      .GroupBy(item => item.Observation.LogicalSignature, StringComparer.Ordinal)
                      .Where(group => group.Count() > 1))
         {
+            var chained = group.Where(item => item.Observation.ReferenceChain is not null).ToList();
+            if (chained.Count == 1)
+            {
+                foreach (var entry in group)
+                {
+                    if (ReferenceEquals(entry, chained[0]))
+                    {
+                        continue;
+                    }
+
+                    entry.Rejection = DateRejectionReason.InsufficientEvidence;
+                    entry.Detail =
+                        $"同结构（{group.Key}）命中 {group.Count()} 次；只有 0x{chained[0].Observation.Address:X} 能由模块静态引用链解析，其余记录没有引用链证据。";
+                }
+
+                evidence.Add(
+                    $"同结构重复 {group.Count()} 条：引用链唯一定位到 0x{chained[0].Observation.Address:X}（{chained[0].Observation.ReferenceChain!.Signature}）。");
+                continue;
+            }
+
             foreach (var entry in group)
             {
                 entry.Rejection = DateRejectionReason.DuplicateSignature;
@@ -172,6 +193,12 @@ public static class DateCandidateTracker
         var (status, selected, reason, level) = Select(entries, visible, rolledBack, previous);
         if (selected is not null && visible is not null)
         {
+            if (selected.Observation.ReferenceChain is { } selectedChain)
+            {
+                evidence.Add(
+                    $"候选身份由模块静态引用链确定：{selectedChain.Signature}（{selectedChain.Describe()}）。");
+            }
+
             var sessions = ApplyVerification(selected, session, evidence);
             if (sessions >= RequiredVerifiedSessionsForRestart)
             {
@@ -234,7 +261,15 @@ public static class DateCandidateTracker
 
         var tracked = entries.Select(item => item.State).ToList();
         var updatedState = BuildState(
-            previous, session, saveKey, selected is not null ? visible : null, selected?.DateText ?? null, tracked, evidence, nowText);
+            previous,
+            session,
+            saveKey,
+            selected is not null ? visible : null,
+            selected?.DateText ?? null,
+            selected?.Observation.IdentitySignature,
+            tracked,
+            evidence,
+            nowText);
 
         return new DateTrackingResult(
             status,
@@ -300,9 +335,7 @@ public static class DateCandidateTracker
                 ? ("verification_mismatch", null,
                     $"界面日期 {visible} 与任何候选都不一致：不得把其他日期当作当前日期。",
                     DateConfidenceLevel.VerificationPending)
-                : ("ambiguous", null,
-                    $"界面日期 {visible} 同时匹配 {matches.Count} 个逻辑签名相同的候选，无法唯一确定。",
-                    DateConfidenceLevel.Discovered);
+                : DisambiguateByIdentity(matches, visible, previous);
         }
 
         var latest = eligible.Max(item => item.Date!.Value);
@@ -317,6 +350,55 @@ public static class DateCandidateTracker
         return ("heuristic", top[0],
             $"没有界面日期证据：仅按“结构合理 + 日期最新 + 复读稳定”选择 {latest:yyyy-MM-dd}，等级只能是 heuristic。",
             DateConfidenceLevel.Heuristic);
+    }
+
+    /// <summary>
+    /// 同一界面日期匹配到多个候选时的身份去重：只有此前通过验证的逻辑身份能唯一胜出，
+    /// 否则维持 ambiguous（绝不在多个同日期对象里随便挑一个）。
+    /// </summary>
+    private static (string Status, Entry? Selected, string? Reason, DateConfidenceLevel Level) DisambiguateByIdentity(
+        IReadOnlyList<Entry> matches,
+        string visible,
+        DateVerificationState previous)
+    {
+        if (!string.IsNullOrEmpty(previous.LastConfirmedIdentity))
+        {
+            var preferred = matches
+                .Where(item => string.Equals(
+                    item.Observation.IdentitySignature,
+                    previous.LastConfirmedIdentity,
+                    StringComparison.Ordinal))
+                .ToList();
+            if (preferred.Count == 1)
+            {
+                return ("session_verified", preferred[0],
+                    $"界面日期 {visible} 匹配多个候选；按上次验证过的逻辑身份 {previous.LastConfirmedIdentity} 唯一确定。",
+                    DateConfidenceLevel.SessionVerified);
+            }
+        }
+
+        return ("ambiguous", null,
+            $"界面日期 {visible} 同时匹配 {matches.Count} 个候选，且没有可唯一区分它们的身份证据。",
+            DateConfidenceLevel.Discovered);
+    }
+
+    private static Dictionary<string, TrackedCandidateState> BuildPreviousLookup(
+        IReadOnlyList<TrackedCandidateState> candidates)
+    {
+        var lookup = new Dictionary<string, TrackedCandidateState>(StringComparer.Ordinal);
+        foreach (var candidate in candidates)
+        {
+            if (!string.IsNullOrEmpty(candidate.IdentitySignature))
+            {
+                lookup[candidate.IdentitySignature] = candidate;
+                continue;
+            }
+
+            // 旧状态没有身份字段：按结构签名回退关联，避免历史证据直接作废。
+            lookup[candidate.LogicalSignature] = candidate;
+        }
+
+        return lookup;
     }
 
     private static (DateRejectionReason Reason, string Detail)? DecideStructuralRejection(Entry entry)
@@ -392,7 +474,7 @@ public static class DateCandidateTracker
         ProcessSessionIdentity session,
         string nowText)
     {
-        previous.TryGetValue(observation.LogicalSignature, out var existing);
+        previous.TryGetValue(observation.IdentitySignature, out var existing);
         var observedDates = existing?.ObservedDates?.ToList() ?? new List<string>();
         if (dateText is not null && !observedDates.Contains(dateText, StringComparer.Ordinal))
         {
@@ -413,7 +495,11 @@ public static class DateCandidateTracker
             existing?.FirstSessionKey ?? session.SessionKey,
             observedDates,
             existing?.VerifiedDates ?? Array.Empty<string>(),
-            existing?.VerifiedSessionKeys ?? Array.Empty<string>());
+            existing?.VerifiedSessionKeys ?? Array.Empty<string>(),
+            observation.IdentitySignature,
+            observation.ReferenceChain?.Signature,
+            observation.ReferenceChain?.Describe(),
+            observation.ReferenceChain?.Level ?? 0);
     }
 
     private static DateCandidateDiagnostics ToDiagnostic(int index, Entry entry) => new(
@@ -446,7 +532,9 @@ public static class DateCandidateTracker
         ConsecutiveConsistentReads: entry.Observation.ConsecutiveConsistentReads,
         SessionKey: entry.State.LastSessionKey,
         ObservedDates: entry.State.ObservedDates,
-        RejectionDetail: entry.Detail);
+        RejectionDetail: entry.Detail,
+        IdentitySignature: entry.Observation.IdentitySignature,
+        ReferenceChain: entry.Observation.ReferenceChain);
 
     private static DateVerificationState BuildState(
         DateVerificationState previous,
@@ -454,6 +542,7 @@ public static class DateCandidateTracker
         string? saveKey,
         string? confirmedDate,
         string? observedDate,
+        string? confirmedIdentity,
         IReadOnlyList<TrackedCandidateState> tracked,
         IReadOnlyList<string> evidence,
         string nowText)
@@ -479,7 +568,9 @@ public static class DateCandidateTracker
         }
 
         var persisted = tracked
-            .GroupBy(item => item.LogicalSignature, StringComparer.Ordinal)
+            .GroupBy(
+                item => string.IsNullOrEmpty(item.IdentitySignature) ? item.LogicalSignature : item.IdentitySignature!,
+                StringComparer.Ordinal)
             .Select(group => group.Last())
             .Take(MaxPersistedCandidates)
             .ToList();
@@ -491,7 +582,8 @@ public static class DateCandidateTracker
             LastConfirmedDate: confirmedDate ?? previous.LastConfirmedDate,
             LastObservedDate: observedDate ?? previous.LastObservedDate,
             Candidates: persisted,
-            Evidence: evidenceEntries);
+            Evidence: evidenceEntries,
+            LastConfirmedIdentity: confirmedIdentity ?? previous.LastConfirmedIdentity);
     }
 
     /// <summary>内部候选条目（可变的判定状态）。</summary>

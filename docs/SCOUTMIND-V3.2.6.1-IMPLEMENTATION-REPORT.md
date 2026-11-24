@@ -15,6 +15,7 @@
 | --- | --- |
 | `Discovery/DateCandidateModels.cs` | 候选分类、排除原因、可信度等级、诊断/报告模型 |
 | `Discovery/CandidateIdentity.cs` | 模块 + 结构指纹逻辑身份（不含日期值） |
+| `Discovery/ReferenceChain.cs` | 模块静态引用链：发现、解析、链签名（跨重启身份补强） |
 | `Discovery/WorldDateCandidateCollector.cs` | 保留全部签名命中、原始字节、稳定性复读、对象提示 |
 | `Discovery/DateVerificationStore.cs` | 验证状态 JSON 原子持久化（缺失/损坏安全降级） |
 | `Discovery/DateCandidateTracker.cs` | 跨读取/跨进程追踪、分类、选择、可信度状态机 |
@@ -56,7 +57,7 @@
 
 | 测试 | 命令 | 结果 |
 | --- | --- | --- |
-| Reader 自测 | `dotnet run --project live-reader/tests/ScoutMind.FMReader.Tests` | 179 PASS / 0 FAIL |
+| Reader 自测 | `dotnet run --project live-reader/tests/ScoutMind.FMReader.Tests` | 184 PASS / 0 FAIL |
 | CLI 测试 | `dotnet run --project live-reader/tests/ScoutMind.Reader.Tests` | 55 PASS / 0 FAIL |
 | Agent 测试 | `dotnet test desktop-agent/tests/ScoutMind.Agent.Tests` | 16 PASS / 0 FAIL |
 
@@ -72,6 +73,8 @@
 - 地址变化后重新关联、构建号变化清空验证；
 - 安全门默认 BLOCKED、`restart_verified` + 存档身份未知仍 BLOCKED；
 - 状态存储往返与损坏降级；
+- 引用链：一跳/两跳解析、槽位越界与结构不符不解析、同构重复中只有带链记录被保留、
+  同一 RVA/偏移链在三次独立进程会话后 `restart_verified`；
 - Agent 安全门解析（ENABLED / BLOCKED / 缺失 / 非法 JSON）。
 
 ## 4. 验证状态
@@ -81,8 +84,11 @@
 | 静态分析 | PASS |
 | 自动化测试 | PASS |
 | 模拟数据验证 | PASS |
-| 真实 FM27 日期验证 | **已执行 / BLOCKED**（142 条命中，10 条同构记录共享签名 → `ambiguous`） |
-| 真实跨重启验证 | **已执行 2 个进程会话 / BLOCKED**（结构身份不唯一，未达 `restart_verified`） |
+| 真实 FM27 日期验证（结构指纹版） | **已执行 / BLOCKED**（142 条命中，10 条同构记录共享签名 → `ambiguous`） |
+| 真实跨重启验证（结构指纹版） | **已执行 2 个进程会话 / BLOCKED**（结构身份不唯一，未达 `restart_verified`） |
+| 引用链身份实现 | **已实现 / 自动化测试 PASS** |
+| 真实 FM27 日期验证（引用链版） | **NOT_RUN / BLOCKED**（执行时游戏进程未运行，输出 `game_not_running`） |
+| 真实跨重启验证（引用链版） | **NOT_RUN / BLOCKED**（同上，需两次完全重启） |
 | 存档身份验证 | **NOT_IMPLEMENTED** |
 | 自动快照 | **BLOCKED** |
 
@@ -96,22 +102,28 @@
 
 因此 V3.2.6.1 不能声明“真实日期已验证”，自动快照保持关闭。
 
+引用链版本（`identity_signature = chain:...`）已实现并通过自动化测试；但在 2026-11-24 执行真实验证时
+FM27 进程未运行，命令输出 `status = game_not_running`、`snapshot = BLOCKED`
+（证据：`docs/evidence/v3.2.6.1/world-date-reference-chain-blocked.json`）。
+因此真实日期验证与真实跨重启验证在引用链版本上均为 **NOT_RUN / BLOCKED**，未获得任何真实结论。
+
 ## 5. 兼容性
 
 - 协议：**无变更**（未新增/修改协议字段）；
 - 数据库：**无迁移**；
 - 前端：**无变更**；
 - 旧命令：`world-date`、`world-date --json` 输出字段保持不变；
+- 诊断 JSON 仅**新增** `identity_signature` 与 `reference_chain`（诊断性质），旧字段不变；
 - 新增状态文件默认写入 `%LOCALAPPDATA%\ScoutMind\date-verification.json`，不影响既有配置。
 
 ## 6. 风险与后续
 
 1. 对象类型提示尚未接入对象分类器，生产环境候选默认为 `UNKNOWN_DATE`；
 2. 存档身份识别尚未实现，自动快照必须继续保持关闭；
-3. 真实 FM27 中同一天存在 10 条同构日期记录（结构、ID、指针布局相同，仅日期/参考日期不同），
-   纯结构指纹无法唯一确定世界日期对象；需要补上从模块静态数据出发的引用链/对象分类证据；
-4. 真实两次会话已完成并归档；在身份唯一性解决之前，跨重启验证保持 `BLOCKED`；
-5. 完成第 3 项后，才允许把安全门中的 `SaveIdentityValid` 接入真实校验并重新评估自动快照。
+3. 引用链已用于区分同构记录，但“模块静态可达”只说明该对象在活的世界状态里，不单独证明它就是世界日期；
+4. 引用链版本的**真实验证尚未执行**（游戏未运行）；需在 FM27 运行时重跑 `world-date --diagnostics`，
+   并对候选执行 `pointer-scan` 复核，再完成两次完全重启；
+5. 只有真实三次会话达到 `restart_verified` 且存档身份接入真实校验后，才允许重新评估自动快照。
 
 ## 7. PR 更新
 

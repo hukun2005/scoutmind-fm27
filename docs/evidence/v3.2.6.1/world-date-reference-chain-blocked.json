@@ -1,0 +1,52 @@
+{
+  "build": "26620374",
+  "plugin_version": "27.1",
+  "process_detected": false,
+  "status": "game_not_running",
+  "confidence": "unavailable",
+  "process": {
+    "pid": null,
+    "process_start_time": null,
+    "module_base": null,
+    "build": "26620374",
+    "plugin_version": "27.1",
+    "session_key": "unknown"
+  },
+  "session": {
+    "session_id": "unknown",
+    "game_version": "26620374",
+    "save_key": null
+  },
+  "date_summary": {
+    "selected_date": null,
+    "candidate_count": 0,
+    "verified_candidate_count": 0,
+    "rejected_count": 0
+  },
+  "candidates": [],
+  "rejected_candidates": [],
+  "selection_reason": "未检测到正在运行的 fm.exe：不会猜测日期。",
+  "verification_evidence": [],
+  "limitations": [
+    "存档身份识别尚未实现：安全门因此保持 BLOCKED。",
+    "本轮结果没有包含真实 FM27 的双重启验证证据。"
+  ],
+  "snapshot": {
+    "status": "BLOCKED",
+    "allowed": false,
+    "reasons": [
+      "没有读取到可用日期。",
+      "候选存在歧义或已被排除。",
+      "日期可信度只有 unavailable，未达到 restart_verified。",
+      "进程会话无效或尚未完成验证。",
+      "存档身份未经验证（即使同一天同一存档也只允许一次快照）。",
+      "当前 Reader 构建未通过版本验证。",
+      "日期来源不是已验证的内存候选。"
+    ]
+  },
+  "next_action": "未找到可用日期：请确认游戏进程、构建号与插件版本。",
+  "diagnostics": [
+    "没有找到正在运行且带 fm_Data 的 fm.exe。",
+    "进程未运行，但按 Steam 库定位到安装目录：d:\\steam\\steamapps\\common\\Football Manager 27。"
+  ]
+}

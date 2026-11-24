@@ -88,7 +88,8 @@ public sealed class FmWorldDateDiagnostics
                 readerVersionSupported: gate.AllowScan,
                 processSessionValid: true,
                 now,
-                cancellationToken);
+                cancellationToken,
+                BuildModuleRegions(bounds));
 
             store.Save(outcome.State);
             return outcome.Report;
@@ -105,6 +106,23 @@ public sealed class FmWorldDateDiagnostics
         {
             memory?.Dispose();
         }
+    }
+
+    /// <summary>把上游模块边界转成引用链扫描区域。</summary>
+    private static IReadOnlyList<ModuleRegion> BuildModuleRegions(ModuleBounds bounds)
+    {
+        var regions = new List<ModuleRegion>(2);
+        if (bounds.GpEnd > bounds.GpBase)
+        {
+            regions.Add(new ModuleRegion("gp", bounds.GpBase, bounds.GpBase, bounds.GpEnd - bounds.GpBase));
+        }
+
+        if (bounds.GaEnd > bounds.GaBase)
+        {
+            regions.Add(new ModuleRegion("ga", bounds.GaBase, bounds.GaBase, bounds.GaEnd - bounds.GaBase));
+        }
+
+        return regions;
     }
 
     private static ProcessSessionIdentity BuildSession(DetectedGame detected, ulong moduleBase)

@@ -171,7 +171,9 @@ public sealed record DateCandidateDiagnostics(
     int ConsecutiveConsistentReads,
     string? SessionKey,
     IReadOnlyList<string> ObservedDates,
-    string? RejectionDetail);
+    string? RejectionDetail,
+    string IdentitySignature,
+    ReferenceChain? ReferenceChain);
 
 /// <summary>选中的日期与统计。</summary>
 /// <param name="SelectedDate">选中的日期；未选中为 <c>null</c>。</param>
@@ -238,4 +240,12 @@ public sealed record DateCandidateObservation(
     string StructureEvidence,
     DateCandidateKind KindHint,
     int ConsecutiveConsistentReads,
-    string RawBytes);
+    string RawBytes,
+    ReferenceChain? ReferenceChain = null)
+{
+    /// <summary>
+    /// 逻辑身份：存在引用链时用“链签名”，否则退回结构签名。
+    /// 引用链把同一进程内同构的记录区分开，并在重启后重新解析到同一对象。
+    /// </summary>
+    public string IdentitySignature => ReferenceChain is null ? LogicalSignature : ReferenceChain.Signature;
+}

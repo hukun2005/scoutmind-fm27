@@ -660,6 +660,18 @@ public sealed class Cli
         source = candidate.Source,
         structure_fingerprint = candidate.StructureFingerprint,
         logical_signature = candidate.LogicalSignature,
+        identity_signature = candidate.IdentitySignature,
+        reference_chain = candidate.ReferenceChain is null
+            ? null
+            : new
+            {
+                module = candidate.ReferenceChain.Module,
+                rva = $"0x{candidate.ReferenceChain.Rva:X}",
+                pointer_offsets = candidate.ReferenceChain.PointerOffsets.Select(offset => $"0x{offset:X}").ToArray(),
+                date_offset = $"0x{candidate.ReferenceChain.DateOffset:X}",
+                level = candidate.ReferenceChain.Level,
+                signature = candidate.ReferenceChain.Signature,
+            },
         relative_address = $"0x{candidate.RelativeAddress:X}",
         related_object = candidate.RelatedObject,
         structure_evidence = candidate.StructureEvidence,

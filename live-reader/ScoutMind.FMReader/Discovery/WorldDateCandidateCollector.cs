@@ -36,19 +36,24 @@ public static class WorldDateCandidateCollector
     /// <param name="hints">对象类型提示；为空表示没有可用的对象分类信息。</param>
     /// <param name="budget">时间预算。</param>
     /// <param name="cancellationToken">取消令牌。</param>
+    /// <param name="moduleRegions">模块区域；提供时尝试为每个候选建立模块静态引用链。</param>
+    /// <param name="chainDepth">引用链最大跳数（1 或 2）。</param>
     /// <returns>采集结果。</returns>
     public static WorldDateCandidateCollection Collect(
         IMemorySource memory,
         long maxBytes = WorldDateLocator.DefaultMaxBytes,
         IReadOnlyList<DateObjectHint>? hints = null,
         TimeSpan? budget = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<ModuleRegion>? moduleRegions = null,
+        int chainDepth = 2)
     {
         ArgumentNullException.ThrowIfNull(memory);
 
         var scan = WorldDateLocator.Scan(memory, maxBytes, budget, cancellationToken);
         var evidences = new List<string>(scan.Diagnostics);
         var observations = new List<DateCandidateObservation>(scan.Matches.Count);
+        var chains = DiscoverChains(memory, scan.Matches, moduleRegions, chainDepth, maxBytes, cancellationToken, evidences);
 
         foreach (var match in scan.Matches)
         {
@@ -57,6 +62,14 @@ public static class WorldDateCandidateCollector
             var hint = FindHint(hints, match.DateAddress, match.BaseAddress);
             var rawBytes = ReadRawBytes(memory, match.DateAddress, match.RawDate, match.RawReference);
             var consistent = CountStableReads(memory, match.DateAddress, match.RawDate);
+            chains.TryGetValue(match.DateAddress, out var chain);
+            var evidence = hint is null
+                ? "结构满足“日期 + 参考日期 + 哨兵 + 两个零字段”；没有可用的对象类型证据。"
+                : $"结构满足日期签名，且被对象分类器标记为 {hint.Kind}（{hint.Description}）。";
+            if (chain is not null)
+            {
+                evidence += $" 模块静态引用链可解析到该记录：{chain.Describe()}。";
+            }
 
             observations.Add(new DateCandidateObservation(
                 Address: match.DateAddress,
@@ -71,12 +84,11 @@ public static class WorldDateCandidateCollector
                 LogicalSignature: CandidateIdentity.ComputeLogicalSignature(module, fingerprint),
                 RelativeAddress: match.DateAddress - match.BaseAddress,
                 RelatedObject: hint?.Description,
-                StructureEvidence: hint is null
-                    ? "结构满足“日期 + 参考日期 + 哨兵 + 两个零字段”；没有可用的对象类型证据。"
-                    : $"结构满足日期签名，且被对象分类器标记为 {hint.Kind}（{hint.Description}）。",
+                StructureEvidence: evidence,
                 KindHint: hint?.Kind ?? DateCandidateKind.UnknownDate,
                 ConsecutiveConsistentReads: consistent,
-                RawBytes: rawBytes));
+                RawBytes: rawBytes,
+                ReferenceChain: chain));
         }
 
         evidences.Add(
@@ -84,6 +96,54 @@ public static class WorldDateCandidateCollector
 
         return new WorldDateCandidateCollection(
             observations, scan.Matches.Count, scan.BytesScanned, scan.Truncated, evidences);
+    }
+
+    /// <summary>为签名命中的日期字段寻找模块静态引用链；同一地址只保留最短的一条。</summary>
+    private static Dictionary<ulong, ReferenceChain> DiscoverChains(
+        IMemorySource memory,
+        IReadOnlyList<WorldDateMatch> matches,
+        IReadOnlyList<ModuleRegion>? moduleRegions,
+        int chainDepth,
+        long maxBytes,
+        CancellationToken cancellationToken,
+        List<string> evidences)
+    {
+        var result = new Dictionary<ulong, ReferenceChain>();
+        if (moduleRegions is null || moduleRegions.Count == 0 || matches.Count == 0)
+        {
+            return result;
+        }
+
+        var targets = new List<ReferenceChainTarget>(matches.Count);
+        foreach (var match in matches)
+        {
+            targets.Add(new ReferenceChainTarget(match.DateAddress, match.RawDate));
+        }
+
+        var discovery = ReferenceChainFinder.Discover(
+            memory,
+            targets,
+            moduleRegions,
+            chainDepth,
+            Math.Min(
+                maxBytes <= 0 ? ReferenceChainFinder.DefaultMaxBytes : maxBytes,
+                ReferenceChainFinder.DefaultMaxBytes),
+            budget: null,
+            cancellationToken);
+        evidences.AddRange(discovery.Diagnostics);
+        foreach (var candidate in discovery.Candidates)
+        {
+            if (!result.TryGetValue(candidate.DateAddress, out var existing)
+                || candidate.Chain.Level < existing.Level
+                || (candidate.Chain.Level == existing.Level && candidate.Chain.Rva < existing.Rva))
+            {
+                result[candidate.DateAddress] = candidate.Chain;
+            }
+        }
+
+        evidences.Add(
+            $"引用链：{result.Count}/{matches.Count} 条签名命中可由模块静态根解析（扫描 {discovery.BytesScanned} 字节，截断={discovery.Truncated}）。");
+        return result;
     }
 
     private static DateObjectHint? FindHint(
