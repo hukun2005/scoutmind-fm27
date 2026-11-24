@@ -17,6 +17,10 @@ namespace ScoutMind.FMReader.Discovery;
 /// <param name="ObservedDates">观测到的日期集合。</param>
 /// <param name="VerifiedDates">被界面日期确认过的日期集合。</param>
 /// <param name="VerifiedSessionKeys">完成验证的进程会话集合。</param>
+/// <param name="IdentitySignature">逻辑身份；存在引用链时为链签名，旧状态可能为空。</param>
+/// <param name="ChainSignature">引用链签名（无引用链为 <c>null</c>）。</param>
+/// <param name="ChainHops">引用链偏移描述（诊断用）。</param>
+/// <param name="ChainLevel">引用链跳数（0 表示没有引用链）。</param>
 public sealed record TrackedCandidateState(
     string LogicalSignature,
     string Module,
@@ -31,7 +35,11 @@ public sealed record TrackedCandidateState(
     string? FirstSessionKey,
     IReadOnlyList<string> ObservedDates,
     IReadOnlyList<string> VerifiedDates,
-    IReadOnlyList<string> VerifiedSessionKeys);
+    IReadOnlyList<string> VerifiedSessionKeys,
+    string? IdentitySignature = null,
+    string? ChainSignature = null,
+    string? ChainHops = null,
+    int ChainLevel = 0);
 
 /// <summary>一条验证证据。`visible_date` 来自人工观察到的界面日期，`reader_date` 来自内存读取，两者独立记录。</summary>
 /// <param name="Kind">证据类型。</param>
@@ -61,6 +69,7 @@ public sealed record DateEvidenceEntry(
 /// <param name="LastObservedDate">最近一次读取到的日期。</param>
 /// <param name="Candidates">候选追踪状态。</param>
 /// <param name="Evidence">证据日志（有上限，避免无限增长）。</param>
+/// <param name="LastConfirmedIdentity">最近一次通过界面日期验证的逻辑身份（引用链签名或结构签名）。</param>
 public sealed record DateVerificationState(
     string? Build,
     string? SaveKey,
@@ -68,7 +77,8 @@ public sealed record DateVerificationState(
     string? LastConfirmedDate,
     string? LastObservedDate,
     IReadOnlyList<TrackedCandidateState> Candidates,
-    IReadOnlyList<DateEvidenceEntry> Evidence)
+    IReadOnlyList<DateEvidenceEntry> Evidence,
+    string? LastConfirmedIdentity = null)
 {
     /// <summary>空状态。</summary>
     public static DateVerificationState Empty { get; } = new(

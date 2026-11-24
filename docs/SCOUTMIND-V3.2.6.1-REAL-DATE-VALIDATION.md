@@ -135,20 +135,44 @@ Reader 选中日期：会话 1 = 2026-11-06（v1 假阳性）；会话 2 = 无�
 测试命令与结果：
 
 ```powershell
-dotnet run --project live-reader/tests/ScoutMind.FMReader.Tests   # 179 PASS / 0 FAIL
+dotnet run --project live-reader/tests/ScoutMind.FMReader.Tests   # 184 PASS / 0 FAIL
 dotnet run --project live-reader/tests/ScoutMind.Reader.Tests     # 55 PASS / 0 FAIL
 dotnet test desktop-agent/tests/ScoutMind.Agent.Tests             # 16 PASS / 0 FAIL
 ```
+
+引用链版本新增自动化验证（`ReferenceChainTests`，全部 PASS）：
+
+| 验证项 | 结果 |
+| --- | --- |
+| 模块静态槽位一跳解析到日期字段 | PASS |
+| 两跳（模块 → 对象 → 对象）解析 | PASS |
+| 槽位越界 / 空槽位 / 哨兵不成立 → 不解析 | PASS |
+| 同构重复记录中只有带引用链的一条被保留并 `session_verified` | PASS |
+| 同一 RVA/偏移链在三次独立进程会话后 `restart_verified` | PASS |
 
 ## 5. 未通过/未执行项
 
 | 项目 | 状态 | 原因 |
 | --- | --- | --- |
 | 真实 FM27 基础诊断 | **PASS（已执行）** | 见 2.1 / 2.3 |
-| 真实界面日期匹配 | **BLOCKED** | 同构日期记录 10 条共享签名，无法唯一确定对象 |
+| 真实界面日期匹配（结构指纹版） | **BLOCKED** | 同构日期记录 10 条共享签名，无法唯一确定对象 |
+| 引用链版真实诊断 | **NOT_RUN / BLOCKED** | 2026-11-24 执行时 FM27 未运行（`game_not_running`） |
+| 真实界面日期匹配（引用链版） | **NOT_RUN / BLOCKED** | 依赖游戏运行；尚无真实引用链证据 |
 | 日期推进后复验 | NOT_RUN | 身份未建立，推进日期不产生新的有效证据 |
 | 日期回退复验 | NOT_RUN | 同上 |
 | 真实候选总数 vs 旧实现 | **PASS** | 旧实现 2 GB 截断只见 2 条；完整预算 142 条，证明“最新日期”选择不可靠 |
 | 自动快照开放前验证 | BLOCKED | 存档身份未实现 + 候选歧义 |
 
-在候选无法唯一确定之前，任何“当前日期已校准”的表述都不成立，自动快照必须保持关闭。
+引用链版阻塞运行的原始输出（`docs/evidence/v3.2.6.1/world-date-reference-chain-blocked.json`）：
+
+```text
+status = game_not_running
+process_detected = false
+confidence = unavailable
+date_summary.candidate_count = 0
+snapshot.status = BLOCKED
+diagnostics[0] = 没有找到正在运行且带 fm_Data 的 fm.exe。
+```
+
+在候选无法唯一确定、且引用链版本未取得真实结果之前，任何“当前日期已校准”的表述都不成立，
+自动快照必须保持关闭。
