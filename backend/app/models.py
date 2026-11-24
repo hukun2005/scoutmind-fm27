@@ -114,6 +114,10 @@ class ImportJob(TimestampMixin, Base):
     coverage_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     raw_payload_path: Mapped[str | None] = mapped_column(String(512))
     checksum: Mapped[str | None] = mapped_column(String(64))
+    # 存档身份/会话归属。故意不加外键：历史行为 NULL，且 SQLite 对新增外键需要重建整表，
+    # 归属校验由导入服务负责（与 fm_saves.user_club_id 的无外键设计一致）。
+    save_identity_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    save_session_id: Mapped[int | None] = mapped_column(Integer, index=True)
 
     rows: Mapped[list[ImportRow]] = relationship(back_populates="job", cascade="all, delete-orphan")
 
@@ -970,6 +974,9 @@ class CaptureRun(TimestampMixin, Base):
     date_source: Mapped[str | None] = mapped_column(String(32))
     date_confidence: Mapped[str | None] = mapped_column(String(16))
     date_read_status: Mapped[str | None] = mapped_column(String(24))
+    # 存档身份/会话归属；历史行为 NULL。无外键的理由与 ImportJob 相同。
+    save_identity_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    save_session_id: Mapped[int | None] = mapped_column(Integer, index=True)
 
 
 class TransferEventCandidate(TimestampMixin, Base):
@@ -1123,4 +1130,103 @@ class UnresolvedPlayerAction(Base):
 def _reject_unresolved_action_rewrite(*_args: object) -> None:
     """Audit rows are immutable: a wrong decision is corrected by appending, never by editing."""
     raise ValueError("unresolved_player_actions 是不可覆盖的审计表：禁止更新或删除")
+
+
+class SaveIdentity(TimestampMixin, Base):
+    """一个存档的长期身份。
+
+    ``identity_fingerprint`` 只由强证据（游戏内 Save ID / 世界 ID / 存档文件稳定元数据）生成；
+    经理、俱乐部、日期、进程等第三优先级证据不进入指纹。历史存档以
+    ``identity_status='unknown'`` + ``LEGACY_UNVERIFIED`` 证据标记，绝不冒充已验证。
+    """
+
+    __tablename__ = "save_identities"
+    __table_args__ = (
+        UniqueConstraint(
+            "fm_save_id", "identity_version", "identity_fingerprint",
+            name="uq_save_identity_save_version_fingerprint",
+        ),
+        Index("ix_save_identity_status", "identity_status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # 发现阶段可能还没有对应存档；故意不加外键（理由与 fm_saves.user_club_id 相同）。
+    fm_save_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    identity_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    identity_status: Mapped[str] = mapped_column(String(24), default="unknown", nullable=False)
+    identity_confidence: Mapped[str] = mapped_column(String(16), default="none", nullable=False)
+    identity_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    identity_kind: Mapped[str] = mapped_column(String(32), default="unresolved", nullable=False)
+    game_build: Mapped[str | None] = mapped_column(String(64))
+    plugin_version: Mapped[str | None] = mapped_column(String(32))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class SaveEvidence(TimestampMixin, Base):
+    """一条存档身份证据（只存规范化哈希与公开诊断字段，不存原始内存/文件内容）。"""
+
+    __tablename__ = "save_evidences"
+    __table_args__ = (
+        Index("ix_save_evidence_identity_observed", "save_identity_id", "observed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    save_identity_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    fm_save_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    evidence_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    evidence_source: Mapped[str] = mapped_column(String(16), nullable=False)
+    evidence_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    evidence_version: Mapped[str | None] = mapped_column(String(64))
+    confidence: Mapped[str] = mapped_column(String(16), default="none", nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    session_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class SaveSession(TimestampMixin, Base):
+    """一次游戏进程内的存档会话。
+
+    ``session_key`` 只用于区分进程会话，绝不作为存档身份；同一进程可先后加载多个存档。
+    """
+
+    __tablename__ = "save_sessions"
+    __table_args__ = (
+        UniqueConstraint("session_key", name="uq_save_sessions_session_key"),
+        Index("ix_save_session_identity", "save_identity_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    save_identity_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    process_id: Mapped[int | None] = mapped_column(Integer)
+    process_start_time: Mapped[datetime | None] = mapped_column(DateTime)
+    session_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    session_started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    session_ended_at: Mapped[datetime | None] = mapped_column(DateTime)
+    game_build: Mapped[str | None] = mapped_column(String(64))
+    plugin_version: Mapped[str | None] = mapped_column(String(32))
+    session_status: Mapped[str] = mapped_column(String(16), default="created", nullable=False)
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime)
+    invalidated_reason: Mapped[str | None] = mapped_column(String(64))
+
+
+class SaveIdentityConflict(TimestampMixin, Base):
+    """一次无法自动裁决的存档身份冲突，保留证据供人工处理。"""
+
+    __tablename__ = "save_identity_conflicts"
+    __table_args__ = (Index("ix_save_conflict_status", "status"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    current_identity_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    conflicting_identity_id: Mapped[int | None] = mapped_column(Integer)
+    conflict_reason: Mapped[str] = mapped_column(String(32), default="unknown", nullable=False)
+    conflict_evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    detected_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="open", nullable=False)
+    resolution: Mapped[str | None] = mapped_column(String(16))
+    resolved_by: Mapped[str | None] = mapped_column(String(64))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    notes: Mapped[str | None] = mapped_column(Text)
 
