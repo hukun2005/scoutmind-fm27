@@ -341,8 +341,9 @@ public sealed partial class ObjectProbes
                 var expiryRaw = _memory.UInt32(contract + _layout["CON_EXPIRY"]);
                 dateDiagnostics.Add(expiryRaw);
                 var (expiryYear, expiryDoy) = FmDate.Decode(expiryRaw);
-                if (expiryYear == 0)
+                if (expiryYear is 0 or 1900)
                 {
+                    // 0 与 1900 都是"没有到期日"：空合同不计入到期日分母，也不算读取失败。
                     noExpiry++;
                 }
                 else

@@ -8,6 +8,9 @@ public enum ContractDateCategory
     /// <summary>原始值为 0：没有合同到期日（按未知处理）。</summary>
     Unset,
 
+    /// <summary>年份 1900（FM 的占位纪元）：没有到期日，不是读取失败。</summary>
+    NoExpiry,
+
     /// <summary>原始值全 1：未初始化/哨兵值。</summary>
     Sentinel,
 
@@ -63,7 +66,8 @@ public sealed class ContractDateDiagnostics
     {
         get
         {
-            var applicable = Total - Count(ContractDateCategory.Unset) - Count(ContractDateCategory.Sentinel);
+            var applicable = Total - Count(ContractDateCategory.Unset) - Count(ContractDateCategory.Sentinel)
+                - Count(ContractDateCategory.NoExpiry);
             return applicable <= 0 ? 0 : (double)Count(ContractDateCategory.Decodable) / applicable;
         }
     }
@@ -76,6 +80,7 @@ public sealed class ContractDateDiagnostics
             $"序日非法 {Count(ContractDateCategory.BadDayOfYear)}",
             $"年份越界 {Count(ContractDateCategory.OutOfRange)}",
             $"年份异常 {Count(ContractDateCategory.UnexpectedYear)}",
+            $"无到期日(1900) {Count(ContractDateCategory.NoExpiry)}",
             $"未设置 {Count(ContractDateCategory.Unset)}",
             $"哨兵值 {Count(ContractDateCategory.Sentinel)}",
         });
@@ -105,6 +110,13 @@ public sealed class ContractDateDiagnostics
 
         var year = (int)(raw >> 16);
         var doy = (int)(raw & 0x1FF);
+        if (year == 1900)
+        {
+            // FM 用 1900 纪元表示"没有到期日"：这是空合同，不是解析失败，必须排除出分母。
+            return new ContractDateSample(raw, year, doy, ContractDateCategory.NoExpiry,
+                "年份 1900 是 FM 的占位纪元：没有到期日（按空合同排除）");
+        }
+
         if (doy is < 1 or > 366)
         {
             return new ContractDateSample(raw, year, doy, ContractDateCategory.BadDayOfYear, $"序日 {doy} 超出 1..366");
