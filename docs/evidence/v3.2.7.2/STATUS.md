@@ -4,6 +4,7 @@
 - 分支：`codex/v3.2.7.2-save-identity-e2e`
 - 基线：`origin/main = 187f4ad`
 - 日期：2026-11-25
+- Pull Request：<https://github.com/hukun2005/scoutmind-fm27/pull/7>（未合并、未发 Release）
 - 状态口径：PASS / PARTIAL / FAIL / NOT_RUN / BLOCKED
 - 只读约束：本轮未修改 V3.2.7 已发布迁移，未删除或弱化任何测试断言，未把 CANDIDATE/DISCOVERED/UNKNOWN 写成 VERIFIED。
 
