@@ -1,0 +1,7 @@
+031d3ad58b6bfcc6c4c1dba69e81bdd1c1adf60dc331cfc5b6c8826014dd4824  01-auto-two-saves.json
+e400410b54fe0d4ee93307086adae62a07dfc5962297a09bd52098373add7ee9  02-save-a-verified.json
+84dba3ab3f08b5f8e3ddc0198f9ce969534d650a9925c04d4bdefc2bfcba41d7  03-save-b-candidate.json
+f6792acad21762ba8a4cc1e8e6faac38add0a3ca40f580ecabfe7d0f8d27e3f5  04-save-b-conflict-with-a-state.json
+e400410b54fe0d4ee93307086adae62a07dfc5962297a09bd52098373add7ee9  05-save-a-recovered.json
+529f9e679452a5d778085ed466f57591e32a1845be0884288f5b12c093a9cc08  06-save-b-restart-before.json
+84dba3ab3f08b5f8e3ddc0198f9ce969534d650a9925c04d4bdefc2bfcba41d7  07-save-b-restart-after.json

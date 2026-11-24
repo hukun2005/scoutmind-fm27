@@ -1,0 +1,74 @@
+{
+  "status": "verified",
+  "identity": {
+    "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+    "kind": "user_confirmed",
+    "version": 1,
+    "confidence": "verified"
+  },
+  "save_id": null,
+  "session": {
+    "session_key": "66972:2026-11-24T15:57:31.1218361Z:26620374",
+    "status": "verified",
+    "game_build": "26620374",
+    "plugin_version": "27.1"
+  },
+  "evidence": [
+    {
+      "type": "GAME_SESSION_METADATA",
+      "source": "process",
+      "hash": "b22df90139346f82298676d5c8fb33e2304e8832c23013d236258abc9af8329b",
+      "version": "26620374",
+      "confidence": "low",
+      "detail": "进程会话元数据；只用于会话，不构成存档身份。",
+      "observed_at": null
+    },
+    {
+      "type": "SAVE_FILE_METADATA",
+      "source": "file",
+      "hash": "fdc33bb967a3c975a827cd78aa29d043b9bf4b605e1bccef813fe0d0fe9d57e6",
+      "version": "31880691",
+      "confidence": "medium",
+      "detail": "存档文件稳定元数据（卷序列号 + FileId）。",
+      "observed_at": null
+    },
+    {
+      "type": "SAVE_FILE_HASH",
+      "source": "file",
+      "hash": "b193fc8fd194bc596e825985e399609e810cd3480b5777fcb16a29e8d69f3dbf",
+      "version": "31880691",
+      "confidence": "medium",
+      "detail": "存档文件内容哈希；保存后可能变化，只作版本证据。",
+      "observed_at": null
+    },
+    {
+      "type": "USER_CONFIRMED",
+      "source": "user",
+      "hash": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+      "version": null,
+      "confidence": "high",
+      "detail": "用户已确认该稳定文件身份。",
+      "observed_at": null
+    }
+  ],
+  "missing_evidence": [
+    "GAME_INTERNAL_SAVE_ID",
+    "WORLD_ID"
+  ],
+  "conflicts": [],
+  "explanation": [
+    "检测到 FM27 进程 66972（构建 26620374，插件 27.1）。",
+    "按最近写入的存档文件处理（未能确认被游戏占用）。",
+    "用户确认 + 稳定文件元数据，达到 VERIFIED。"
+  ],
+  "ambiguous": false,
+  "snapshot_eligible": false,
+  "automatic_snapshot_enabled": false,
+  "state_path": "<temp>\\sm-A.json",
+  "verify_requested": false,
+  "verify_applied": false,
+  "diagnostics": [
+    "选中 fm.exe pid 66972，安装目录 D:\\steam\\steamapps\\common\\Football Manager 27。",
+    "使用显式指定的存档文件：<fm-saves>\\<save-A>.fm"
+  ]
+}
