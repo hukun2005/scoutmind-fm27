@@ -162,6 +162,37 @@ internal static class LayoutAndProbeTests
             TestHarness.True(outcome.Checks.Any(item => item.Name == "uid_valid" && item.Status == CheckStatus.Failed), "合法比例不足应失败");
         });
 
+        harness.Run("合同探测：1900 占位纪元按空合同排除，不拉低到期日通过率", () =>
+        {
+            var layout = new FM27_1_Layout();
+            var memory = new FakeMemory();
+            var players = Enumerable.Range(0, 8)
+                .Select(index => FakeSave.WritePlayer(memory, layout, index, name: $"Contract {index}"))
+                .ToList();
+            foreach (var player in players.Take(3))
+            {
+                var contract = memory.Pointer(player.Person + layout["PERO_FULL_CONTRACT"]);
+                memory.WriteUInt32(contract + layout["CON_EXPIRY"], (1900u << 16) | 2u);
+            }
+
+            var outcome = new ObjectProbes(memory, layout).ProbeContracts(players);
+            var range = outcome.Checks.First(item => item.Name == "expiry_range");
+            TestHarness.Equal(CheckStatus.Passed, range.Status, "空合同不能被算成读取失败");
+            TestHarness.True(range.Detail.Contains("3 人无到期日"), range.Detail);
+            var afterBirth = outcome.Checks.First(item => item.Name == "expiry_after_birth");
+            TestHarness.Equal(CheckStatus.Passed, afterBirth.Status, "剩余合同仍应全部满足到期日晚于出生");
+        });
+
+        harness.Run("合同日期诊断：1900 纪元归为 NoExpiry 而不是年份异常", () =>
+        {
+            var sample = ContractDateDiagnostics.Analyze((1900u << 16) | 2u);
+            TestHarness.Equal(ContractDateCategory.NoExpiry, sample.Category, "1900 是空合同占位纪元");
+            var diagnostics = new ContractDateDiagnostics();
+            diagnostics.Add((1900u << 16) | 2u);
+            diagnostics.Add((2028u << 16) | 180u);
+            TestHarness.Equal(1.0, diagnostics.DecodableRatio, "空合同必须排除出可解码比例的分母");
+        });
+
         harness.Run("球员探测：没有对象时候返回失败而不是通过", () =>
         {
             var layout = new FM27_1_Layout();
