@@ -10,6 +10,42 @@ public static class CliParserTests
     /// <returns>表示执行完成的任务。</returns>
     public static async Task RunAsync(TestHarness harness)
     {
+        harness.Case("world-date --diagnostics 解析验证日期与状态文件", () =>
+        {
+            var parsed = CliCommandParser.Parse(new[]
+            {
+                "world-date", "--diagnostics", "--verify", "2026-11-06",
+                "--state", @"C:\out\date-state.json", "--json",
+            });
+
+            Assert.True(parsed.Ok, "合法参数应解析成功");
+            var options = parsed.Options!;
+            Assert.Equal(CliCommand.WorldDate, options.Command, "子命令应为 world-date");
+            Assert.True(options.Diagnostics, "应识别 --diagnostics");
+            Assert.Equal<DateOnly?>(new DateOnly(2026, 11, 6), options.VerificationDate, "应解析 --verify");
+            Assert.Equal(@"C:\out\date-state.json", options.StatePath, "应解析 --state");
+            Assert.True(options.Json, "应识别 --json");
+        });
+
+        harness.Case("world-date --verify 必须为合法日期，且仅 world-date 支持诊断选项", () =>
+        {
+            Assert.False(
+                CliCommandParser.Parse(new[] { "world-date", "--verify" }).Ok,
+                "--verify 缺少值必须失败");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "world-date", "--verify", "2026-13-01" }).Ok,
+                "非法日期必须失败");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "world-date", "--diagnostics", "--diagnostics" }).Ok,
+                "重复 --diagnostics 必须失败");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "scan", "--diagnostics" }).Ok,
+                "scan 不接受 --diagnostics");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "world-date", "--state" }).Ok,
+                "--state 缺少值必须失败");
+        });
+
         harness.Case("scan --output 与 --timeout 被正确解析", () =>
         {
             var parsed = CliCommandParser.Parse(
