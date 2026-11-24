@@ -150,29 +150,46 @@ dotnet test desktop-agent/tests/ScoutMind.Agent.Tests             # 16 PASS / 0 
 | 同构重复记录中只有带引用链的一条被保留并 `session_verified` | PASS |
 | 同一 RVA/偏移链在三次独立进程会话后 `restart_verified` | PASS |
 
-## 5. 未通过/未执行项
+## 5. 真实引用链验证（2026-11-24，3 次独立进程）
+
+游戏运行后，用同一状态文件依次执行 3 次“完全关闭 → 重新启动”的真实会话：
+
+| 会话 | PID | 候选日期字段地址 | 结构指纹 | 状态 |
+| --- | --- | --- | --- | --- |
+| 1 | 110436 | `0x1A386B371B4` | `cc43cf9f474f013a` | `session_verified`（1/3） |
+| 2 | 113432 | `0x1CC1BAFFF14` | `f980c3d98e57aba2` | `session_verified`（2/3） |
+| 3 | 58416 | `0x2B4142EC104` | `93f91b16973e5a1d` | **`restart_verified`（3/3）** |
+
+三次会话的引用链签名完全一致：`chain:gp:0x586B520:date+0x7F4`。
+堆地址与结构指纹每次都变化，链签名不变——这正是引用链身份要解决的问题。
+
+| 独立复核 | 会话 1 | 会话 2 | 会话 3 |
+| --- | --- | --- | --- |
+| `date-read` slot | `0x7FFD4227B520` | `0x7FFD4227B520` | `0x7FFD4227B520` |
+| 解析目标 | `0x1A386B369C0 + 0x7F4` | `0x1CC1BAF720 + 0x7F4` | `0x2B4142EB910 + 0x7F4` |
+| 原始值 / 日期 | `0x07EA0136` / `2026-11-06` | 同左 | 同左 |
+
+原始证据：
+`docs/evidence/v3.2.6.1/world-date-reference-chain-session-{1,2,3}.json`、
+`docs/evidence/v3.2.6.1/reference-chain-recheck-session-{1,2,3}.json`。
+
+自动快照仍为 `BLOCKED`，唯一剩余原因是“存档身份未经验证”。
+安全门按设计生效：`restart_verified` 不足以放行自动快照。
+
+## 6. 未通过/未执行项
 
 | 项目 | 状态 | 原因 |
 | --- | --- | --- |
 | 真实 FM27 基础诊断 | **PASS（已执行）** | 见 2.1 / 2.3 |
 | 真实界面日期匹配（结构指纹版） | **BLOCKED** | 同构日期记录 10 条共享签名，无法唯一确定对象 |
-| 引用链版真实诊断 | **NOT_RUN / BLOCKED** | 2026-11-24 执行时 FM27 未运行（`game_not_running`） |
-| 真实界面日期匹配（引用链版） | **NOT_RUN / BLOCKED** | 依赖游戏运行；尚无真实引用链证据 |
-| 日期推进后复验 | NOT_RUN | 身份未建立，推进日期不产生新的有效证据 |
-| 日期回退复验 | NOT_RUN | 同上 |
-| 真实候选总数 vs 旧实现 | **PASS** | 旧实现 2 GB 截断只见 2 条；完整预算 142 条，证明“最新日期”选择不可靠 |
-| 自动快照开放前验证 | BLOCKED | 存档身份未实现 + 候选歧义 |
+| 引用链版真实诊断（3 次会话） | **PASS** | `session_verified` ×2 → `restart_verified` |
+| 真实界面日期匹配（引用链版） | **PASS** | 三次会话均与界面日期 `2026-11-06` 一致 |
+| 日期推进后复验 | NOT_RUN | 本轮未推进游戏内日期 |
+| 日期回退复验 | NOT_RUN | 本轮未回退游戏内日期 |
+| 真实候选总数 vs 旧实现 | **PASS** | 旧实现 2 GB 截断只见 2 条；完整预算 142–143 条，证明“最新日期”选择不可靠 |
+| 自动快照开放前验证 | **BLOCKED** | 存档身份未实现（安全门按设计保持关闭） |
 
-引用链版阻塞运行的原始输出（`docs/evidence/v3.2.6.1/world-date-reference-chain-blocked.json`）：
-
-```text
-status = game_not_running
-process_detected = false
-confidence = unavailable
-date_summary.candidate_count = 0
-snapshot.status = BLOCKED
-diagnostics[0] = 没有找到正在运行且带 fm_Data 的 fm.exe。
-```
-
-在候选无法唯一确定、且引用链版本未取得真实结果之前，任何“当前日期已校准”的表述都不成立，
-自动快照必须保持关闭。
+早前“游戏未运行”时的那次阻塞输出仍保留为
+`docs/evidence/v3.2.6.1/world-date-reference-chain-blocked.json`，用于对比。
+即使已经达到 `restart_verified`，在存档身份接入真实校验之前，
+自动快照必须保持关闭，也不能对外声称“全链路已解锁”。

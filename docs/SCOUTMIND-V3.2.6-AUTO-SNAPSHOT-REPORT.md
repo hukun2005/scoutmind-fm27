@@ -52,5 +52,7 @@ RC 中 `enable_automatic_snapshot` 必须默认 **false**，前端显示：
 - 安全门要求 `restart_verified` 且存档身份有效，当前存档身份未实现，因此自动快照保持 **BLOCKED**；
 - 2026-11-24 真实 FM27 验证（build 26620374，两次独立进程）：142 条日期命中，`2026-11-06`
   与 9 条同构记录共享结构签名 → `ambiguous`，可信度仅 `discovered`，安全门实际输出为 **BLOCKED**；
+- 后续 v3.2.6.1 引入模块静态引用链身份，3 次完全重启后达到 `restart_verified`；
+  但存档身份仍未实现，安全门依旧 **BLOCKED**，自动快照未开放；
 - 详见 `docs/SCOUTMIND-V3.2.6.1-DATE-CANDIDATE-TRACKING.md` 与
   `docs/SCOUTMIND-V3.2.6.1-RESTART-VALIDATION.md`。

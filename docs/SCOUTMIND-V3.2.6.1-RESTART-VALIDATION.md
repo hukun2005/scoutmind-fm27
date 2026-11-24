@@ -121,16 +121,22 @@ reasons:
 | 真实两次进程会话 | PASS（已执行） | 地址、构建号、会话键均变化 |
 | 真实地址变化复关联（结构指纹版） | **BLOCKED** | 142 条同构日期记录，结构签名不唯一 |
 | 引用链身份（实现 + 模拟三次会话） | PASS | `ReferenceChainTests` 全部通过 |
-| 真实地址变化复关联（引用链版） | **NOT_RUN / BLOCKED** | 执行时 FM27 未运行，未取得真实链 |
-| 真实日期推进/回退 | NOT_RUN | 引用链版尚未在真实进程建立 |
+| 真实地址变化复关联（引用链版） | **PASS** | 3 次完全重启，链签名不变 → `restart_verified` |
+| 真实日期推进/回退 | NOT_RUN | 本轮未推进或回退游戏内日期 |
 | 存档身份验证 | NOT_IMPLEMENTED | 安全门因此保持 BLOCKED |
-| 自动快照开放 | BLOCKED | 依赖以上两项 |
+| 自动快照开放 | BLOCKED | 仅剩存档身份未验证 |
 
-要推进到 `restart_verified`，需要先补上**对象分类证据**（例如从模块静态数据出发的引用链，
-证明某条日期记录属于世界状态对象），使逻辑身份不再依赖“同构记录 + 日期值”的区分方式。
-在此之前，V3.2.6.1 不允许声明“日期读取已跨重启验证”。
+真实三次会话结果（完整关闭 → 重新启动，使用同一状态文件）：
 
-## 8. 引用链补强（已实现，真实验证 NOT_RUN）
+| 会话 | PID | 候选地址 | 结构指纹 | 状态 |
+| --- | --- | --- | --- | --- |
+| 1 | 110436 | `0x1A386B371B4` | `cc43cf9f474f013a` | `session_verified` 1/3 |
+| 2 | 113432 | `0x1CC1BAFFF14` | `f980c3d98e57aba2` | `session_verified` 2/3 |
+| 3 | 58416 | `0x2B4142EC104` | `93f91b16973e5a1d` | `restart_verified` 3/3 |
+
+三次的链签名都是 `chain:gp:0x586B520:date+0x7F4`；绝对地址和结构指纹每次都变，链签名不变。
+
+## 8. 引用链补强（已实现，真实三次会话 PASS）
 
 `Discovery/ReferenceChain.cs` 已把“模块静态 RVA + 中间指针偏移 + 日期偏移”作为跨重启身份：
 
@@ -139,8 +145,10 @@ reasons:
 - 同构记录中只有能由模块静态根解析的那一条获得独立身份，其余写明排除原因；
 - 多次独立进程会话仍按链签名累计验证证据，第三次独立会话可到 `restart_verified`。
 
-自动化模拟已覆盖“三次独立会话（堆地址每次变化）→ `restart_verified`”，但**真实 FM27 尚未执行**：
-2026-11-24 尝试运行时游戏进程不存在，命令输出 `game_not_running`、`snapshot = BLOCKED`
-（`docs/evidence/v3.2.6.1/world-date-reference-chain-blocked.json`）。
-真实跨重启验证的正确状态仍是 **NOT_RUN / BLOCKED**；即使将来达到 `restart_verified`，
-只要存档身份未实现，自动快照仍必须保持 `BLOCKED`。
+真实 FM27 已完成 3 次独立进程验证（PID 110436 / 113432 / 58416），
+每次都用 `date-read --rva 0x586B520 --field 0x7F4` 独立复核，均解析到同一日期 `2026-11-06`
+（证据：`docs/evidence/v3.2.6.1/world-date-reference-chain-session-{1,2,3}.json`、
+`reference-chain-recheck-session-{1,2,3}.json`）。
+
+状态已到 `restart_verified`，但自动快照仍保持 `BLOCKED`：
+安全门只剩“存档身份未经验证”这一条原因，符合“存档身份实现前不得放行”的硬约束。
