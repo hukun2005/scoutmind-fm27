@@ -21,6 +21,34 @@ public sealed record BackendSyncResult(
     bool Duplicate,
     int Attempts);
 
+/// <summary>写接口必须显式携带的存档上下文；缺失时后端按历史行为放行。</summary>
+public sealed record SaveContextQuery(int IdentityId, int SessionId)
+{
+    /// <summary>追加到写接口的查询串。</summary>
+    public string Query => $"?save_identity_id={IdentityId}&save_session_id={SessionId}";
+}
+
+/// <summary>一次 JSON 请求的结果（身份注册/会话生命周期使用）。</summary>
+public sealed record BackendJsonResult(bool Ok, int? StatusCode, JsonElement? Body, string? Error)
+{
+    /// <summary>从响应体读取整数属性。</summary>
+    public int? ReadInt(string name) =>
+        Body is { ValueKind: JsonValueKind.Object } body
+        && body.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.Number
+        && value.TryGetInt32(out var parsed)
+            ? parsed
+            : null;
+
+    /// <summary>从响应体读取字符串属性。</summary>
+    public string? ReadString(string name) =>
+        Body is { ValueKind: JsonValueKind.Object } body
+        && body.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+}
+
 /// <summary>
 /// 后端导入任务状态。<c>Status</c> 直接来自 <c>import_jobs.status</c>：
 /// <c>running</c> / <c>succeeded</c> / <c>partial</c> / <c>failed</c>。
@@ -49,6 +77,7 @@ public sealed class BackendClient : IDisposable
     private const int MaxResponseChars = 4000;
 
     private readonly HttpClient _httpClient;
+    private readonly string _baseUrl;
     private readonly string _endpoint;
     private readonly string _importsEndpoint;
     private readonly string? _apiToken;
@@ -76,7 +105,8 @@ public sealed class BackendClient : IDisposable
             throw new ArgumentException($"后端地址必须是 http/https 绝对地址：{backendBaseUrl}", nameof(backendBaseUrl));
         }
 
-        _endpoint = baseUri.ToString().TrimEnd('/') + "/imports/scan";
+        _baseUrl = baseUri.ToString().TrimEnd('/');
+        _endpoint = _baseUrl + "/imports/scan";
         _importsEndpoint = baseUri.ToString().TrimEnd('/') + "/imports";
         _apiToken = string.IsNullOrWhiteSpace(apiToken) ? null : apiToken.Trim();
         _httpClient = handler is null ? new HttpClient() : new HttpClient(handler);
@@ -87,11 +117,11 @@ public sealed class BackendClient : IDisposable
     public string Endpoint => _endpoint;
 
     /// <summary>登记一次自动采集状态；失败不抛出，返回 false。</summary>
-    public async Task<bool> PostCaptureAsync(object body, CancellationToken cancellationToken)
+    public async Task<bool> PostCaptureAsync(object body, CancellationToken cancellationToken, SaveContextQuery? context = null)
     {
         try
         {
-            var url = _endpoint.Replace("/imports/scan", "/captures", StringComparison.Ordinal);
+            var url = _baseUrl + "/captures" + (context?.Query ?? string.Empty);
             using var request = new HttpRequestMessage(HttpMethod.Post, url)
             {
                 Content = JsonContent.Create(body),
@@ -109,21 +139,109 @@ public sealed class BackendClient : IDisposable
         }
     }
 
+    /// <summary>登记采集开始（必须携带存档上下文）。</summary>
+    public Task<BackendJsonResult> StartCaptureAsync(
+        object body,
+        CancellationToken cancellationToken,
+        SaveContextQuery? context = null) =>
+        SendJsonAsync(HttpMethod.Post, _baseUrl + "/captures" + (context?.Query ?? string.Empty), body, cancellationToken);
+
+    /// <summary>更新采集状态（失败/完成同样需要上下文）。</summary>
+    public Task<BackendJsonResult> UpdateCaptureAsync(
+        int captureId,
+        object body,
+        CancellationToken cancellationToken,
+        SaveContextQuery? context = null) =>
+        SendJsonAsync(
+            HttpMethod.Patch,
+            $"{_baseUrl}/captures/{captureId}" + (context?.Query ?? string.Empty),
+            body,
+            cancellationToken);
+
+    /// <summary>注册/更新存档身份。后端按证据封顶，Agent 不自行宣称 verified。</summary>
+    public Task<BackendJsonResult> RegisterSaveIdentityAsync(object body, CancellationToken cancellationToken) =>
+        SendJsonAsync(HttpMethod.Post, _baseUrl + "/save-identities/register", body, cancellationToken);
+
+    /// <summary>登记会话；同一 <c>session_key</c> 幂等。</summary>
+    public Task<BackendJsonResult> StartSaveSessionAsync(object body, CancellationToken cancellationToken) =>
+        SendJsonAsync(HttpMethod.Post, _baseUrl + "/save-sessions/start", body, cancellationToken);
+
+    /// <summary>会话心跳；后端发现身份/指纹变化会使会话失效。</summary>
+    public Task<BackendJsonResult> HeartbeatSaveSessionAsync(
+        int sessionId,
+        object body,
+        CancellationToken cancellationToken) =>
+        SendJsonAsync(HttpMethod.Post, $"{_baseUrl}/save-sessions/{sessionId}/heartbeat", body, cancellationToken);
+
+    /// <summary>显式失效会话（切换/结束/重启）。</summary>
+    public Task<BackendJsonResult> InvalidateSaveSessionAsync(
+        int sessionId,
+        object body,
+        CancellationToken cancellationToken) =>
+        SendJsonAsync(HttpMethod.Post, $"{_baseUrl}/save-sessions/{sessionId}/invalidate", body, cancellationToken);
+
+    private async Task<BackendJsonResult> SendJsonAsync(
+        HttpMethod method,
+        string url,
+        object? body,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(method, url);
+            if (body is not null)
+            {
+                request.Content = JsonContent.Create(body);
+            }
+            if (!string.IsNullOrWhiteSpace(_apiToken))
+            {
+                request.Headers.TryAddWithoutValidation("X-ScoutMind-Token", _apiToken);
+            }
+
+            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            JsonElement? parsed = null;
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                try
+                {
+                    using var document = JsonDocument.Parse(text);
+                    parsed = document.RootElement.Clone();
+                }
+                catch (JsonException)
+                {
+                    parsed = null;
+                }
+            }
+
+            var error = response.IsSuccessStatusCode
+                ? null
+                : $"后端返回 HTTP {(int)response.StatusCode}：{(text.Length <= MaxResponseChars ? text : text[..MaxResponseChars])}";
+            return new BackendJsonResult(response.IsSuccessStatusCode, (int)response.StatusCode, parsed, error);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return new BackendJsonResult(false, null, null, $"无法连接后端 {url}：{ex.Message}");
+        }
+    }
+
     /// <summary>上传一份已转换好的扫描协议报文。</summary>
     /// <param name="payload">UTF-8 编码的协议 JSON（见 <c>docs/DATA_PROTOCOL.md</c>）。</param>
     /// <param name="cancellationToken">取消令牌。</param>
+    /// <param name="context">自动采集必须携带的存档身份/会话；手动同步为 <c>null</c>（历史行为）。</param>
     /// <returns>同步结果；不会抛出网络异常，失败通过返回值表达。</returns>
-    public async Task<BackendSyncResult> PostScanAsync(byte[] payload, CancellationToken cancellationToken)
+    public async Task<BackendSyncResult> PostScanAsync(byte[] payload, CancellationToken cancellationToken, SaveContextQuery? context = null)
     {
         ArgumentNullException.ThrowIfNull(payload);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         string? transportError = null;
+        var url = _endpoint + (context?.Query ?? string.Empty);
         for (var attempt = 1; attempt <= 2; attempt++)
         {
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint)
+                using var request = new HttpRequestMessage(HttpMethod.Post, url)
                 {
                     Content = new ByteArrayContent(payload),
                 };
