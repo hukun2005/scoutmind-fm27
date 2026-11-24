@@ -266,7 +266,7 @@ public sealed class AgentApplication
         var interval = TimeSpan.FromMinutes(minutes);
         var maxRetries = 3;
         var state = stateStore.Load();
-        _stdout.WriteLine($"自动采集启动：每 {minutes} 分钟检查；同存档同游戏日期只导入一次。按 Ctrl+C 停止。");
+        _stdout.WriteLine($"自动采集启动：每 {minutes} 分钟检查；日期未通过跨进程验证前不会导入。按 Ctrl+C 停止。");
 
         // Recover files left by a previous crash: retry before starting a new scan.
         foreach (var pending in queue.ListOutstanding())
@@ -290,6 +290,21 @@ public sealed class AgentApplication
                 continue;
             }
             round++;
+            var gate = await EvaluateSnapshotGateAsync(runner, cancellationToken).ConfigureAwait(false);
+            if (!gate.Allowed)
+            {
+                if (state.Status != "date_unverified")
+                {
+                    state = state with { Status = "date_unverified" };
+                    stateStore.Save(state);
+                }
+
+                _stdout.WriteLine(
+                    $"[第 {round} 轮] 日期未通过安全门（{gate.Status}）：自动快照保持关闭；{string.Join("；", gate.Reasons)}");
+                await DelayAsync(interval, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
             var invocation = await runner
                 .RunAsync(new[] { "scan", "--output", queue.ScanDirectory, "--json" }, cancellationToken)
                 .ConfigureAwait(false);
@@ -374,6 +389,26 @@ public sealed class AgentApplication
 
         _stdout.WriteLine("自动采集已停止。");
         return AgentExitCodes.Success;
+    }
+
+    private static async Task<SnapshotGate> EvaluateSnapshotGateAsync(
+        ReaderRunner runner,
+        CancellationToken cancellationToken)
+    {
+        var invocation = await runner
+            .RunAsync(new[] { "world-date", "--diagnostics", "--json" }, cancellationToken)
+            .ConfigureAwait(false);
+        if (invocation.StartError is not null)
+        {
+            return SnapshotGate.Blocked($"无法启动读取器做日期验证：{invocation.StartError}");
+        }
+
+        if (invocation.TimedOut)
+        {
+            return SnapshotGate.Blocked("读取器日期验证超时。");
+        }
+
+        return ReaderSnapshotGate.Parse(invocation.Stdout);
     }
 
     private static TimeSpan RetryDelay(int failures)

@@ -61,6 +61,9 @@ public enum CliCommand
 /// <param name="MaxDepth">静态根扫描的最大跳数（仅 static-date-scan）。</param>
 /// <param name="Rva">模块内静态指针槽位的 RVA（仅 date-read）。</param>
 /// <param name="FieldOffset">日期字段相对目标对象的偏移（仅 date-read）。</param>
+/// <param name="Diagnostics">是否输出完整的候选诊断（仅 world-date）。</param>
+/// <param name="StatePath">日期验证状态文件路径（仅 world-date 诊断）。</param>
+/// <param name="VerificationDate">人工在游戏界面确认的日期（仅 world-date 诊断）。</param>
 public sealed record CliOptions(
     CliCommand Command,
     bool Json,
@@ -74,7 +77,10 @@ public sealed record CliOptions(
     int? WindowBytes = null,
     int? MaxDepth = null,
     ulong? Rva = null,
-    int? FieldOffset = null);
+    int? FieldOffset = null,
+    bool Diagnostics = false,
+    string? StatePath = null,
+    DateOnly? VerificationDate = null);
 
 /// <summary>
 /// 命令行解析结果。失败时 <see cref="Error"/> 为面向用户的中文说明，调用方应以退出码 64 结束。
@@ -121,6 +127,9 @@ public static class CliCommandParser
         int? maxDepth = null;
         ulong? rva = null;
         int? fieldOffset = null;
+        var diagnostics = false;
+        string? statePath = null;
+        DateOnly? verificationDate = null;
         var index = 0;
 
         while (index < args.Count)
@@ -278,6 +287,69 @@ public static class CliCommandParser
                 }
 
                 expectedDate = parsedDate;
+                index += 2;
+                continue;
+            }
+
+            if (command == CliCommand.WorldDate && argument is "--verify" or "--expect")
+            {
+                if (verificationDate is not null)
+                {
+                    return CliParseResult.Failure("选项 --verify 重复指定。");
+                }
+
+                if (index + 1 >= args.Count)
+                {
+                    return CliParseResult.Failure("选项 --verify 需要一个日期（yyyy-MM-dd）。");
+                }
+
+                if (!DateOnly.TryParseExact(
+                        args[index + 1],
+                        "yyyy-MM-dd",
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.None,
+                        out var visibleDate))
+                {
+                    return CliParseResult.Failure(
+                        $"选项 --verify 需要 yyyy-MM-dd 格式的游戏界面日期，实际为：{args[index + 1]}。");
+                }
+
+                verificationDate = visibleDate;
+                index += 2;
+                continue;
+            }
+
+            if (command == CliCommand.WorldDate && argument == "--diagnostics")
+            {
+                if (diagnostics)
+                {
+                    return CliParseResult.Failure("选项 --diagnostics 重复指定。");
+                }
+
+                diagnostics = true;
+                index++;
+                continue;
+            }
+
+            if (command == CliCommand.WorldDate && argument == "--state")
+            {
+                if (statePath is not null)
+                {
+                    return CliParseResult.Failure("选项 --state 重复指定。");
+                }
+
+                if (index + 1 >= args.Count)
+                {
+                    return CliParseResult.Failure("选项 --state 需要一个文件路径。");
+                }
+
+                var stateTarget = args[index + 1];
+                if (string.IsNullOrWhiteSpace(stateTarget) || stateTarget.StartsWith("--", StringComparison.Ordinal))
+                {
+                    return CliParseResult.Failure("选项 --state 需要一个非空文件路径。");
+                }
+
+                statePath = stateTarget;
                 index += 2;
                 continue;
             }
@@ -508,7 +580,7 @@ public static class CliCommandParser
         }
 
         return CliParseResult.Success(
-            new CliOptions(command.Value, json, outputDirectory, timeoutSeconds, engine, reportPath, expectedDate, maxScanMb, targetAddress, windowBytes, maxDepth, rva, fieldOffset));
+            new CliOptions(command.Value, json, outputDirectory, timeoutSeconds, engine, reportPath, expectedDate, maxScanMb, targetAddress, windowBytes, maxDepth, rva, fieldOffset, diagnostics, statePath, verificationDate));
     }
 
     private static string ToDisplayName(CliCommand command) => command switch

@@ -44,3 +44,11 @@ RC 中 `enable_automatic_snapshot` 必须默认 **false**，前端显示：
 | 日期倒退保护 | 未实现 |
 | 存档切换保护 | NOT_RUN |
 | Worker 恢复 | NOT_RUN |
+
+## 6. V3.2.6.1 更新（2026-11-24）
+
+- `auto` 在每轮扫描前先执行 `world-date --diagnostics --json`，解析 `snapshot.status`；
+- 只要安全门不是 `ENABLED`，Agent **不扫描、不导入**，状态写入 `date_unverified`；
+- 安全门要求 `restart_verified` 且存档身份有效，当前存档身份未实现，因此自动快照保持 **BLOCKED**；
+- 详见 `docs/SCOUTMIND-V3.2.6.1-DATE-CANDIDATE-TRACKING.md` 与
+  `docs/SCOUTMIND-V3.2.6.1-RESTART-VALIDATION.md`。
