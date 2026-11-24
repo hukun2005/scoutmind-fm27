@@ -82,6 +82,9 @@ public sealed class Cli
             case CliCommand.StaticDateScan:
                 return await RunStaticDateScanAsync(options, cancellationToken).ConfigureAwait(false);
 
+            case CliCommand.WorldDate:
+                return await RunWorldDateAsync(options, cancellationToken).ConfigureAwait(false);
+
             case CliCommand.DateRead:
                 return RunDateRead(options);
 
@@ -511,6 +514,54 @@ public sealed class Cli
             return ExitCodes.Incompatible;
         }
     }
+    private async Task<int> RunWorldDateAsync(CliOptions options, CancellationToken cancellationToken)
+    {
+        var locator = new FmWorldDate();
+        var maxBytes = options.MaxScanMb is { } megabytes
+            ? megabytes * 1024L * 1024L
+            : WorldDateLocator.DefaultMaxBytes;
+        var result = await locator.ResolveAsync(maxBytes, cancellationToken).ConfigureAwait(false);
+        var resolution = result.Resolution;
+
+        var document = new
+        {
+            build = result.Build,
+            plugin_version = result.PluginVersion,
+            process_detected = result.ProcessDetected,
+            status = result.Status,
+            date = resolution?.Date,
+            confidence = resolution?.Confidence,
+            candidate_count = resolution?.Candidates.Count ?? 0,
+            total_matches = resolution?.TotalMatches ?? 0,
+            reason = resolution?.Reason,
+            candidates = resolution?.Candidates.Select(item => new
+            {
+                field = $"0x{item.DateAddress:X}",
+                raw = $"0x{item.RawDate:X8}",
+                date = item.Date,
+                reference = item.Reference,
+                gap_days = item.ReferenceGapDays,
+            }),
+            diagnostics = result.Diagnostics,
+        };
+
+        if (options.Json)
+        {
+            WriteJson(document);
+        }
+        else
+        {
+            _stdout.WriteLine($"世界日期：{resolution?.Date ?? "(未解析)"}（{resolution?.Status}/{resolution?.Confidence ?? "-"}）");
+            foreach (var line in result.Diagnostics) _stdout.WriteLine(line);
+        }
+
+        return result.Status switch
+        {
+            "game_not_running" => ExitCodes.NotFound,
+            "unsupported_build" => ExitCodes.Incompatible,
+            _ => resolution?.Status == "ok" ? ExitCodes.Success : ExitCodes.Incompatible,
+        };
+    }
     private int RunStatus(CliOptions options)
     {
         var status = GetPipeline().Detect();
@@ -934,6 +985,7 @@ public sealed class Cli
         writer.WriteLine("  ScoutMind.LiveReader module-info [--json]");
         writer.WriteLine("  ScoutMind.LiveReader static-date-scan --expect <yyyy-MM-dd> [--depth 1|2] [--max-mb <1..8192>] [--json]");
         writer.WriteLine("  ScoutMind.LiveReader date-read --rva <0x偏移> --field <0x字段偏移> [--json]");
+        writer.WriteLine("  ScoutMind.LiveReader world-date [--max-mb <1..8192>] [--json]");
         writer.WriteLine("  ScoutMind.LiveReader compatibility list [--json]");
         writer.WriteLine();
         writer.WriteLine("退出码：");
@@ -945,6 +997,7 @@ public sealed class Cli
         writer.WriteLine("  64 用法或配置错误");
     }
 }
+
 
 
 

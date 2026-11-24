@@ -38,6 +38,9 @@ public enum CliCommand
     /// <summary>按模块 RVA + 偏移链直接读取日期。</summary>
     DateRead,
 
+    /// <summary>启发式解析当前世界日期（签名 + 最新日期 + 稳定性）。</summary>
+    WorldDate,
+
     /// <summary>列出兼容清单条目。</summary>
     CompatibilityList,
 }
@@ -184,6 +187,10 @@ public static class CliCommandParser
                         command = CliCommand.DateRead;
                         index++;
                         break;
+                    case "world-date":
+                        command = CliCommand.WorldDate;
+                        index++;
+                        break;
                     case "compatibility":
                         if (index + 1 >= args.Count || args[index + 1] != "list")
                         {
@@ -275,7 +282,7 @@ public static class CliCommandParser
                 continue;
             }
 
-            if (command is CliCommand.DateDiscovery or CliCommand.PointerScan or CliCommand.DateLocate or CliCommand.StaticDateScan && argument == "--max-mb")
+            if (command is CliCommand.DateDiscovery or CliCommand.PointerScan or CliCommand.DateLocate or CliCommand.StaticDateScan or CliCommand.WorldDate && argument == "--max-mb")
             {
                 if (maxScanMb is not null)
                 {
@@ -516,10 +523,13 @@ public static class CliCommandParser
         CliCommand.ModuleInfo => "module-info",
         CliCommand.StaticDateScan => "static-date-scan",
         CliCommand.DateRead => "date-read",
+        CliCommand.WorldDate => "world-date",
         CliCommand.CompatibilityList => "compatibility list",
         _ => "help",
     };
 }
+
+
 
 
 
