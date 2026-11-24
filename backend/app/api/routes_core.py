@@ -227,9 +227,12 @@ def list_imports(
     The Agent uses this to verify whether a timed-out upload actually finished server-side instead of
     assuming failure and re-uploading.
     """
-    target = save_id or save.id
-    if target != save.id:
-        raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
+    target = save.id
+    if save_id is not None and save_id != save.id:
+        target_save = db.get(FmSave, save_id)
+        if target_save is None or target_save.user_id != save.user_id:
+            raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
+        target = target_save.id
     query = select(ImportJob).where(ImportJob.fm_save_id == target)
     if scan_id:
         query = query.where(ImportJob.scan_id == scan_id)
@@ -248,7 +251,10 @@ def get_import(
 ) -> dict[str, Any]:
     """One import job: status, counts and the rejected-row codes needed to explain a failure."""
     job = db.get(ImportJob, job_id)
-    if job is None or job.fm_save_id != save.id:
+    if job is None:
+        raise HTTPException(status_code=404, detail={"code": "import_not_found", "message": "导入批次不存在"})
+    owner = db.get(FmSave, job.fm_save_id)
+    if owner is None or owner.user_id != save.user_id:
         raise HTTPException(status_code=404, detail={"code": "import_not_found", "message": "导入批次不存在"})
     rejected = db.execute(
         select(ImportRow.code, ImportRow.entity, func.count())

@@ -59,28 +59,37 @@ def test_detail_reports_rejected_rows_and_status(client: TestClient, db: Session
     assert body["retryable"] is True
 
 
-def test_detail_of_foreign_save_is_404(client: TestClient, db: Session, save) -> None:
-    from app.models import FmSave
+def test_detail_of_same_user_other_save_and_foreign_save(client: TestClient, db: Session, save) -> None:
+    from app.models import FmSave, User
 
-    other = FmSave(user_id=save.user_id, name="另一个存档", is_active=False)
-    db.add(other)
+    own = FmSave(user_id=save.user_id, name="同一用户的另一个存档", is_active=False)
+    stranger = User(username="stranger", display_name="Stranger")
+    db.add_all([own, stranger])
     db.commit()
-    db.add(
-        ImportJob(
-            fm_save_id=other.id,
-            scan_id="foreign-scan",
-            source="fm27_live_reader",
-            schema_version="1.1",
-            status="succeeded",
-            received_at=datetime.utcnow(),
-        )
+    foreign_save = FmSave(user_id=stranger.id, name="别人的存档", is_active=False)
+    db.add(foreign_save)
+    db.commit()
+    own_job = ImportJob(
+        fm_save_id=own.id, scan_id="own-other-save", source="fm27_live_reader",
+        schema_version="1.1", status="succeeded", received_at=datetime.utcnow(),
     )
+    foreign_job = ImportJob(
+        fm_save_id=foreign_save.id, scan_id="foreign-scan", source="fm27_live_reader",
+        schema_version="1.1", status="succeeded", received_at=datetime.utcnow(),
+    )
+    db.add_all([own_job, foreign_job])
     db.commit()
-    foreign = db.scalar(select(ImportJob).where(ImportJob.fm_save_id == other.id))
-    assert foreign is not None
-    response = client.get(f"{PREFIX}/imports/{foreign.id}")
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "import_not_found"
+
+    # 同一用户的另一个存档：按 save_id 查询是合法的（多存档）。
+    listed = client.get(f"{PREFIX}/imports", params={"save_id": own.id})
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1
+    assert client.get(f"{PREFIX}/imports/{own_job.id}").status_code == 200
+
+    # 别人的存档：404，不能泄露任务是否存在。
+    denied = client.get(f"{PREFIX}/imports", params={"save_id": foreign_save.id})
+    assert denied.status_code == 404
+    assert client.get(f"{PREFIX}/imports/{foreign_job.id}").status_code == 404
 
 
 def test_recovery_marks_running_jobs_failed_with_evidence(db: Session, save) -> None:
