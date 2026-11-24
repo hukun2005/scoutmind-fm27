@@ -53,3 +53,13 @@
 - SM-018 真实 LLM 联调 **NOT_RUN**（无 API Key），运行时重试/用量/成本已实现；
 - SM-019 真实回测 **NOT_RUN**（真实存档无多时间点，演示数据不计入）；
 - AI 工具数量为 14，工具参数已做存档隔离与严格 Schema 校验。
+
+## V3.2.7.2 完成情况（2026-11-25）
+
+- 存档身份 `save-identity/v1` 协议、后端 API、会话心跳与不可变审计：完成；
+- Agent 采集前注册身份/开会话、扫描后复核、切换即失败：完成（协议级）；
+- 采集与导入携带身份/会话上下文并校验归属：完成；
+- 导入事务回滚/重试/幂等真实测试：完成；
+- 前端 `/save-identity` 诊断页：完成；
+- 已知未完成：真实 FM27 游戏内 A→B 切换（NOT_RUN）、本机 PG16（NOT_RUN，以 CI 为准）。
+- 详情：`docs/SCOUTMIND-V3.2.7.2-IMPLEMENTATION-REPORT.md`、`docs/evidence/v3.2.7.2/STATUS.md`。

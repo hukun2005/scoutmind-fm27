@@ -197,6 +197,15 @@ dotnet run --project live-reader/tests/ScoutMind.Reader.Tests -c Release
 | `docs/DATA_MODEL.md` | V2 规格表名与实现表的映射、新增表说明 |
 | `docs/SECURITY.md` | 本地鉴权、只读约束、数据与许可证边界 |
 | `docs/ROADMAP.md` | 阶段划分、当前完成度、下一步 |
+| `docs/SCOUTMIND-V3.2.7.2-IDENTITY-PROTOCOL.md` | 存档身份与会话协议 `save-identity/v1` |
+| `docs/SCOUTMIND-V3.2.7.2-IMPLEMENTATION-REPORT.md` | V3.2.7.2 实施与验证结果 |
+
+## V3.2.7.2 存档身份
+
+Agent 自动采集现在会先登记存档身份、开启进程会话并定期心跳；扫描与导入都携带身份/会话上下文。
+后端是唯一判定方：仅次证据只能是 `candidate`，`verified` 需要人工确认或第一优先级证据；切换存档会立即使旧会话失效并停止采集。
+前端新增 `/save-identity` 诊断页。真实 FM27 游戏内切换与远端 CI 结果仍标记为未完成，详见
+`docs/evidence/v3.2.7.2/STATUS.md`。
 
 ## 免责声明
 

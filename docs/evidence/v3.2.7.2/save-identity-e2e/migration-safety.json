@@ -1,0 +1,12 @@
+{
+  "path": "<temp>\\sm-migr-check.db",
+  "exists": true,
+  "revision": "d4b7c1e2f9a3",
+  "import_jobs": 0,
+  "duplicate_scan_id_groups": 0,
+  "examples": [],
+  "downgrade_below_992_safe": true,
+  "risky_revision": "992f85fb22b8",
+  "error": null,
+  "recommendation": "预检未发现 scan_id 冲突；仍须备份并确认迁移链。"
+}

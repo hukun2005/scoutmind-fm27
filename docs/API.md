@@ -516,3 +516,27 @@
 `POST /unresolved-players/{id}/dismiss` body：`{"reason": "不是目标球员", "note": "可选"}`；
 `reason` 必填；重复忽略返回 409。两个接口都不会删除观察记录，越权访问一律 404。
 
+## 16. 存档身份与会话（V3.2.7.2 新增）
+
+协议：`save-identity/v1`，完整字段与状态机见 `docs/SCOUTMIND-V3.2.7.2-IDENTITY-PROTOCOL.md`。
+所有接口归属当前活动存档（`get_active_save`，可用 `save_id` 查询参数显式指定）。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/save-identities/register` | 幂等注册/更新身份；状态由后端按证据封顶 |
+| POST | `/save-identities/{id}/verify` | 人工确认升级（必须 `confirmed_fingerprint` + `basis`） |
+| GET | `/save-identities` | 列表、状态计数（`status` / `limit` / `offset`） |
+| GET | `/save-identities/{id}` | 详情：证据、最近会话、`capture_allowed` 与 `blockers` |
+| POST | `/save-sessions/start` | 开始会话；`session_key` 幂等 |
+| POST | `/save-sessions/{id}/heartbeat` | 上报指纹/build；不一致即使会话失效 |
+| POST | `/save-sessions/{id}/end` | 正常结束 |
+| POST | `/save-sessions/{id}/invalidate` | 主动失效（切换/退出） |
+| GET | `/save-identity-audit` | 审计事件，可按 `identity_id` / `session_id` / `capture_id` 过滤 |
+
+关键错误码：`save_context_mismatch`、`save_identity_unverified`、`save_session_invalidated`、
+`save_switch_in_progress`、`save_identity_conflict`。错误体统一为
+`{"error": {"code": "...", "message": "..."}}`。
+
+`POST /captures` 与 `PATCH /captures/{id}` 可携带 `save_identity_id` / `save_session_id`；
+声明时回填归属列，后续写入必须与解析出的上下文一致，否则 409。
+
