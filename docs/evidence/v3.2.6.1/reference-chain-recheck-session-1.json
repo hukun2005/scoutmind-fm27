@@ -1,0 +1,13 @@
+{
+  "process_detected": true,
+  "build": "26620374",
+  "plugin_version": "27.1",
+  "module_base": "0x7FFD3CA10000",
+  "rva": "0x586B520",
+  "slot": "0x7FFD4227B520",
+  "target": "0x1A386B369C0",
+  "field_offset": "0x7F4",
+  "raw_value": "0x07EA0136",
+  "date": "2026-11-06",
+  "status": "ok"
+}
