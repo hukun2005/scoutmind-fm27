@@ -106,6 +106,69 @@ public static class DateCandidateDiagnosticsTests
 
             TestHarness.Equal(left, right, "日期推进不能改变结构指纹");
         });
+
+        harness.Run("候选身份：跨进程堆指针变化不改变指纹", () =>
+        {
+            var first = CreateMemory();
+            var a = RegionStart + 0x1000;
+            WriteWindow(first, a, 0x1F7_0002_0000UL);
+            WriteRecord(first, a, new DateOnly(2026, 11, 6), new DateOnly(2027, 2, 25), 0x5A, writeContext: false);
+
+            var second = CreateMemory();
+            var b = RegionStart + 0x2004;
+            WriteWindow(second, b, 0x1F7_0A02_0000UL);
+            WriteRecord(second, b, new DateOnly(2026, 11, 6), new DateOnly(2027, 2, 25), 0x5A, writeContext: false);
+
+            TestHarness.Equal(
+                CandidateIdentity.ComputeFingerprint(first, a, "heap"),
+                CandidateIdentity.ComputeFingerprint(second, b, "heap"),
+                "地址与堆指针不同、标量相同时应得到相同指纹");
+        });
+
+        harness.Run("候选身份：标量字段变化必须改变指纹", () =>
+        {
+            var first = CreateMemory();
+            var a = RegionStart + 0x1000;
+            WriteWindow(first, a, 0x1F7_0002_0000UL);
+            WriteRecord(first, a, new DateOnly(2026, 11, 6), new DateOnly(2027, 2, 25), 0x5A, writeContext: false);
+
+            var second = CreateMemory();
+            WriteWindow(second, a, 0x1F7_0002_0000UL);
+            WriteRecord(second, a, new DateOnly(2026, 11, 6), new DateOnly(2027, 2, 25), 0x5A, writeContext: false);
+            second.Write(a + CandidateIdentity.TailStart + 0x10, new[] { (byte)0x5B });
+
+            TestHarness.True(
+                CandidateIdentity.ComputeFingerprint(first, a, "heap") !=
+                CandidateIdentity.ComputeFingerprint(second, a, "heap"),
+                "标量变化不能与旧结构得到同一指纹");
+        });
+    }
+
+    /// <summary>在结构头/尾部写入标量与不同堆指针，模拟同一结构在新进程中的样子。</summary>
+    private static void WriteWindow(FakeMemory memory, ulong dateAddress, ulong pointerBase)
+    {
+        var start = dateAddress - CandidateIdentity.HeaderLength;
+        var header = Enumerable.Repeat((byte)0x5A, CandidateIdentity.HeaderLength).ToArray();
+        memory.Write(start, header);
+        foreach (var offset in new ulong[] { 0x08, 0x10, 0x18, 0x28 })
+        {
+            WritePointerWithReadableTarget(memory, start + offset, pointerBase + offset);
+        }
+
+        var tailStart = dateAddress + CandidateIdentity.TailStart;
+        var tail = Enumerable.Repeat((byte)0x5A, CandidateIdentity.TailLength).ToArray();
+        memory.Write(tailStart, tail);
+        foreach (var offset in new ulong[] { 0x18, 0x20, 0x28, 0x30 })
+        {
+            WritePointerWithReadableTarget(memory, tailStart + offset, pointerBase + 0x100 + offset);
+        }
+    }
+
+    /// <summary>写入指针，并把目标地址标记为可读（真实内存源用可读性过滤伪指针）。</summary>
+    private static void WritePointerWithReadableTarget(FakeMemory memory, ulong address, ulong value)
+    {
+        memory.WritePointer(address, value);
+        memory.Write(value, new byte[8]);
     }
 
     internal static readonly DateTimeOffset Now = new(2026, 11, 24, 4, 0, 0, TimeSpan.Zero);

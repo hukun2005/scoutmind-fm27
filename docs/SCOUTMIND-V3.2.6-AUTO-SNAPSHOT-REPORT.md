@@ -50,5 +50,7 @@ RC 中 `enable_automatic_snapshot` 必须默认 **false**，前端显示：
 - `auto` 在每轮扫描前先执行 `world-date --diagnostics --json`，解析 `snapshot.status`；
 - 只要安全门不是 `ENABLED`，Agent **不扫描、不导入**，状态写入 `date_unverified`；
 - 安全门要求 `restart_verified` 且存档身份有效，当前存档身份未实现，因此自动快照保持 **BLOCKED**；
+- 2026-11-24 真实 FM27 验证（build 26620374，两次独立进程）：142 条日期命中，`2026-11-06`
+  与 9 条同构记录共享结构签名 → `ambiguous`，可信度仅 `discovered`，安全门实际输出为 **BLOCKED**；
 - 详见 `docs/SCOUTMIND-V3.2.6.1-DATE-CANDIDATE-TRACKING.md` 与
   `docs/SCOUTMIND-V3.2.6.1-RESTART-VALIDATION.md`。

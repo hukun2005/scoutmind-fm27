@@ -1,0 +1,172 @@
+{
+  "build": "26620374",
+  "saveKey": null,
+  "lastSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+  "lastConfirmedDate": null,
+  "lastObservedDate": null,
+  "candidates": [
+    {
+      "logicalSignature": "heap:v2:2a3098711fc0b967",
+      "module": "heap",
+      "structureFingerprint": "2a3098711fc0b967",
+      "firstSeen": "2026-11-24T14:07:12.2326950Z",
+      "lastSeen": "2026-11-24T14:07:12.2326950Z",
+      "readCount": 3,
+      "consecutiveConsistentReads": 3,
+      "lastRawValue": "0x080C2933",
+      "lastAddress": "0x1F6C55DE2B8",
+      "lastSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "firstSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "observedDates": [
+        "2060-11-02"
+      ],
+      "verifiedDates": [],
+      "verifiedSessionKeys": []
+    },
+    {
+      "logicalSignature": "heap:v2:52e4ddf99fff257e",
+      "module": "heap",
+      "structureFingerprint": "52e4ddf99fff257e",
+      "firstSeen": "2026-11-24T14:07:12.2326950Z",
+      "lastSeen": "2026-11-24T14:07:12.2326950Z",
+      "readCount": 3,
+      "consecutiveConsistentReads": 3,
+      "lastRawValue": "0x07EA1AD6",
+      "lastAddress": "0x1F76D14CF58",
+      "lastSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "firstSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "observedDates": [
+        "2026-08-02"
+      ],
+      "verifiedDates": [],
+      "verifiedSessionKeys": []
+    },
+    {
+      "logicalSignature": "heap:v2:70792ff53e1ed6e6",
+      "module": "heap",
+      "structureFingerprint": "70792ff53e1ed6e6",
+      "firstSeen": "2026-11-24T14:07:12.2326950Z",
+      "lastSeen": "2026-11-24T14:07:12.2326950Z",
+      "readCount": 3,
+      "consecutiveConsistentReads": 3,
+      "lastRawValue": "0x07EA1532",
+      "lastAddress": "0x1F76D14B338",
+      "lastSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "firstSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "observedDates": [
+        "2026-11-02"
+      ],
+      "verifiedDates": [],
+      "verifiedSessionKeys": []
+    },
+    {
+      "logicalSignature": "heap:v2:440f67880f6ff640",
+      "module": "heap",
+      "structureFingerprint": "440f67880f6ff640",
+      "firstSeen": "2026-11-24T14:07:12.2326950Z",
+      "lastSeen": "2026-11-24T14:07:12.2326950Z",
+      "readCount": 3,
+      "consecutiveConsistentReads": 3,
+      "lastRawValue": "0x07EA8AF4",
+      "lastAddress": "0x1F76D10D058",
+      "lastSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "firstSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "observedDates": [
+        "2026-09-01"
+      ],
+      "verifiedDates": [],
+      "verifiedSessionKeys": []
+    },
+    {
+      "logicalSignature": "heap:v2:a1c620e19f3b56bb",
+      "module": "heap",
+      "structureFingerprint": "a1c620e19f3b56bb",
+      "firstSeen": "2026-11-24T14:07:12.2326950Z",
+      "lastSeen": "2026-11-24T14:07:12.2326950Z",
+      "readCount": 3,
+      "consecutiveConsistentReads": 3,
+      "lastRawValue": "0x07EA6933",
+      "lastAddress": "0x1F76D14A438",
+      "lastSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "firstSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "observedDates": [
+        "2026-11-03"
+      ],
+      "verifiedDates": [],
+      "verifiedSessionKeys": []
+    },
+    {
+      "logicalSignature": "heap:v2:e4121ba6a2ab0001",
+      "module": "heap",
+      "structureFingerprint": "e4121ba6a2ab0001",
+      "firstSeen": "2026-11-24T14:07:12.2326950Z",
+      "lastSeen": "2026-11-24T14:07:12.2326950Z",
+      "readCount": 3,
+      "consecutiveConsistentReads": 3,
+      "lastRawValue": "0x07EA3934",
+      "lastAddress": "0x1F76D149E98",
+      "lastSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "firstSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "observedDates": [
+        "2026-11-04"
+      ],
+      "verifiedDates": [],
+      "verifiedSessionKeys": []
+    },
+    {
+      "logicalSignature": "heap:v2:83e3c2d434360604",
+      "module": "heap",
+      "structureFingerprint": "83e3c2d434360604",
+      "firstSeen": "2026-11-24T14:07:12.2326950Z",
+      "lastSeen": "2026-11-24T14:07:12.2326950Z",
+      "readCount": 3,
+      "consecutiveConsistentReads": 3,
+      "lastRawValue": "0x07EA1ADE",
+      "lastAddress": "0x1F76D1430B8",
+      "lastSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "firstSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "observedDates": [
+        "2026-08-10"
+      ],
+      "verifiedDates": [],
+      "verifiedSessionKeys": []
+    },
+    {
+      "logicalSignature": "heap:v2:8d9dcb448720473c",
+      "module": "heap",
+      "structureFingerprint": "8d9dcb448720473c",
+      "firstSeen": "2026-11-24T14:07:12.2326950Z",
+      "lastSeen": "2026-11-24T14:07:12.2326950Z",
+      "readCount": 3,
+      "consecutiveConsistentReads": 3,
+      "lastRawValue": "0x07EA3334",
+      "lastAddress": "0x1F76D12A5D8",
+      "lastSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "firstSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "observedDates": [
+        "2026-11-04"
+      ],
+      "verifiedDates": [],
+      "verifiedSessionKeys": []
+    },
+    {
+      "logicalSignature": "heap:v2:083531a3dad11a66",
+      "module": "heap",
+      "structureFingerprint": "083531a3dad11a66",
+      "firstSeen": "2026-11-24T14:07:12.2326950Z",
+      "lastSeen": "2026-11-24T14:07:12.2326950Z",
+      "readCount": 3,
+      "consecutiveConsistentReads": 3,
+      "lastRawValue": "0x07EA1AD6",
+      "lastAddress": "0x1F76D134F58",
+      "lastSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "firstSessionKey": "118504:2026-11-24T13:57:21.6702316Z:26620374",
+      "observedDates": [
+        "2026-08-02"
+      ],
+      "verifiedDates": [],
+      "verifiedSessionKeys": []
+    }
+  ],
+  "evidence": []
+}
