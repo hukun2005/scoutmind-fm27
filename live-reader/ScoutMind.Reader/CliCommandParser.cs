@@ -20,6 +20,9 @@ public enum CliCommand
     /// <summary>轻量读取游戏日期（不启动完整扫描）。</summary>
     Date,
 
+    /// <summary>日期候选发现：在有限预算内寻找与人工提供的游戏内日期一致的编码。</summary>
+    DateDiscovery,
+
     /// <summary>列出兼容清单条目。</summary>
     CompatibilityList,
 }
@@ -33,13 +36,15 @@ public enum CliCommand
 /// <param name="TimeoutSeconds">扫描超时秒数（仅 scan）。</param>
 /// <param name="Engine">扫描后端：<c>native</c> 内置引擎或 <c>external</c> 外部扫描器；为空时自动选择。</param>
 /// <param name="ReportPath">probe 结构化诊断报告的输出路径（仅 probe）。</param>
+/// <param name="ExpectedDate">人工提供的游戏内日期（仅 date-discovery）。</param>
 public sealed record CliOptions(
     CliCommand Command,
     bool Json,
     string? OutputDirectory,
     int? TimeoutSeconds,
     string? Engine = null,
-    string? ReportPath = null);
+    string? ReportPath = null,
+    DateOnly? ExpectedDate = null);
 
 /// <summary>
 /// 命令行解析结果。失败时 <see cref="Error"/> 为面向用户的中文说明，调用方应以退出码 64 结束。
@@ -79,6 +84,7 @@ public static class CliCommandParser
         int? timeoutSeconds = null;
         string? engine = null;
         string? reportPath = null;
+        DateOnly? expectedDate = null;
         var index = 0;
 
         while (index < args.Count)
@@ -119,6 +125,10 @@ public static class CliCommandParser
                         break;
                     case "date":
                         command = CliCommand.Date;
+                        index++;
+                        break;
+                    case "date-discovery":
+                        command = CliCommand.DateDiscovery;
                         index++;
                         break;
                     case "compatibility":
@@ -184,6 +194,34 @@ public static class CliCommandParser
                 continue;
             }
 
+            if (command == CliCommand.DateDiscovery && argument == "--expect")
+            {
+                if (expectedDate is not null)
+                {
+                    return CliParseResult.Failure("选项 --expect 重复指定。");
+                }
+
+                if (index + 1 >= args.Count)
+                {
+                    return CliParseResult.Failure("选项 --expect 需要一个日期（yyyy-MM-dd）。");
+                }
+
+                if (!DateOnly.TryParseExact(
+                        args[index + 1],
+                        "yyyy-MM-dd",
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.None,
+                        out var parsedDate))
+                {
+                    return CliParseResult.Failure(
+                        $"选项 --expect 需要 yyyy-MM-dd 格式的日期，实际为：{args[index + 1]}。");
+                }
+
+                expectedDate = parsedDate;
+                index += 2;
+                continue;
+            }
+
             if (command == CliCommand.Scan)
             {
                 switch (argument)
@@ -240,10 +278,18 @@ public static class CliCommandParser
 
         if (command is null)
         {
-            return CliParseResult.Failure("缺少子命令。可用子命令：status、probe、scan、compatibility list。");
+            return CliParseResult.Failure(
+                "缺少子命令。可用子命令：status、probe、scan、date、date-discovery、compatibility list。");
         }
 
-        return CliParseResult.Success(new CliOptions(command.Value, json, outputDirectory, timeoutSeconds, engine, reportPath));
+        if (command == CliCommand.DateDiscovery && expectedDate is null)
+        {
+            return CliParseResult.Failure(
+                "date-discovery 需要 --expect <yyyy-MM-dd>：以游戏内显示的日期作为比对基准，不能猜测。");
+        }
+
+        return CliParseResult.Success(
+            new CliOptions(command.Value, json, outputDirectory, timeoutSeconds, engine, reportPath, expectedDate));
     }
 
     private static string ToDisplayName(CliCommand command) => command switch
@@ -251,7 +297,10 @@ public static class CliCommandParser
         CliCommand.Status => "status",
         CliCommand.Probe => "probe",
         CliCommand.Scan => "scan",
+        CliCommand.Date => "date",
+        CliCommand.DateDiscovery => "date-discovery",
         CliCommand.CompatibilityList => "compatibility list",
         _ => "help",
     };
 }
+
