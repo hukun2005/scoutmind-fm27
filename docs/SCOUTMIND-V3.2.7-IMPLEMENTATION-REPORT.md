@@ -9,8 +9,8 @@
 V3.2.7 建立了从“识别存档 → 生成身份 → 检测切换 → 持久化 → 后端隔离 → Agent 安全门”的完整链路，并保持最高优先级约束：
 
 - **自动快照在本版本仍为关闭**：`SaveIdentityResolver.AutomaticSnapshotEnabled = false`，`SnapshotEligible` 恒为 `false`，`SnapshotIdentityFacts.From()` 会把任何 `eligible` 强制压成 `false`。
-- **真实环境身份尚未可唯一确定**：当前存在多个候选存档文件且未定位到游戏内 Save ID / World ID，身份停在 `DISCOVERED`（`si:v1:unresolved:26620374`）。因此自动采集被身份安全门阻断。
-- **没有伪造验证证据**：双存档 A/B、重启一致性等真实测试未执行，一律记为 `NOT_RUN`，详见 `docs/evidence/v3.2.7/STATUS.md`。
+- **真实环境身份已按存档文件区分**：存档 A（`<save-A>.fm`）经用户确认后为 `verified`（`si:v1:file:b887415ab5…67418083`），存档 B（`<save-B>.fm`）停在 `candidate`（`si:v1:file:ab0bd795…672665`）。仍未定位游戏内 Save ID / World ID，因此自动采集继续被身份安全门阻断。
+- **没有伪造验证证据**：双存档 A/B、重启一致性、后端跨存档隔离均已真实执行并归档；采集期间切换等未执行项仍记为 `NOT_RUN`，详见 `docs/evidence/v3.2.7/STATUS.md`。
 - 未使用 PID、俱乐部名、经理名、单一联赛或单一内存地址作为身份唯一依据；PID 只构成会话键的一部分。
 
 ## 二、分阶段结果
@@ -27,7 +27,7 @@ V3.2.7 建立了从“识别存档 → 生成身份 → 检测切换 → 持久�
 | 7 | 安全门接入身份/会话 | DONE |
 | 8 | 提交前最终校验与并发接口 | DONE |
 | 9 | 自动化测试补齐 | DONE |
-| 10 | 真实环境验收 | PARTIAL：本机身份/日期证据已捕获；A/B 切换 `NOT_RUN` |
+| 10 | 真实环境验收 | PARTIAL：身份/日期、A/B 双存档、重启一致性、`save_context` 跨存档隔离均已实测；采集期间切换 `NOT_RUN` |
 | 11 | 前端状态 | SKIPPED：现有前端无存档身份数据源，`/identity` 页面属于球员 UID 复核，与本版本无关 |
 | 12 | 全量回归 | DONE |
 | 13 | 交付文档与证据目录 | DONE |
@@ -43,7 +43,7 @@ V3.2.7 建立了从“识别存档 → 生成身份 → 检测切换 → 持久�
 - 归档区分 `Save Identity`、`Save File Version`、`Save File Content Hash`：保存导致内容哈希变化不会改变身份。
 - 会话键：`PID:进程启动时间(Build ISO):Build`，仅用于会话，不用于身份。
 
-真实环境实测：同一进程两次 `save-identity` 得到相同 `session_key`，但指纹只会是 `si:v1:unresolved:26620374`。
+真实环境实测：同一进程两次 `save-identity` 得到相同 `session_key`；显式绑定存档文件后得到 `si:v1:file:<sha256>` 指纹（A 为 `verified`、B 为 `candidate`），FM 重启后同一文件指纹不变、`session_key` 随进程变化。
 
 ## 四、后端隔离
 
@@ -85,7 +85,7 @@ V3.2.7 建立了从“识别存档 → 生成身份 → 检测切换 → 持久�
 | 前端 `npm run build` | 通过 |
 | `dotnet build ScoutMind.sln -c Release` | 0 错误 |
 | PostgreSQL 16 迁移 | `NOT_RUN`（本机无 PG16 实例） |
-| GitHub Actions（本分支） | `NOT_RUN`（分支未推送，不记为 PASS） |
+| GitHub Actions（本分支） | `NOT_RUN`（分支已推送，未核对 run 结论，不记为 PASS） |
 
 说明：首次全量回归时 `test_sm005_transfer_perf[500000]` 曾因机器负载超过 5s 阈值失败，单独运行通过；最终回归在空载下全部通过，未修改任何性能断言。
 
@@ -95,11 +95,13 @@ V3.2.7 建立了从“识别存档 → 生成身份 → 检测切换 → 持久�
 
 - `identity-live-run-1.json` / `identity-live-run-2.json`：进程存在（Build 26620374），多存档歧义 → `discovered`，两次会话键一致。
 - `world-date-live.json`：本轮日期状态为 `heuristic`（2026-11-07，引用链未变）。
-- A/B 切换、重启一致性、采集期间切换、PG16 等：`NOT_RUN`。
+- `ab-switch/`：A/B 双存档歧义、A 用户确认 `verified`、B `candidate`、冲突检测与 A 自愈、重启前后 B 指纹一致（`session_key` 58416 → 66972）。
+- `save-context/live-http.json` + `server-access.log`：真实后端（SQLite + Alembic）14 个 HTTP 场景，跨存档身份、未验证/冲突身份、跨存档会话、失效会话、切换中会话、build 不一致全部 409，且错误码可区分；带正确上下文的导入/采集返回 201 并写入身份与会话归属。
+- 采集期间切换、`final_guard` 真实并发竞态、PG16：`NOT_RUN`。
 
 ## 九、安全边界确认
 
-- 未合并 `main`，未创建 Release/Tag，未删除分支，未关闭 PR #6。
+- 未合并 `main`，未创建 Release/Tag，未删除分支，未关闭 PR #6；本轮只推送 `codex/v3.2.7-save-identity` 分支。
 - 未修改任何历史 Alembic migration。
 - 未删除或弱化既有测试断言。
 - 未把 UNKNOWN/DISCOVERED 提升为 VERIFIED。
