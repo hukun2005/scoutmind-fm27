@@ -142,11 +142,19 @@ class ScanImporter:
         *,
         identity_id: int | None = None,
         session_id: int | None = None,
+        final_guard: Callable[[], None] | None = None,
     ) -> ImportOutcome:
         """Parse and import a raw payload (JSON or NDJSON)."""
         payload, structural_warnings = parse_payload(raw)
         payload.warnings.extend(structural_warnings)
-        return self.import_payload(save_id, payload, raw, identity_id=identity_id, session_id=session_id)
+        return self.import_payload(
+            save_id,
+            payload,
+            raw,
+            identity_id=identity_id,
+            session_id=session_id,
+            final_guard=final_guard,
+        )
 
     def import_payload(
         self,
@@ -156,10 +164,12 @@ class ScanImporter:
         *,
         identity_id: int | None = None,
         session_id: int | None = None,
+        final_guard: Callable[[], None] | None = None,
     ) -> ImportOutcome:
         """Import an already parsed payload; the caller owns the ``save_id`` existence check.
 
-        ``identity_id`` / ``session_id`` 由路由层校验后传入，仅作为审计归属写入 ImportJob。
+        ``identity_id`` / ``session_id`` 由路由层校验后传入，作为审计归属写入 ImportJob；
+        ``final_guard`` 在提交前最后执行一次身份校验（Phase 8），失败则回滚全部写入。
         """
         existing = self.session.scalar(
             select(ImportJob).where(
@@ -183,6 +193,16 @@ class ScanImporter:
             self.session.rollback()
             self._mark_failed(job.id, str(exc))
             raise
+
+        if final_guard is not None:
+            try:
+                final_guard()
+            except Exception as exc:
+                # 最终身份校验失败：本事务写入必须整体作废，任务记为失败而不是“已导入”。
+                self.session.rollback()
+                self._mark_failed(job.id, f"提交前身份校验失败：{exc}")
+                raise
+
         self.session.commit()
         return outcome
 

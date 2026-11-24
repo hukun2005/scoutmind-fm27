@@ -22,7 +22,7 @@ from ..schemas import SaveCreate
 from ..utils import iso, payload_checksum, utcnow
 from .deps import get_active_save, get_current_user
 from .routes_adapters import maybe_adapt
-from .save_context import resolve_save_context
+from .save_context import build_final_guard, resolve_save_context
 from .uploads import import_slot, read_request_payload, upload_slot
 
 # 导入写库限流统一由 uploads.import_slot() 提供（按事件循环惰性创建，避免跨循环复用）。
@@ -173,6 +173,7 @@ async def import_transfers(
         raw,
         identity_id=context.identity_id,
         session_id=context.session_id,
+        final_guard=build_final_guard(db, target, save_identity_id, save_session_id),
     )
     return _outcome_payload(outcome)
 
@@ -303,6 +304,7 @@ async def import_scan(
     if target_save is None or target_save.user_id != user.id:
         raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
     context = resolve_save_context(db, target_save, save_identity_id, save_session_id)
+    final_guard = build_final_guard(db, target_save, save_identity_id, save_session_id)
     importer = ScanImporter(db)
     # A dropped FMSuperScout dump is converted by the adapter layer, then imported like any other scan.
     # Both steps are CPU/IO heavy for a 44k-player scan: run them off the event loop so /health and
@@ -323,6 +325,7 @@ async def import_scan(
                     raw,
                     identity_id=context.identity_id,
                     session_id=context.session_id,
+                    final_guard=final_guard,
                 )
             except ImportInProgressError as busy:
                 raise HTTPException(
@@ -344,6 +347,7 @@ async def import_scan(
                 raw,
                 identity_id=context.identity_id,
                 session_id=context.session_id,
+                final_guard=final_guard,
             )
         except ImportInProgressError as busy:
             raise HTTPException(

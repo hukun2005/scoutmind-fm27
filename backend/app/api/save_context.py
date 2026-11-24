@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from fastapi import HTTPException
@@ -91,3 +92,50 @@ def resolve_save_context(
             raise _fail(409, SAVE_CONTEXT_MISMATCH, "存档身份的 game build 与会话不一致")
 
     return SaveContext(identity=identity, session=session)
+
+
+def build_final_guard(
+    db: Session,
+    save: FmSave,
+    identity_id: int | None,
+    session_id: int | None,
+) -> Callable[[], None] | None:
+    """返回提交前的最终身份校验；未声明上下文时返回 ``None``。
+
+    “不得只在任务启动时验证一次”：导入可能持续数秒，期间另一个 Agent 或游戏可能切换存档并
+    失效旧会话。这里用独立事务重新读取已提交状态，避免读到本事务开始时的旧快照。
+    """
+    if identity_id is None and session_id is None:
+        return None
+
+    bind = db.get_bind()
+
+    def _guard() -> None:
+        with Session(bind=bind) as probe:
+            resolve_save_context(probe, save, identity_id, session_id)
+
+    return _guard
+
+
+def assert_job_context(
+    job_identity_id: int | None,
+    job_session_id: int | None,
+    current_identity_id: int | None,
+    current_session_id: int | None,
+) -> None:
+    """Worker / 恢复任务提交前比对任务上下文与当前上下文。
+
+    任务的 ``save_session_id`` 一旦失效（存档切换或游戏重启），就不能再用旧会话写入。
+    """
+    if (
+        job_identity_id is not None
+        and current_identity_id is not None
+        and job_identity_id != current_identity_id
+    ):
+        raise _fail(409, SAVE_CONTEXT_MISMATCH, "任务绑定的存档身份与当前身份不一致")
+
+    if job_session_id is not None:
+        if current_session_id is None:
+            raise _fail(409, SAVE_SESSION_INVALIDATED, "无法证明当前会话与任务会话一致，已阻止写入")
+        if job_session_id != current_session_id:
+            raise _fail(409, SAVE_SESSION_INVALIDATED, "任务会话已失效：存档可能已经切换")
