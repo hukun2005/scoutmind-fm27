@@ -1,0 +1,73 @@
+{
+  "status": "discovered",
+  "identity": {
+    "fingerprint": "si:v1:unresolved:26620374",
+    "kind": "unresolved",
+    "version": 1,
+    "confidence": "low"
+  },
+  "save_id": null,
+  "session": {
+    "session_key": "58416:2026-11-24T14:24:58.7744838Z:26620374",
+    "status": "discovered",
+    "game_build": "26620374",
+    "plugin_version": "27.1"
+  },
+  "evidence": [
+    {
+      "type": "GAME_SESSION_METADATA",
+      "source": "process",
+      "hash": "0063b86743f0d103025215442ac73f2f2220e2fffacbb203ba39d5209812b683",
+      "version": "26620374",
+      "confidence": "low",
+      "detail": "进程会话元数据；只用于会话，不构成存档身份。",
+      "observed_at": null
+    },
+    {
+      "type": "SAVE_FILE_METADATA",
+      "source": "file",
+      "hash": "99fad058cf0ed37fdce8bce1a21ecaebd4c21421595c5198a27791cd7a292198",
+      "version": "108969104",
+      "confidence": "low",
+      "detail": "存档文件稳定元数据（卷序列号 + FileId）。",
+      "observed_at": null
+    },
+    {
+      "type": "SAVE_FILE_METADATA",
+      "source": "file",
+      "hash": "25391af30cfae3246abc47df8c693bd17d6cb2e5f86b893809b74eb576bf0aad",
+      "version": "107268485",
+      "confidence": "low",
+      "detail": "存档文件稳定元数据（卷序列号 + FileId）。",
+      "observed_at": null
+    },
+    {
+      "type": "SAVE_FILE_METADATA",
+      "source": "file",
+      "hash": "a5173fe56e376c55bbb74b6c66da2f61e818eb7fdbb16ef33216c084c922a781",
+      "version": "103998391",
+      "confidence": "low",
+      "detail": "存档文件稳定元数据（卷序列号 + FileId）。",
+      "observed_at": null
+    }
+  ],
+  "missing_evidence": [
+    "GAME_INTERNAL_SAVE_ID",
+    "WORLD_ID"
+  ],
+  "conflicts": [],
+  "explanation": [
+    "检测到 FM27 进程 58416（构建 26620374，插件 27.1）。",
+    "存在多个可能的存档文件，无法唯一确定当前存档。"
+  ],
+  "ambiguous": true,
+  "snapshot_eligible": false,
+  "automatic_snapshot_enabled": false,
+  "state_path": "C:\\Users\\hukun\\AppData\\Local\\Temp\\sm-v327-identity.json",
+  "verify_requested": false,
+  "verify_applied": false,
+  "diagnostics": [
+    "选中 fm.exe pid 58416，安装目录 D:\\steam\\steamapps\\common\\Football Manager 27。",
+    "候选存档目录：C:\\Users\\hukun\\Documents\\Sports Interactive\\Football Manager 27\\games；C:\\Users\\hukun\\Documents\\Sports Interactive\\Football Manager 2027\\games"
+  ]
+}

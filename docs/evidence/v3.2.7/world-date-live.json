@@ -1,0 +1,131 @@
+{
+  "build": "26620374",
+  "plugin_version": "27.1",
+  "process_detected": true,
+  "status": "heuristic",
+  "confidence": "heuristic",
+  "process": {
+    "pid": 58416,
+    "process_start_time": "2026-11-24T14:24:58.7744838Z",
+    "module_base": "0x7FFD3CA10000",
+    "build": "26620374",
+    "plugin_version": "27.1",
+    "session_key": "58416:2026-11-24T14:24:58.7744838Z:26620374"
+  },
+  "session": {
+    "session_id": "58416:2026-11-24T14:24:58.7744838Z:26620374",
+    "game_version": "26620374",
+    "save_key": null
+  },
+  "date_summary": {
+    "selected_date": "2026-11-07",
+    "candidate_count": 1,
+    "verified_candidate_count": 0,
+    "rejected_count": 1
+  },
+  "candidates": [
+    {
+      "index": 1,
+      "address": "0x2B4142EC104",
+      "base_address": "0x2B4142EC0C0",
+      "region_start": "0x2B41429F000",
+      "region_offset": "0x4D104",
+      "module": "heap",
+      "data_type": "u32",
+      "raw_bytes": "0x07EA0137 0x07EB0020 0xFFFFFFFF",
+      "raw_value": "0x07EA0137",
+      "date": "2026-11-07",
+      "reference_date": "2027-02-01",
+      "reference_gap_days": 86,
+      "signature": "date@+0x44|reference@+0x48|guard=0xFFFFFFFF@+0x4C|zero@+0x50,0x54",
+      "source": "world_date_signature_scan",
+      "structure_fingerprint": "da56ecb024dc3c69",
+      "logical_signature": "heap:v2:da56ecb024dc3c69",
+      "identity_signature": "chain:gp:0x586B520:date+0x7F4",
+      "reference_chain": {
+        "module": "gp",
+        "rva": "0x586B520",
+        "pointer_offsets": [],
+        "date_offset": "0x7F4",
+        "level": 1,
+        "signature": "chain:gp:0x586B520:date+0x7F4"
+      },
+      "relative_address": "0x44",
+      "related_object": null,
+      "structure_evidence": "结构满足“日期 + 参考日期 + 哨兵 + 两个零字段”；没有可用的对象类型证据。 模块静态引用链可解析到该记录：static+0x586B520 → date+0x7F4。",
+      "classification": "UNKNOWN_DATE",
+      "rejection_reason": "NONE",
+      "confidence": "heuristic",
+      "first_seen": "2026-11-24T15:26:28.0146413Z",
+      "last_seen": "2026-11-24T15:26:28.0146413Z",
+      "read_count": 3,
+      "consecutive_consistent_reads": 3,
+      "session_key": "58416:2026-11-24T14:24:58.7744838Z:26620374",
+      "observed_dates": [
+        "2026-11-07"
+      ],
+      "rejection_detail": null
+    }
+  ],
+  "rejected_candidates": [
+    {
+      "index": 1,
+      "address": "0x2B4D59D00B8",
+      "base_address": "0x2B4D59D0074",
+      "region_start": "0x2B4D530A000",
+      "region_offset": "0x6C60B8",
+      "module": "heap",
+      "data_type": "u32",
+      "raw_bytes": "0x080C2933 0x07F252B7 0xFFFFFFFF",
+      "raw_value": "0x080C2933",
+      "date": "2060-11-02",
+      "reference_date": "2034-07-02",
+      "reference_gap_days": -9620,
+      "signature": "date@+0x44|reference@+0x48|guard=0xFFFFFFFF@+0x4C|zero@+0x50,0x54",
+      "source": "world_date_signature_scan",
+      "structure_fingerprint": "0bdd4a564aa6b1d1",
+      "logical_signature": "heap:v2:0bdd4a564aa6b1d1",
+      "identity_signature": "heap:v2:0bdd4a564aa6b1d1",
+      "reference_chain": null,
+      "relative_address": "0x44",
+      "related_object": null,
+      "structure_evidence": "结构满足“日期 + 参考日期 + 哨兵 + 两个零字段”；没有可用的对象类型证据。",
+      "classification": "UNKNOWN_DATE",
+      "rejection_reason": "OUT_OF_SUPPORTED_RANGE",
+      "confidence": "discovered",
+      "first_seen": "2026-11-24T15:26:28.0146413Z",
+      "last_seen": "2026-11-24T15:26:28.0146413Z",
+      "read_count": 3,
+      "consecutive_consistent_reads": 3,
+      "session_key": "58416:2026-11-24T14:24:58.7744838Z:26620374",
+      "observed_dates": [
+        "2060-11-02"
+      ],
+      "rejection_detail": "参考日期间隔 -9620 天，不在 30..400 天。"
+    }
+  ],
+  "selection_reason": "没有界面日期证据：仅按“结构合理 + 日期最新 + 复读稳定”选择 2026-11-07，等级只能是 heuristic。",
+  "verification_evidence": [],
+  "limitations": [
+    "候选结构只证明内存中存在该日期编码，不能单独证明它就是当前游戏日期。",
+    "存档身份识别尚未实现：安全门因此保持 BLOCKED。",
+    "本轮结果没有包含真实 FM27 的双重启验证证据。",
+    "扫描预算不足，可能有候选未纳入本轮诊断。",
+    "引用链只证明该记录可由模块静态数据可达，不能单独证明它就是当前世界日期。"
+  ],
+  "snapshot": {
+    "status": "BLOCKED",
+    "allowed": false,
+    "reasons": [
+      "日期可信度只有 heuristic，未达到 restart_verified。",
+      "存档身份未经验证（即使同一天同一存档也只允许一次快照）。"
+    ]
+  },
+  "next_action": "当前只是启发式日期：请在游戏界面读取世界日期，并用 --verify 重新运行；在此之前不要依赖该日期。",
+  "diagnostics": [
+    "达到扫描预算，定位提前停止。",
+    "第一跳对象超过 8192 个，后续模块指针未参与两跳扫描。",
+    "引用链：1/2 条签名命中可由模块静态根解析（扫描 474247168 字节，截断=False）。",
+    "签名命中 2 条，全部进入候选/淘汰诊断；扫描 2147483648 字节，截断=True。"
+  ]
+}
