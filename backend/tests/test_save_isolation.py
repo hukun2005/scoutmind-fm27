@@ -5,6 +5,10 @@ from __future__ import annotations
 import json
 from uuid import uuid4
 
+import pytest
+from fastapi import HTTPException
+
+from app.api.save_context import assert_job_context, build_final_guard, resolve_save_context
 from app.models import FmSave, SaveIdentity, SaveSession
 
 from tests.helpers import player_row, scan_document
@@ -192,3 +196,53 @@ def test_capture_records_identity_and_session(client, db, save):
     body = response.json()
     assert body["save_identity_id"] == identity.id
     assert body["save_session_id"] == session.id
+
+
+def test_final_guard_blocks_session_invalidated_during_import(db, save):
+    identity = _identity(db, save.id)
+    session = _session(db, save.id, identity.id)
+
+    # 任务启动时的校验通过
+    resolve_save_context(db, save, identity.id, session.id)
+
+    # 导入期间另一个 Agent 检测到存档切换并失效了旧会话
+    session.session_status = "invalidated"
+    db.commit()
+
+    guard = build_final_guard(db, save, identity.id, session.id)
+    assert guard is not None
+    with pytest.raises(HTTPException) as excinfo:
+        guard()
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.detail["code"] == "save_session_invalidated"
+
+
+def test_final_guard_passes_when_context_unchanged(db, save):
+    identity = _identity(db, save.id)
+    session = _session(db, save.id, identity.id)
+
+    guard = build_final_guard(db, save, identity.id, session.id)
+
+    assert guard is not None
+    guard()  # 不抛异常即为通过
+
+
+def test_final_guard_absent_without_declared_context(db, save):
+    assert build_final_guard(db, save, None, None) is None
+
+
+def test_job_context_resume_rules():
+    assert_job_context(None, None, None, None)
+    assert_job_context(1, 10, 1, 10)
+
+    with pytest.raises(HTTPException) as mismatch:
+        assert_job_context(1, 10, 2, 10)
+    assert mismatch.value.detail["code"] == "save_context_mismatch"
+
+    with pytest.raises(HTTPException) as switched:
+        assert_job_context(1, 10, 1, 11)
+    assert switched.value.detail["code"] == "save_session_invalidated"
+
+    with pytest.raises(HTTPException) as unknown:
+        assert_job_context(1, 10, 1, None)
+    assert unknown.value.detail["code"] == "save_session_invalidated"
