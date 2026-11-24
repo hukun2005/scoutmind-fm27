@@ -203,6 +203,9 @@ class CaptureRunIn(BaseModel):
     error_code: str | None = Field(default=None, max_length=64)
     error_message: str | None = None
     metadata: dict | None = None
+    date_source: str | None = Field(default=None, max_length=32)
+    date_confidence: str | None = Field(default=None, max_length=16)
+    date_read_status: str | None = Field(default=None, max_length=24)
 
 
 class CaptureRunUpdate(BaseModel):
