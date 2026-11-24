@@ -12,6 +12,7 @@ namespace ScoutMind.FMReader.Engine;
 /// <param name="PluginPath">game_plugin.dll 路径。</param>
 /// <param name="PluginVersion">插件版本。</param>
 /// <param name="Diagnostics">诊断信息。</param>
+/// <param name="ProcessStartTime">进程启动时间；读不到时为 <c>null</c>。只用于会话。</param>
 public sealed record DetectedGame(
     int? ProcessId,
     string? ProcessPath,
@@ -20,7 +21,8 @@ public sealed record DetectedGame(
     string? Build,
     string? PluginPath,
     string? PluginVersion,
-    IReadOnlyList<string> Diagnostics);
+    IReadOnlyList<string> Diagnostics,
+    DateTime? ProcessStartTime = null);
 
 /// <summary>
 /// 游戏与构建识别：进程 → 安装目录（进程不在时回落到 Steam 库）→ 插件版本 → Steam 构建号。
@@ -74,7 +76,8 @@ public sealed class GameBuildDetector
             Build: build,
             PluginPath: pluginPath,
             PluginVersion: pluginVersion,
-            Diagnostics: diagnostics);
+            Diagnostics: diagnostics,
+            ProcessStartTime: location.ProcessStartTime);
     }
 }
 

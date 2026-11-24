@@ -347,7 +347,7 @@ CREATED → DISCOVERING → VERIFIED → CLOSED
 Reader：
 
 - 无证据 → UNKNOWN
-- 只有 career metadata → CANDIDATE（不得 VERIFIED）
+- 只有 career metadata → DISCOVERED（第三优先级不得单独认证）
 - 文件元数据稳定 + 内容哈希变化 → 同一身份
 - FileId 变化 + 无切换记录 → CONFLICT
 - 重启后重新解析 → 关联既有身份
