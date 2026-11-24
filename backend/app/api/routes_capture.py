@@ -15,6 +15,7 @@ from ..models import CaptureRun, FmSave, ImportJob
 from ..schemas import CaptureRunIn, CaptureRunUpdate
 from ..utils import iso
 from .deps import get_active_save
+from .save_context import resolve_save_context
 
 router = APIRouter()
 
@@ -87,6 +88,8 @@ def _payload(row: CaptureRun) -> dict[str, Any]:
         "date_source": row.date_source,
         "date_confidence": row.date_confidence,
         "date_read_status": row.date_read_status,
+        "save_identity_id": row.save_identity_id,
+        "save_session_id": row.save_session_id,
         "metadata": json.loads(row.metadata_json or "{}"),
         "created_at": iso(row.created_at),
         "updated_at": iso(row.updated_at),
@@ -129,11 +132,14 @@ def capture_summary(db: Session = Depends(get_db), save: FmSave = Depends(get_ac
 @router.post("/captures", status_code=201, summary="登记自动采集尝试")
 def register_capture(
     body: CaptureRunIn,
+    save_identity_id: int | None = Query(default=None),
+    save_session_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     if body.status not in STATUSES:
         raise HTTPException(status_code=422, detail={"code": "invalid_status", "message": "未知采集状态"})
+    context = resolve_save_context(db, save, save_identity_id, save_session_id)
     if body.import_job_id is not None:
         job = db.get(ImportJob, body.import_job_id)
         if job is None or job.fm_save_id != save.id:
@@ -158,6 +164,8 @@ def register_capture(
     )
     row.game_build = body.game_build or row.game_build
     row.status = body.status
+    row.save_identity_id = context.identity_id or row.save_identity_id
+    row.save_session_id = context.session_id or row.save_session_id
     row.scan_id = body.scan_id or row.scan_id
     row.import_job_id = body.import_job_id or row.import_job_id
     row.error_code = body.error_code
