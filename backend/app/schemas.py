@@ -235,3 +235,67 @@ class UnresolvedDismissIn(BaseModel):
 
     reason: str = Field(min_length=1, max_length=256)
     note: str | None = Field(default=None, max_length=512)
+
+class SaveEvidenceIn(BaseModel):
+    """一条由 Reader 产生、Agent 转发的身份证据（只含规范化哈希，不含原始内容）。"""
+
+    type: str = Field(min_length=1, max_length=64)
+    source: str = Field(default="file", max_length=32)
+    hash: str = Field(min_length=1, max_length=128)
+    version: str | None = Field(default=None, max_length=64)
+    confidence: str = Field(default="none", max_length=16)
+    observed_at: datetime | None = None
+    detail: str | None = Field(default=None, max_length=512)
+
+
+class SaveIdentityRegisterIn(BaseModel):
+    """身份注册/重复上报。``identity_status`` 只是客户端声明，后端会按证据封顶。"""
+
+    save_id: int | None = None
+    fingerprint: str = Field(min_length=8, max_length=128)
+    fingerprint_version: int = Field(default=1, ge=1, le=99)
+    identity_status: str = Field(default="unknown", max_length=24)
+    confidence: str = Field(default="none", max_length=16)
+    kind: str = Field(default="save_file", max_length=32)
+    game_build: str | None = Field(default=None, max_length=64)
+    plugin_version: str | None = Field(default=None, max_length=32)
+    ambiguous: bool = False
+    evidence: list[SaveEvidenceIn] = Field(default_factory=list)
+    agent_id: str | None = Field(default=None, max_length=64)
+    session_key: str | None = Field(default=None, max_length=128)
+
+
+class SaveIdentityVerifyIn(BaseModel):
+    """人工确认把身份升级为 verified；必须说明确认主体与依据。"""
+
+    confirmed_fingerprint: str = Field(min_length=8, max_length=128)
+    basis: str = Field(min_length=1, max_length=512)
+    actor: str = Field(default="local", max_length=64)
+
+
+class SaveSessionStartIn(BaseModel):
+    """一次游戏进程内的会话登记；``session_key`` 幂等。"""
+
+    save_id: int | None = None
+    identity_id: int = Field(ge=1)
+    session_key: str = Field(min_length=1, max_length=128)
+    process_id: int | None = Field(default=None, ge=1)
+    process_start_time: datetime | None = None
+    game_build: str | None = Field(default=None, max_length=64)
+    plugin_version: str | None = Field(default=None, max_length=32)
+    agent_id: str | None = Field(default=None, max_length=64)
+
+
+class SaveSessionHeartbeatIn(BaseModel):
+    """会话心跳；身份、指纹或 build 不一致时后端会失效该会话。"""
+
+    identity_id: int = Field(ge=1)
+    fingerprint: str | None = Field(default=None, max_length=128)
+    game_build: str | None = Field(default=None, max_length=64)
+    agent_version: str | None = Field(default=None, max_length=32)
+
+
+class SaveSessionInvalidateIn(BaseModel):
+    """显式失效会话（存档切换 / 游戏关闭 / Agent 重启）。"""
+
+    reason: str = Field(min_length=1, max_length=64)

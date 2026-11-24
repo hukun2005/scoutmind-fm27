@@ -48,3 +48,16 @@ X-ScoutMind-Token: <token>
 - 后端依赖固定在 `backend/requirements.txt` 的版本区间；升级时运行完整测试。
 - C# 读取器不引入 NuGet 依赖，只用 .NET 内置程序集，降低供应链风险。
 - 前端依赖通过锁文件固定；生产构建前执行 `npm run build` 做类型检查。
+
+## 8. 存档身份与采集闸门（V3.2.7.2）
+
+- 身份状态由后端按证据封顶：仅次证据只能是 `candidate`；`verified` 需要人工 `/verify`（`actor` + `basis`）
+  或第一优先级证据。客户端声明 `verified` 不会直接生效。
+- 未解析指纹（`si:v1:unresolved:*`）最多 `discovered`；`ambiguous=true` 不得 `verified`。
+- 同一存档出现不同指纹且声明 `verified` 时，新身份落 `conflict`，旧 `verified` 不替换，采集闸门阻断；
+  冲突需人工处置，不自动合并两个真实存档。
+- 采集写入必须同时满足：身份 `verified`、会话 `verified`、心跳未超时、无未解决冲突。
+  心跳发现指纹/build 不一致会立即将会话置 `invalidated`，正在进行的采集与导入失败。
+- 身份/会话/采集归属事件写入不可变审计表 `save_identity_audit_events`；ORM 层拒绝 update/delete。
+- 心跳超时默认 120 秒；过期会话不再放行写入。
+- 无新增自动采集开关：`auto` 必须显式启动，未启动时不产生采集或快照。

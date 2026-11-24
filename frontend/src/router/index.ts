@@ -77,6 +77,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '身份复核中心' },
   },
   {
+    path: '/save-identity',
+    name: 'save-identity',
+    component: () => import('../views/SaveIdentityView.vue'),
+    meta: { title: '存档身份' },
+  },
+  {
     path: '/unresolved',
     name: 'unresolved',
     component: () => import('../views/UnresolvedPlayerView.vue'),
