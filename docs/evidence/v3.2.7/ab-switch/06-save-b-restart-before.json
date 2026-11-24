@@ -1,0 +1,65 @@
+{
+  "status": "candidate",
+  "identity": {
+    "fingerprint": "si:v1:file:ab0bd79502eec32b392f86847344014073486a0c218362b0faccef58e8672665",
+    "kind": "save_file",
+    "version": 1,
+    "confidence": "medium"
+  },
+  "save_id": null,
+  "session": {
+    "session_key": "58416:2026-11-24T14:24:58.7744838Z:26620374",
+    "status": "candidate",
+    "game_build": "26620374",
+    "plugin_version": "27.1"
+  },
+  "evidence": [
+    {
+      "type": "GAME_SESSION_METADATA",
+      "source": "process",
+      "hash": "0063b86743f0d103025215442ac73f2f2220e2fffacbb203ba39d5209812b683",
+      "version": "26620374",
+      "confidence": "low",
+      "detail": "进程会话元数据；只用于会话，不构成存档身份。",
+      "observed_at": null
+    },
+    {
+      "type": "SAVE_FILE_METADATA",
+      "source": "file",
+      "hash": "d75414d5303f4f4be8a704adef62601000546713faf54669a48482091f9e02eb",
+      "version": "31434197",
+      "confidence": "medium",
+      "detail": "存档文件稳定元数据（卷序列号 + FileId）。",
+      "observed_at": null
+    },
+    {
+      "type": "SAVE_FILE_HASH",
+      "source": "file",
+      "hash": "fecd649d61e584b3c1e45a86d4ce5c36420afe5aa0fc46f7c3cd6cf018a677e1",
+      "version": "31434197",
+      "confidence": "medium",
+      "detail": "存档文件内容哈希；保存后可能变化，只作版本证据。",
+      "observed_at": null
+    }
+  ],
+  "missing_evidence": [
+    "GAME_INTERNAL_SAVE_ID",
+    "WORLD_ID"
+  ],
+  "conflicts": [],
+  "explanation": [
+    "检测到 FM27 进程 58416（构建 26620374，插件 27.1）。",
+    "按最近写入的存档文件处理（未能确认被游戏占用）。",
+    "缺少游戏内唯一 ID / 世界 ID，最高只能到 CANDIDATE。"
+  ],
+  "ambiguous": false,
+  "snapshot_eligible": false,
+  "automatic_snapshot_enabled": false,
+  "state_path": "C:\\Users\\hukun\\AppData\\Local\\Temp\\sm-B.json",
+  "verify_requested": false,
+  "verify_applied": false,
+  "diagnostics": [
+    "选中 fm.exe pid 58416，安装目录 D:\\steam\\steamapps\\common\\Football Manager 27。",
+    "使用显式指定的存档文件：C:\\Users\\hukun\\Documents\\Sports Interactive\\Football Manager 27\\games\\hu kun-大连英博.fm"
+  ]
+}
