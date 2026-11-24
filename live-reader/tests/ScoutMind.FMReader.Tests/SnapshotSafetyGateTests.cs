@@ -84,16 +84,113 @@ public static class SnapshotSafetyGateTests
                 outcome.Report.Snapshot.Reasons.Any(reason => reason.Contains("存档身份", StringComparison.Ordinal)),
                 "原因中应包含存档身份");
         });
+        harness.Run("安全门：自动快照总开关关闭时即使身份 verified 也 BLOCKED", () =>
+        {
+            var decision = SnapshotSafetyGate.Evaluate(Input(
+                confidence: DateConfidenceLevel.RestartVerified,
+                saveIdentityValid: true,
+                identity: Identity(
+                    SaveIdentityStatus.Verified,
+                    snapshotEligible: true,
+                    automaticSnapshotEnabled: false)));
+
+            TestHarness.Equal("BLOCKED", decision.Status, "V3.2.7 不开放自动快照");
+            TestHarness.True(
+                decision.Reasons.Any(reason => reason.Contains("automatic_snapshot_enabled", StringComparison.Ordinal)),
+                "应说明自动快照开关关闭");
+        });
+
+        harness.Run("安全门：身份仅 candidate 时 BLOCKED", () =>
+        {
+            var decision = SnapshotSafetyGate.Evaluate(Input(
+                confidence: DateConfidenceLevel.RestartVerified,
+                saveIdentityValid: false,
+                identity: Identity(SaveIdentityStatus.Candidate, snapshotEligible: false)));
+
+            TestHarness.Equal("BLOCKED", decision.Status, "candidate 不得放行");
+            TestHarness.True(
+                decision.Reasons.Any(reason => reason.Contains("candidate", StringComparison.Ordinal)),
+                "应说明身份状态为 candidate");
+        });
+
+        harness.Run("安全门：身份冲突或缺少会话时 BLOCKED", () =>
+        {
+            var conflicted = SnapshotSafetyGate.Evaluate(Input(
+                confidence: DateConfidenceLevel.RestartVerified,
+                saveIdentityValid: true,
+                identity: Identity(
+                    SaveIdentityStatus.Verified,
+                    snapshotEligible: true,
+                    automaticSnapshotEnabled: true,
+                    conflicts: new[] { "两个存档文件都声称自己是当前存档" })));
+            var noSession = SnapshotSafetyGate.Evaluate(Input(
+                confidence: DateConfidenceLevel.RestartVerified,
+                saveIdentityValid: true,
+                identity: Identity(
+                    SaveIdentityStatus.Verified,
+                    snapshotEligible: true,
+                    automaticSnapshotEnabled: true,
+                    sessionKey: null)));
+
+            TestHarness.Equal("BLOCKED", conflicted.Status, "冲突必须阻止");
+            TestHarness.True(
+                conflicted.Reasons.Any(reason => reason.Contains("冲突", StringComparison.Ordinal)),
+                "应说明冲突");
+            TestHarness.Equal("BLOCKED", noSession.Status, "缺少会话必须阻止");
+            TestHarness.True(
+                noSession.Reasons.Any(reason => reason.Contains("会话标识", StringComparison.Ordinal)),
+                "应说明缺少会话");
+        });
+
+        harness.Run("安全门：身份事实来自解析结果时 snapshot_eligible 恒为 false", () =>
+        {
+            var facts = SnapshotIdentityFacts.From(new SaveIdentityResolution(
+                SaveIdentityStatus.Verified,
+                SaveIdentityConfidence.Verified,
+                "si:v1:file:abc",
+                SaveIdentityKind.SaveFile,
+                "4242:start:26577676",
+                "26577676",
+                "27.1.0",
+                Array.Empty<SaveEvidence>(),
+                Array.Empty<SaveEvidenceType>(),
+                Array.Empty<string>(),
+                new[] { "测试用解析结果。" },
+                false,
+                false));
+
+            TestHarness.True(facts is not null, "应能映射");
+            TestHarness.True(!facts!.SnapshotEligible, "总开关关闭时 eligible 必须为 false");
+            TestHarness.True(!facts.AutomaticSnapshotEnabled, "本版本自动快照必须关闭");
+        });
+
     }
+
+    private static SnapshotIdentityFacts Identity(
+        SaveIdentityStatus status,
+        bool snapshotEligible,
+        bool automaticSnapshotEnabled = false,
+        string? sessionKey = "4242:start:26577676",
+        IReadOnlyList<string>? conflicts = null) => new(
+        status,
+        status == SaveIdentityStatus.Verified ? SaveIdentityConfidence.Verified : SaveIdentityConfidence.Medium,
+        "si:v1:file:abc",
+        sessionKey,
+        "26577676",
+        snapshotEligible,
+        automaticSnapshotEnabled,
+        conflicts ?? Array.Empty<string>());
 
     private static SnapshotSafetyInput Input(
         DateConfidenceLevel confidence = DateConfidenceLevel.Heuristic,
-        bool saveIdentityValid = false) => new(
+        bool saveIdentityValid = false,
+        SnapshotIdentityFacts? identity = null) => new(
         DateAvailable: true,
         CandidateUnambiguous: true,
         Confidence: confidence,
         ProcessSessionValid: true,
         SaveIdentityValid: saveIdentityValid,
         ReaderVersionSupported: true,
-        DateSourceValid: true);
+        DateSourceValid: true,
+        Identity: identity);
 }

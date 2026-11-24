@@ -8,6 +8,7 @@ namespace ScoutMind.FMReader.Discovery;
 /// <param name="SaveIdentityValid">存档身份是否有效（当前实现恒为 <c>false</c>）。</param>
 /// <param name="ReaderVersionSupported">Reader 版本/构建是否受支持。</param>
 /// <param name="DateSourceValid">日期来源是否为已验证的内存候选。</param>
+/// <param name="Identity">可选的存档身份事实；提供时按 V3.2.7 规则追加身份/会话校验。</param>
 public sealed record SnapshotSafetyInput(
     bool DateAvailable,
     bool CandidateUnambiguous,
@@ -15,7 +16,50 @@ public sealed record SnapshotSafetyInput(
     bool ProcessSessionValid,
     bool SaveIdentityValid,
     bool ReaderVersionSupported,
-    bool DateSourceValid);
+    bool DateSourceValid,
+    SnapshotIdentityFacts? Identity = null);
+
+/// <summary>安全门看到的存档身份事实；由 <see cref="SaveIdentityResolution"/> 映射而来。</summary>
+/// <param name="Status">身份状态。</param>
+/// <param name="Confidence">身份可信度。</param>
+/// <param name="Fingerprint">身份指纹。</param>
+/// <param name="SessionKey">会话键。</param>
+/// <param name="GameBuild">游戏构建号。</param>
+/// <param name="SnapshotEligible">身份是否可参与自动快照评估（V3.2.7 恒为 <c>false</c>）。</param>
+/// <param name="AutomaticSnapshotEnabled">自动快照总开关。</param>
+/// <param name="Conflicts">冲突说明。</param>
+public sealed record SnapshotIdentityFacts(
+    SaveIdentityStatus Status,
+    SaveIdentityConfidence Confidence,
+    string? Fingerprint,
+    string? SessionKey,
+    string? GameBuild,
+    bool SnapshotEligible,
+    bool AutomaticSnapshotEnabled,
+    IReadOnlyList<string> Conflicts)
+{
+    /// <summary>从身份解析结果映射；<c>null</c> 保持为 <c>null</c>。</summary>
+    /// <param name="resolution">身份解析结果。</param>
+    /// <returns>安全门事实。</returns>
+    public static SnapshotIdentityFacts? From(SaveIdentityResolution? resolution)
+    {
+        if (resolution is null)
+        {
+            return null;
+        }
+
+        return new SnapshotIdentityFacts(
+            resolution.Status,
+            resolution.Confidence,
+            resolution.Fingerprint,
+            resolution.SessionKey,
+            resolution.Build,
+            // 总开关关闭时，即使读取器判定 eligible 也不能放行。
+            resolution.SnapshotEligible && SaveIdentityResolver.AutomaticSnapshotEnabled,
+            SaveIdentityResolver.AutomaticSnapshotEnabled,
+            resolution.Conflicts);
+    }
+}
 
 /// <summary>
 /// 自动快照安全门：只有所有硬性条件同时成立才允许自动快照。
@@ -68,10 +112,57 @@ public static class SnapshotSafetyGate
             reasons.Add("日期来源不是已验证的内存候选。");
         }
 
+        if (input.Identity is { } identity)
+        {
+            if (identity.Status != SaveIdentityStatus.Verified)
+            {
+                reasons.Add($"存档身份状态为 {ToText(identity.Status)}，未通过验证。");
+            }
+
+            if (identity.Conflicts.Count > 0)
+            {
+                reasons.Add($"存档身份存在冲突：{string.Join("；", identity.Conflicts)}");
+            }
+
+            if (string.IsNullOrWhiteSpace(identity.Fingerprint))
+            {
+                reasons.Add("存档身份缺少指纹标识。");
+            }
+
+            if (string.IsNullOrWhiteSpace(identity.SessionKey))
+            {
+                reasons.Add("存档身份缺少会话标识。");
+            }
+
+            if (!identity.SnapshotEligible)
+            {
+                reasons.Add("存档身份未满足自动快照条件（snapshot_eligible=false）。");
+            }
+
+            if (!identity.AutomaticSnapshotEnabled)
+            {
+                reasons.Add("自动快照在本版本保持关闭（automatic_snapshot_enabled=false）。");
+            }
+        }
+
         return reasons.Count == 0
             ? SnapshotGateDecision.Enabled()
             : SnapshotGateDecision.Blocked(reasons);
     }
+
+    /// <summary>把存档身份状态转成诊断文本。</summary>
+    /// <param name="status">状态。</param>
+    /// <returns>文本。</returns>
+    public static string ToText(SaveIdentityStatus status) => status switch
+    {
+        SaveIdentityStatus.Unknown => "unknown",
+        SaveIdentityStatus.Discovered => "discovered",
+        SaveIdentityStatus.Candidate => "candidate",
+        SaveIdentityStatus.Verified => "verified",
+        SaveIdentityStatus.Conflict => "conflict",
+        SaveIdentityStatus.Invalidated => "invalidated",
+        _ => "unknown",
+    };
 
     /// <summary>把可信度等级转成诊断文本。</summary>
     /// <param name="level">等级。</param>
