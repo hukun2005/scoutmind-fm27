@@ -85,6 +85,9 @@ public sealed class Cli
             case CliCommand.WorldDate:
                 return await RunWorldDateAsync(options, cancellationToken).ConfigureAwait(false);
 
+            case CliCommand.SaveIdentity:
+                return RunSaveIdentity(options);
+
             case CliCommand.DateRead:
                 return RunDateRead(options);
 
@@ -734,8 +737,171 @@ public sealed class Cli
         _stdout.WriteLine($"下一步：{report.NextAction}");
     }
 
-    private int RunStatus(CliOptions options)
+    private int RunSaveIdentity(CliOptions options)
     {
+        var diagnostics = new FmSaveIdentityDiagnostics(
+            statePath: options.StatePath,
+            saveFilePath: options.SaveFilePath);
+        var report = diagnostics.Analyze(options.Verify, options.ResetSession, includeContentHash: true);
+
+        if (options.Json)
+        {
+            WriteJson(ToSaveIdentityDocument(report));
+        }
+        else
+        {
+            WriteSaveIdentityHuman(report);
+        }
+
+        return report.Resolution.Status switch
+        {
+            SaveIdentityStatus.Verified => ExitCodes.Success,
+            SaveIdentityStatus.Unknown when report.Resolution.SessionKey is null => ExitCodes.NotFound,
+            _ => ExitCodes.Incompatible,
+        };
+    }
+
+    private static object ToSaveIdentityDocument(SaveIdentityReport report)
+    {
+        var resolution = report.Resolution;
+        return new
+        {
+            status = ToText(resolution.Status),
+            identity = new
+            {
+                fingerprint = resolution.Fingerprint,
+                kind = ToText(resolution.Kind),
+                version = SaveIdentityFingerprint.CurrentVersion,
+                confidence = ToText(resolution.Confidence),
+            },
+            save_id = (string?)null,
+            session = new
+            {
+                session_key = resolution.SessionKey,
+                status = ToText(resolution.Status),
+                game_build = resolution.Build,
+                plugin_version = resolution.PluginVersion,
+            },
+            evidence = resolution.Evidence.Select(item => new
+            {
+                type = ToText(item.Type),
+                source = ToText(item.Source),
+                hash = item.Hash,
+                version = item.Version,
+                confidence = ToText(item.Confidence),
+                detail = item.Detail,
+                observed_at = item.ObservedAt,
+            }),
+            missing_evidence = resolution.MissingEvidence.Select(ToText),
+            conflicts = resolution.Conflicts,
+            explanation = resolution.Explanation,
+            ambiguous = resolution.IsAmbiguous,
+            snapshot_eligible = resolution.SnapshotEligible,
+            automatic_snapshot_enabled = report.AutomaticSnapshotEnabled,
+            state_path = report.StatePath,
+            verify_requested = report.VerifyRequested,
+            verify_applied = report.VerifyApplied,
+            diagnostics = report.Diagnostics,
+        };
+    }
+
+    private void WriteSaveIdentityHuman(SaveIdentityReport report)
+    {
+        var resolution = report.Resolution;
+        _stdout.WriteLine("存档身份诊断");
+        _stdout.WriteLine($"状态：{ToText(resolution.Status)}（{ToText(resolution.Confidence)}）");
+        _stdout.WriteLine($"指纹：{resolution.Fingerprint}");
+        _stdout.WriteLine($"来源：{ToText(resolution.Kind)}");
+        _stdout.WriteLine($"会话：{resolution.SessionKey ?? "(无)"}");
+        _stdout.WriteLine($"构建：{resolution.Build ?? "未知"}；插件：{resolution.PluginVersion ?? "未知"}");
+
+        if (resolution.Evidence.Count > 0)
+        {
+            _stdout.WriteLine("证据：");
+            foreach (var evidence in resolution.Evidence)
+            {
+                _stdout.WriteLine(
+                    $"  - {ToText(evidence.Type)}/{ToText(evidence.Source)}（{ToText(evidence.Confidence)}）{evidence.Detail}");
+            }
+        }
+
+        if (resolution.MissingEvidence.Count > 0)
+        {
+            _stdout.WriteLine($"缺失证据：{string.Join(", ", resolution.MissingEvidence.Select(ToText))}");
+        }
+
+        if (resolution.Conflicts.Count > 0)
+        {
+            _stdout.WriteLine("冲突：");
+            foreach (var conflict in resolution.Conflicts) _stdout.WriteLine($"  - {conflict}");
+        }
+
+        _stdout.WriteLine("解释：");
+        foreach (var line in resolution.Explanation) _stdout.WriteLine($"  - {line}");
+
+        _stdout.WriteLine(
+            $"自动快照：{(report.AutomaticSnapshotEnabled ? "enabled" : "disabled")}（本版本固定关闭；snapshot_eligible={resolution.SnapshotEligible}）");
+        if (report.Diagnostics.Count > 0)
+        {
+            _stdout.WriteLine("诊断：");
+            foreach (var line in report.Diagnostics) _stdout.WriteLine($"  {line}");
+        }
+    }
+
+    private static string ToText(SaveIdentityStatus status) => status switch
+    {
+        SaveIdentityStatus.Unknown => "unknown",
+        SaveIdentityStatus.Discovered => "discovered",
+        SaveIdentityStatus.Candidate => "candidate",
+        SaveIdentityStatus.Verified => "verified",
+        SaveIdentityStatus.Conflict => "conflict",
+        SaveIdentityStatus.Invalidated => "invalidated",
+        _ => "unknown",
+    };
+
+    private static string ToText(SaveIdentityConfidence confidence) => confidence switch
+    {
+        SaveIdentityConfidence.None => "none",
+        SaveIdentityConfidence.Low => "low",
+        SaveIdentityConfidence.Medium => "medium",
+        SaveIdentityConfidence.High => "high",
+        SaveIdentityConfidence.Verified => "verified",
+        _ => "none",
+    };
+
+    private static string ToText(SaveIdentityKind kind) => kind switch
+    {
+        SaveIdentityKind.InternalSaveId => "internal_save_id",
+        SaveIdentityKind.WorldId => "world_id",
+        SaveIdentityKind.SaveFile => "save_file",
+        SaveIdentityKind.UserConfirmed => "user_confirmed",
+        _ => "unresolved",
+    };
+
+    private static string ToText(SaveEvidenceType type) => type switch
+    {
+        SaveEvidenceType.GameInternalSaveId => "GAME_INTERNAL_SAVE_ID",
+        SaveEvidenceType.WorldId => "WORLD_ID",
+        SaveEvidenceType.SaveFileMetadata => "SAVE_FILE_METADATA",
+        SaveEvidenceType.SaveFileHash => "SAVE_FILE_HASH",
+        SaveEvidenceType.SaveFileHeader => "SAVE_FILE_HEADER",
+        SaveEvidenceType.CareerMetadata => "CAREER_METADATA",
+        SaveEvidenceType.GameSessionMetadata => "GAME_SESSION_METADATA",
+        SaveEvidenceType.UserConfirmed => "USER_CONFIRMED",
+        _ => "LEGACY_UNVERIFIED",
+    };
+
+    private static string ToText(SaveEvidenceSource source) => source switch
+    {
+        SaveEvidenceSource.Memory => "memory",
+        SaveEvidenceSource.File => "file",
+        SaveEvidenceSource.Scanner => "scanner",
+        SaveEvidenceSource.Process => "process",
+        SaveEvidenceSource.User => "user",
+        _ => "backend",
+    };
+
+    private int RunStatus(CliOptions options)    {
         var status = GetPipeline().Detect();
         if (options.Json)
         {
@@ -1159,6 +1325,7 @@ public sealed class Cli
         writer.WriteLine("  ScoutMind.LiveReader date-read --rva <0x偏移> --field <0x字段偏移> [--json]");
         writer.WriteLine("  ScoutMind.LiveReader world-date [--max-mb <1..8192>] [--json]");
         writer.WriteLine("  ScoutMind.LiveReader world-date --diagnostics [--verify <yyyy-MM-dd>] [--state <文件>] [--max-mb <1..8192>] [--json]");
+        writer.WriteLine("  ScoutMind.LiveReader save-identity [--diagnostics] [--verify] [--reset-session] [--save-file <文件>] [--state <文件>] [--json]");
         writer.WriteLine("  ScoutMind.LiveReader compatibility list [--json]");
         writer.WriteLine();
         writer.WriteLine("退出码：");

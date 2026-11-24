@@ -8,11 +8,13 @@ namespace ScoutMind.FMReader.Engine;
 /// <param name="ProcessPath">可执行文件路径。</param>
 /// <param name="InstallDirectory">包含 <c>fm_Data</c> 的安装目录。</param>
 /// <param name="Diagnostics">诊断信息。</param>
+/// <param name="ProcessStartTime">进程启动时间；读不到时为 <c>null</c>。只用于会话，不作存档身份。</param>
 public sealed record FmProcessLocation(
     int? ProcessId,
     string? ProcessPath,
     string? InstallDirectory,
-    IReadOnlyList<string> Diagnostics);
+    IReadOnlyList<string> Diagnostics,
+    DateTime? ProcessStartTime = null);
 
 /// <summary>进程的只读描述，便于在没有真实游戏的机器上测试定位逻辑。</summary>
 /// <param name="ProcessId">进程号。</param>
@@ -90,7 +92,12 @@ public sealed class FmProcessLocator : IFmProcessLocator
 
         var chosen = candidates.OrderByDescending(item => item.Process.StartedAt).First();
         diagnostics.Add($"选中 fm.exe pid {chosen.Process.ProcessId}，安装目录 {chosen.InstallDirectory}。");
-        return new FmProcessLocation(chosen.Process.ProcessId, chosen.Process.MainModulePath, chosen.InstallDirectory, diagnostics);
+        return new FmProcessLocation(
+            chosen.Process.ProcessId,
+            chosen.Process.MainModulePath,
+            chosen.InstallDirectory,
+            diagnostics,
+            chosen.Process.StartedAt == DateTime.MinValue ? null : chosen.Process.StartedAt);
     }
 
     /// <summary>读取插件路径与文件版本（不打开游戏进程）。</summary>

@@ -41,6 +41,9 @@ public enum CliCommand
     /// <summary>启发式解析当前世界日期（签名 + 最新日期 + 稳定性）。</summary>
     WorldDate,
 
+    /// <summary>解析当前存档身份（证据 + 指纹 + 会话）。</summary>
+    SaveIdentity,
+
     /// <summary>列出兼容清单条目。</summary>
     CompatibilityList,
 }
@@ -64,6 +67,9 @@ public enum CliCommand
 /// <param name="Diagnostics">是否输出完整的候选诊断（仅 world-date）。</param>
 /// <param name="StatePath">日期验证状态文件路径（仅 world-date 诊断）。</param>
 /// <param name="VerificationDate">人工在游戏界面确认的日期（仅 world-date 诊断）。</param>
+/// <param name="Verify">是否把当前稳定文件身份记录为用户确认（仅 save-identity）。</param>
+/// <param name="ResetSession">是否清除上一次会话键（仅 save-identity）。</param>
+/// <param name="SaveFilePath">显式指定的存档文件（仅 save-identity）。</param>
 public sealed record CliOptions(
     CliCommand Command,
     bool Json,
@@ -80,7 +86,10 @@ public sealed record CliOptions(
     int? FieldOffset = null,
     bool Diagnostics = false,
     string? StatePath = null,
-    DateOnly? VerificationDate = null);
+    DateOnly? VerificationDate = null,
+    bool Verify = false,
+    bool ResetSession = false,
+    string? SaveFilePath = null);
 
 /// <summary>
 /// 命令行解析结果。失败时 <see cref="Error"/> 为面向用户的中文说明，调用方应以退出码 64 结束。
@@ -130,6 +139,9 @@ public static class CliCommandParser
         var diagnostics = false;
         string? statePath = null;
         DateOnly? verificationDate = null;
+        var verify = false;
+        var resetSession = false;
+        string? saveFilePath = null;
         var index = 0;
 
         while (index < args.Count)
@@ -200,6 +212,10 @@ public static class CliCommandParser
                         command = CliCommand.WorldDate;
                         index++;
                         break;
+                    case "save-identity":
+                        command = CliCommand.SaveIdentity;
+                        index++;
+                        break;
                     case "compatibility":
                         if (index + 1 >= args.Count || args[index + 1] != "list")
                         {
@@ -211,7 +227,7 @@ public static class CliCommandParser
                         break;
                     default:
                         return CliParseResult.Failure(
-                            $"未知子命令：{argument}。可用子命令：status、probe、scan、compatibility list。");
+                            $"未知子命令：{argument}。可用子命令：status、probe、scan、world-date、save-identity、compatibility list。");
                 }
 
                 continue;
@@ -319,7 +335,48 @@ public static class CliCommandParser
                 continue;
             }
 
-            if (command == CliCommand.WorldDate && argument == "--diagnostics")
+            if (command == CliCommand.SaveIdentity && argument == "--save-file")
+            {
+                if (saveFilePath is not null)
+                {
+                    return CliParseResult.Failure("选项 --save-file 重复指定。");
+                }
+
+                if (index + 1 >= args.Count || string.IsNullOrWhiteSpace(args[index + 1]))
+                {
+                    return CliParseResult.Failure("选项 --save-file 需要一个文件路径。");
+                }
+
+                saveFilePath = args[index + 1];
+                index += 2;
+                continue;
+            }
+
+            if (command == CliCommand.SaveIdentity && argument == "--verify")
+            {
+                if (verify)
+                {
+                    return CliParseResult.Failure("选项 --verify 重复指定。");
+                }
+
+                verify = true;
+                index++;
+                continue;
+            }
+
+            if (command == CliCommand.SaveIdentity && argument == "--reset-session")
+            {
+                if (resetSession)
+                {
+                    return CliParseResult.Failure("选项 --reset-session 重复指定。");
+                }
+
+                resetSession = true;
+                index++;
+                continue;
+            }
+
+            if (command is CliCommand.WorldDate or CliCommand.SaveIdentity && argument == "--diagnostics")
             {
                 if (diagnostics)
                 {
@@ -331,7 +388,7 @@ public static class CliCommandParser
                 continue;
             }
 
-            if (command == CliCommand.WorldDate && argument == "--state")
+            if (command is CliCommand.WorldDate or CliCommand.SaveIdentity && argument == "--state")
             {
                 if (statePath is not null)
                 {
@@ -560,7 +617,7 @@ public static class CliCommandParser
         if (command is null)
         {
             return CliParseResult.Failure(
-                "缺少子命令。可用子命令：status、probe、scan、date、date-discovery、compatibility list。");
+                "缺少子命令。可用子命令：status、probe、scan、date、date-discovery、world-date、save-identity、compatibility list。");
         }
 
         if (command == CliCommand.PointerScan && targetAddress is null)
@@ -580,7 +637,7 @@ public static class CliCommandParser
         }
 
         return CliParseResult.Success(
-            new CliOptions(command.Value, json, outputDirectory, timeoutSeconds, engine, reportPath, expectedDate, maxScanMb, targetAddress, windowBytes, maxDepth, rva, fieldOffset, diagnostics, statePath, verificationDate));
+            new CliOptions(command.Value, json, outputDirectory, timeoutSeconds, engine, reportPath, expectedDate, maxScanMb, targetAddress, windowBytes, maxDepth, rva, fieldOffset, diagnostics, statePath, verificationDate, verify, resetSession, saveFilePath));
     }
 
     private static string ToDisplayName(CliCommand command) => command switch
@@ -596,6 +653,7 @@ public static class CliCommandParser
         CliCommand.StaticDateScan => "static-date-scan",
         CliCommand.DateRead => "date-read",
         CliCommand.WorldDate => "world-date",
+        CliCommand.SaveIdentity => "save-identity",
         CliCommand.CompatibilityList => "compatibility list",
         _ => "help",
     };

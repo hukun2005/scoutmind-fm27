@@ -46,6 +46,42 @@ public static class CliParserTests
                 "--state 缺少值必须失败");
         });
 
+        harness.Case("save-identity 解析 --verify/--reset-session/--state", () =>
+        {
+            var parsed = CliCommandParser.Parse(new[]
+            {
+                "save-identity", "--diagnostics", "--verify", "--reset-session",
+                "--save-file", @"D:\saves\a.fm",
+                "--state", @"C:\out\save-identity.json", "--json",
+            });
+
+            Assert.True(parsed.Ok, "合法参数应解析成功");
+            var options = parsed.Options!;
+            Assert.Equal(CliCommand.SaveIdentity, options.Command, "子命令应为 save-identity");
+            Assert.True(options.Diagnostics, "应识别 --diagnostics");
+            Assert.True(options.Verify, "应识别 --verify");
+            Assert.True(options.ResetSession, "应识别 --reset-session");
+            Assert.Equal(@"C:\out\save-identity.json", options.StatePath, "应解析 --state");
+            Assert.Equal(@"D:\saves\a.fm", options.SaveFilePath, "应解析 --save-file");
+            Assert.True(options.Json, "应识别 --json");
+        });
+
+        harness.Case("save-identity 拒绝取值型 --verify 与未知选项", () =>
+        {
+            Assert.False(
+                CliCommandParser.Parse(new[] { "save-identity", "--verify", "2026-11-06" }).Ok,
+                "save-identity 的 --verify 是开关，不接受日期值");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "save-identity", "--max-mb", "10" }).Ok,
+                "save-identity 不接受 --max-mb");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "save-identity", "--verify", "--verify" }).Ok,
+                "重复 --verify 必须失败");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "save-identity", "--save-file" }).Ok,
+                "--save-file 缺少路径必须失败");
+        });
+
         harness.Case("scan --output 与 --timeout 被正确解析", () =>
         {
             var parsed = CliCommandParser.Parse(
