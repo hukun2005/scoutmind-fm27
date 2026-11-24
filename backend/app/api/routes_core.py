@@ -289,7 +289,9 @@ async def import_scan(
         raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
     importer = ScanImporter(db)
     # A dropped FMSuperScout dump is converted by the adapter layer, then imported like any other scan.
-    adapted = maybe_adapt(raw)
+    # Both steps are CPU/IO heavy for a 44k-player scan: run them off the event loop so /health and
+    # GET /imports keep answering while the import is in progress.
+    adapted = await asyncio.to_thread(maybe_adapt, raw)
     if adapted is not None:
         payload, report = adapted
         try:
@@ -298,7 +300,7 @@ async def import_scan(
             raise ProtocolError(f"FMSuperScout 适配结果不符合扫描协议：{exc}") from exc
         async with upload_slot(), import_slot():
             try:
-                outcome = importer.import_payload(target_save.id, validated, raw)
+                outcome = await asyncio.to_thread(importer.import_payload, target_save.id, validated, raw)
             except ImportInProgressError as busy:
                 raise HTTPException(
                     status_code=409,
@@ -313,7 +315,7 @@ async def import_scan(
         return body
     async with upload_slot(), import_slot():
         try:
-            outcome = importer.import_bytes(target_save.id, raw)
+            outcome = await asyncio.to_thread(importer.import_bytes, target_save.id, raw)
         except ImportInProgressError as busy:
             raise HTTPException(
                 status_code=409,

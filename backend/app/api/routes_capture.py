@@ -23,7 +23,7 @@ STATUSES = {
     "completed", "retry_pending", "failed", "cancelled", "paused",
 }
 
-DATE_SOURCES = {"game_memory", "reader_date_probe", "manual", "unknown"}
+DATE_SOURCES = {"game_memory", "reader_date_probe", "upstream_dump", "manual", "unknown"}
 DATE_CONFIDENCES = {"verified", "inferred", "unverified", "unknown"}
 DATE_READ_STATUSES = {"detected", "unavailable", "unsupported_build", "layout_unverified", "regressed", "unknown"}
 

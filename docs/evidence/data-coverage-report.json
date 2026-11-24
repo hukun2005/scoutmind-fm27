@@ -1,19 +1,19 @@
 {
   "schema": "scoutmind.data-coverage.v1",
-  "generated_at": "2026-11-24T11:54:40",
-  "scan_id": "fmreader-8d03570078236825",
+  "generated_at": "2026-11-24T14:22:50",
+  "scan_id": "fmreader-9351b4e56e45c504",
   "inputs": {
-    "probe": null,
+    "probe": "probe-report.json",
     "dump": "dump.json",
-    "scan": "f01a5a633b6f45098cd47668236a087e.json",
-    "database": "acceptance-v328.db"
+    "scan": "e0a2442f8ead441cb607c7444a2f71fb.json",
+    "database": "live-v323.db"
   },
   "layers": [
     {
-      "layer": "upstream_dump",
-      "source": "dump.json",
-      "total": 44084,
-      "valid": 44084,
+      "layer": "native_reader",
+      "source": "probe-report.json",
+      "total": 96,
+      "valid": 96,
       "sentinel": 0,
       "zero": 0,
       "unreadable": 0,
@@ -21,14 +21,32 @@
       "imported": null,
       "rejected": null,
       "skipped": null,
-      "distinct_valid_uids": 44084,
-      "file_bytes": 87071210
+      "unique_objects": 96,
+      "duplicate_valid_uids": 0,
+      "free_agent_candidates": 0,
+      "probe_passed": true,
+      "scan_readiness": true
+    },
+    {
+      "layer": "upstream_dump",
+      "source": "dump.json",
+      "total": 43640,
+      "valid": 43640,
+      "sentinel": 0,
+      "zero": 0,
+      "unreadable": 0,
+      "duplicates": 0,
+      "imported": null,
+      "rejected": null,
+      "skipped": null,
+      "distinct_valid_uids": 43640,
+      "file_bytes": 86486819
     },
     {
       "layer": "scan_payload",
-      "source": "f01a5a633b6f45098cd47668236a087e.json",
-      "total": 44084,
-      "valid": 44084,
+      "source": "e0a2442f8ead441cb607c7444a2f71fb.json",
+      "total": 43640,
+      "valid": 43640,
       "sentinel": 0,
       "zero": 0,
       "unreadable": null,
@@ -37,14 +55,14 @@
       "rejected": null,
       "skipped": null,
       "unresolved_rows": 0,
-      "schema_version": "1.0",
+      "schema_version": "1.1",
       "warnings": 25
     },
     {
       "layer": "importer",
-      "source": "sqlite:acceptance-v328.db",
-      "total": 44084,
-      "valid": 44084,
+      "source": "sqlite:live-v323.db",
+      "total": 43640,
+      "valid": 43640,
       "sentinel": null,
       "zero": null,
       "unreadable": null,
@@ -56,16 +74,25 @@
       "import_status": "succeeded",
       "unresolved_candidates": 0,
       "unresolved_observations": 0,
-      "snapshots": 44084,
+      "snapshots": 43640,
       "canonical_rows": 0
     }
   ],
   "differences": [
     {
+      "from": "native_reader",
+      "to": "upstream_dump",
+      "reader_objects": 96,
+      "dump_players": 43640,
+      "delta": -43544,
+      "reason": "reader_sample_smaller",
+      "note": "上游只导出已识别的球员对象；probe 的 integrity 探测只覆盖它抽样到的对象，因此 probe 数量小于 dump 属于测量范围差异，不是丢数据"
+    },
+    {
       "from": "upstream_dump",
       "to": "scan_payload",
-      "dump_players": 44084,
-      "scan_players": 44084,
+      "dump_players": 43640,
+      "scan_players": 43640,
       "delta": 0,
       "reason": "match",
       "note": "mapper 只为没有姓名的行丢弃记录；差值应为 0"
@@ -73,8 +100,8 @@
     {
       "from": "scan_payload",
       "to": "importer",
-      "scan_players": 44084,
-      "imported_players": 44084,
+      "scan_players": 43640,
+      "imported_players": 43640,
       "unresolved_observations": 0,
       "rejected_rows": 0,
       "delta": 0,

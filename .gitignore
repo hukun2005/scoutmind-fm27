@@ -53,3 +53,6 @@ live-reader/tools/**/obj/
 # local date-discovery diagnostics (may contain memory addresses)
 artifacts/diagnostics/
 
+
+# Raw live acceptance artifacts (scan envelopes, probe reports with names/addresses)
+artifacts/live/
