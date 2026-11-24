@@ -51,6 +51,7 @@ ALLOWED_EVIDENCE = {
 }
 scenarios: list[dict[str, Any]] = []
 failures: list[str] = []
+TOKEN: str | None = None
 
 
 def request(
@@ -67,6 +68,8 @@ def request(
     data = raw if raw is not None else (json.dumps(body).encode("utf-8") if body is not None else None)
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("Accept", "application/json")
+    if TOKEN:
+        req.add_header("X-ScoutMind-Token", TOKEN)
     if data is not None:
         req.add_header("Content-Type", "application/json")
     try:
@@ -157,6 +160,7 @@ def process_id_of(session_key: str) -> int | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="真实 FM27 存档切换受控验收")
     parser.add_argument("--api", default=DEFAULT_API)
+    parser.add_argument("--token", help="后端启用 X-ScoutMind-Token 时填写")
     parser.add_argument("--save-a", type=int, required=True)
     parser.add_argument("--save-b", type=int, required=True)
     parser.add_argument("--identity-a", type=Path, required=True)
@@ -168,6 +172,9 @@ def main() -> int:
     parser.add_argument("--agent-id", default="manual-acceptance")
     parser.add_argument("--output", type=Path, default=Path("docs/evidence/v3.2.7.2/real-fm27"))
     args = parser.parse_args()
+
+    global TOKEN
+    TOKEN = args.token.strip() if args.token else None
 
     if args.save_a == args.save_b:
         raise SystemExit("存档 A/B 必须是两个不同的后端存档")
