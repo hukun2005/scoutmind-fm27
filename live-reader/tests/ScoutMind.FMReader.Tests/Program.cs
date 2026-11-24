@@ -46,6 +46,7 @@ WorldDateResolverTests.Run(harness);
         DateCandidateTrackerTests.Run(harness);
         SnapshotSafetyGateTests.Run(harness);
         SaveIdentityTests.Run(harness);
+        SaveFileProbeTests.Run(harness);
         SaveSwitchDetectorTests.Run(harness);
         DateVerificationStoreTests.Run(harness);
         await EngineTests.RunAsync(harness).ConfigureAwait(false);
