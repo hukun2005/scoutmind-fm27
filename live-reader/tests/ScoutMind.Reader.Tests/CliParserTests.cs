@@ -73,6 +73,28 @@ public static class CliParserTests
             Assert.False(CliCommandParser.Parse(Array.Empty<string>()).Ok, "缺少子命令必须失败");
         });
 
+        harness.Case("pointer-scan 与 date-locate 的参数校验", () =>
+        {
+            var scan = CliCommandParser.Parse(new[] { "pointer-scan", "--target", "0x24F9F1840F0" });
+            Assert.True(scan.Ok, "合法目标地址应通过");
+            Assert.Equal(CliCommand.PointerScan, scan.Options!.Command, "子命令应为指针扫描");
+            Assert.Equal(0x24F9F1840F0UL, scan.Options.TargetAddress, "目标地址应被解析");
+            Assert.False(CliCommandParser.Parse(new[] { "pointer-scan" }).Ok, "缺少 --target 必须失败");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "pointer-scan", "--target", "24F9F1840F0" }).Ok,
+                "缺少 0x 前缀必须失败");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "pointer-scan", "--target", "0x24F9F1840F0", "--window", "4" }).Ok,
+                "窗口过小必须失败");
+
+            var locate = CliCommandParser.Parse(new[] { "date-locate", "--max-mb", "4096" });
+            Assert.True(locate.Ok, "date-locate 合法用法应通过");
+            Assert.Equal(CliCommand.DateLocate, locate.Options!.Command, "子命令应为世界日期定位");
+            Assert.Equal(4096, locate.Options.MaxScanMb, "预算应被解析");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "date-locate", "--max-mb", "0" }).Ok,
+                "预算为零必须失败");
+        });
         harness.Case("date-discovery 必须提供 --expect 且日期格式受限", () =>
         {
             var ok = CliCommandParser.Parse(new[] { "date-discovery", "--expect", "2026-10-23" });
@@ -150,3 +172,4 @@ public static class CliParserTests
         });
     }
 }
+

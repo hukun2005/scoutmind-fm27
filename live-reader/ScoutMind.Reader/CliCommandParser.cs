@@ -23,6 +23,12 @@ public enum CliCommand
     /// <summary>日期候选发现：在有限预算内寻找与人工提供的游戏内日期一致的编码。</summary>
     DateDiscovery,
 
+    /// <summary>指针扫描：寻找指向目标区间的指针，用于定位稳定引用链。</summary>
+    PointerScan,
+
+    /// <summary>按结构签名定位世界日期（不依赖绝对地址）。</summary>
+    DateLocate,
+
     /// <summary>列出兼容清单条目。</summary>
     CompatibilityList,
 }
@@ -37,6 +43,9 @@ public enum CliCommand
 /// <param name="Engine">扫描后端：<c>native</c> 内置引擎或 <c>external</c> 外部扫描器；为空时自动选择。</param>
 /// <param name="ReportPath">probe 结构化诊断报告的输出路径（仅 probe）。</param>
 /// <param name="ExpectedDate">人工提供的游戏内日期（仅 date-discovery）。</param>
+/// <param name="MaxScanMb">候选发现/指针扫描的最大扫描 MiB。</param>
+/// <param name="TargetAddress">指针扫描的目标地址（仅 pointer-scan）。</param>
+/// <param name="WindowBytes">目标区间长度（仅 pointer-scan）。</param>
 public sealed record CliOptions(
     CliCommand Command,
     bool Json,
@@ -44,7 +53,10 @@ public sealed record CliOptions(
     int? TimeoutSeconds,
     string? Engine = null,
     string? ReportPath = null,
-    DateOnly? ExpectedDate = null);
+    DateOnly? ExpectedDate = null,
+    int? MaxScanMb = null,
+    ulong? TargetAddress = null,
+    int? WindowBytes = null);
 
 /// <summary>
 /// 命令行解析结果。失败时 <see cref="Error"/> 为面向用户的中文说明，调用方应以退出码 64 结束。
@@ -85,6 +97,9 @@ public static class CliCommandParser
         string? engine = null;
         string? reportPath = null;
         DateOnly? expectedDate = null;
+        int? maxScanMb = null;
+        ulong? targetAddress = null;
+        int? windowBytes = null;
         var index = 0;
 
         while (index < args.Count)
@@ -129,6 +144,14 @@ public static class CliCommandParser
                         break;
                     case "date-discovery":
                         command = CliCommand.DateDiscovery;
+                        index++;
+                        break;
+                    case "pointer-scan":
+                        command = CliCommand.PointerScan;
+                        index++;
+                        break;
+                    case "date-locate":
+                        command = CliCommand.DateLocate;
                         index++;
                         break;
                     case "compatibility":
@@ -222,6 +245,85 @@ public static class CliCommandParser
                 continue;
             }
 
+            if (command is CliCommand.DateDiscovery or CliCommand.PointerScan or CliCommand.DateLocate && argument == "--max-mb")
+            {
+                if (maxScanMb is not null)
+                {
+                    return CliParseResult.Failure("选项 --max-mb 重复指定。");
+                }
+
+                if (index + 1 >= args.Count)
+                {
+                    return CliParseResult.Failure("选项 --max-mb 需要一个 MiB 数值。");
+                }
+
+                if (!int.TryParse(args[index + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var megabytes)
+                    || megabytes < 1
+                    || megabytes > 8192)
+                {
+                    return CliParseResult.Failure(
+                        $"选项 --max-mb 需要 1..8192 的整数，实际为：{args[index + 1]}。");
+                }
+
+                maxScanMb = megabytes;
+                index += 2;
+                continue;
+            }
+
+            if (command == CliCommand.PointerScan && argument == "--target")
+            {
+                if (targetAddress is not null)
+                {
+                    return CliParseResult.Failure("选项 --target 重复指定。");
+                }
+
+                if (index + 1 >= args.Count)
+                {
+                    return CliParseResult.Failure("选项 --target 需要一个十六进制地址（例如 0x24F9F1840F0）。");
+                }
+
+                var text = args[index + 1].Trim();
+                if (!text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                    || !ulong.TryParse(
+                        text.AsSpan(2),
+                        NumberStyles.HexNumber,
+                        CultureInfo.InvariantCulture,
+                        out var address))
+                {
+                    return CliParseResult.Failure(
+                        $"选项 --target 需要 0x 开头的十六进制地址，实际为：{args[index + 1]}。");
+                }
+
+                targetAddress = address;
+                index += 2;
+                continue;
+            }
+
+            if (command == CliCommand.PointerScan && argument == "--window")
+            {
+                if (windowBytes is not null)
+                {
+                    return CliParseResult.Failure("选项 --window 重复指定。");
+                }
+
+                if (index + 1 >= args.Count)
+                {
+                    return CliParseResult.Failure("选项 --window 需要一个字节数（例如 4096）。");
+                }
+
+                if (!int.TryParse(args[index + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var window)
+                    || window < 8
+                    || window > 1 << 24)
+                {
+                    return CliParseResult.Failure(
+                        $"选项 --window 需要 8..16777216 的整数，实际为：{args[index + 1]}。");
+                }
+
+                windowBytes = window;
+                index += 2;
+                continue;
+            }
+
             if (command == CliCommand.Scan)
             {
                 switch (argument)
@@ -282,6 +384,11 @@ public static class CliCommandParser
                 "缺少子命令。可用子命令：status、probe、scan、date、date-discovery、compatibility list。");
         }
 
+        if (command == CliCommand.PointerScan && targetAddress is null)
+        {
+            return CliParseResult.Failure("pointer-scan 需要 --target <0x地址>。");
+        }
+
         if (command == CliCommand.DateDiscovery && expectedDate is null)
         {
             return CliParseResult.Failure(
@@ -289,7 +396,7 @@ public static class CliCommandParser
         }
 
         return CliParseResult.Success(
-            new CliOptions(command.Value, json, outputDirectory, timeoutSeconds, engine, reportPath, expectedDate));
+            new CliOptions(command.Value, json, outputDirectory, timeoutSeconds, engine, reportPath, expectedDate, maxScanMb, targetAddress, windowBytes));
     }
 
     private static string ToDisplayName(CliCommand command) => command switch
@@ -299,8 +406,18 @@ public static class CliCommandParser
         CliCommand.Scan => "scan",
         CliCommand.Date => "date",
         CliCommand.DateDiscovery => "date-discovery",
+        CliCommand.PointerScan => "pointer-scan",
+        CliCommand.DateLocate => "date-locate",
         CliCommand.CompatibilityList => "compatibility list",
         _ => "help",
     };
 }
+
+
+
+
+
+
+
+
 
