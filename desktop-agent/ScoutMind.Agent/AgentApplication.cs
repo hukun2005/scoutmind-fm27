@@ -266,7 +266,7 @@ public sealed class AgentApplication
         var interval = TimeSpan.FromMinutes(minutes);
         var maxRetries = 3;
         var state = stateStore.Load();
-        _stdout.WriteLine($"自动采集启动：每 {minutes} 分钟检查；日期未通过跨进程验证前不会导入。按 Ctrl+C 停止。");
+        _stdout.WriteLine($"自动采集启动：每 {minutes} 分钟检查；存档身份未验证或日期未通过跨进程验证前不会导入。按 Ctrl+C 停止。");
 
         // Recover files left by a previous crash: retry before starting a new scan.
         foreach (var pending in queue.ListOutstanding())
@@ -290,17 +290,19 @@ public sealed class AgentApplication
                 continue;
             }
             round++;
-            var gate = await EvaluateSnapshotGateAsync(runner, cancellationToken).ConfigureAwait(false);
+            var gate = await EvaluateAutoGateAsync(runner, cancellationToken).ConfigureAwait(false);
             if (!gate.Allowed)
             {
-                if (state.Status != "date_unverified")
+                var gateStatus = gate.Identity.Allowed ? "date_unverified" : "identity_blocked";
+                if (state.Status != gateStatus)
                 {
-                    state = state with { Status = "date_unverified" };
+                    state = state with { Status = gateStatus };
                     stateStore.Save(state);
                 }
 
+                var label = gate.Identity.Allowed ? "日期" : "存档身份";
                 _stdout.WriteLine(
-                    $"[第 {round} 轮] 日期未通过安全门（{gate.Status}）：自动快照保持关闭；{string.Join("；", gate.Reasons)}");
+                    $"[第 {round} 轮] {label}未通过安全门（{gate.Status}）：自动快照保持关闭；{string.Join("；", gate.Reasons)}");
                 await DelayAsync(interval, cancellationToken).ConfigureAwait(false);
                 continue;
             }
@@ -343,7 +345,31 @@ public sealed class AgentApplication
                 continue;
             }
 
-            var saveKey = string.IsNullOrWhiteSpace(configuration.Config.SaveName) ? "default" : configuration.Config.SaveName;
+            // 采集后复核：扫描期间若存档发生切换，本轮结果必须作废，不能写入旧存档。
+            var afterScan = await ReadSaveIdentityAsync(runner, cancellationToken).ConfigureAwait(false);
+            if (gate.Identity.ChangeKey is { } beforeKey
+                && afterScan.ChangeKey is { } afterKey
+                && !string.Equals(beforeKey, afterKey, StringComparison.Ordinal))
+            {
+                var folder = queue.FailAll(result.OutputFile, new
+                {
+                    failed_at = DateTimeOffset.UtcNow.ToString("O"),
+                    code = "save_changed_during_capture",
+                    message = "扫描期间检测到存档身份或会话变化，本轮结果已作废。",
+                    previous_identity = beforeKey,
+                    current_identity = afterKey,
+                    scan_id = info.ScanId,
+                });
+                state = state with { Status = "identity_changed", ConsecutiveFailures = 0 };
+                stateStore.Save(state);
+                _stderr.WriteLine($"[第 {round} 轮] 扫描期间存档发生变化：{beforeKey} → {afterKey}；结果已移入 {folder}");
+                await DelayAsync(interval, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            var saveKey = string.IsNullOrWhiteSpace(gate.Identity.Fingerprint)
+                ? (string.IsNullOrWhiteSpace(configuration.Config.SaveName) ? "default" : configuration.Config.SaveName)
+                : gate.Identity.Fingerprint;
             var sameDate = string.Equals(saveKey, state.SaveName, StringComparison.Ordinal)
                 && !string.IsNullOrWhiteSpace(info.GameDate)
                 && string.Equals(info.GameDate, state.LastGameDate, StringComparison.Ordinal);
@@ -391,24 +417,60 @@ public sealed class AgentApplication
         return AgentExitCodes.Success;
     }
 
-    private static async Task<SnapshotGate> EvaluateSnapshotGateAsync(
+    private static async Task<AutoGate> EvaluateAutoGateAsync(
         ReaderRunner runner,
         CancellationToken cancellationToken)
     {
+        var identity = await ReadSaveIdentityAsync(runner, cancellationToken).ConfigureAwait(false);
+        if (!identity.Allowed)
+        {
+            return new AutoGate(identity, SnapshotGate.Blocked("存档身份安全门未通过，未继续验证日期。"));
+        }
+
         var invocation = await runner
             .RunAsync(new[] { "world-date", "--diagnostics", "--json" }, cancellationToken)
             .ConfigureAwait(false);
         if (invocation.StartError is not null)
         {
-            return SnapshotGate.Blocked($"无法启动读取器做日期验证：{invocation.StartError}");
+            return new AutoGate(identity, SnapshotGate.Blocked($"无法启动读取器做日期验证：{invocation.StartError}"));
         }
 
         if (invocation.TimedOut)
         {
-            return SnapshotGate.Blocked("读取器日期验证超时。");
+            return new AutoGate(identity, SnapshotGate.Blocked("读取器日期验证超时。"));
         }
 
-        return ReaderSnapshotGate.Parse(invocation.Stdout);
+        return new AutoGate(identity, ReaderSnapshotGate.Parse(invocation.Stdout));
+    }
+
+    private static async Task<SaveIdentityGate> ReadSaveIdentityAsync(
+        ReaderRunner runner,
+        CancellationToken cancellationToken)
+    {
+        var invocation = await runner
+            .RunAsync(new[] { "save-identity", "--diagnostics", "--json" }, cancellationToken)
+            .ConfigureAwait(false);
+        if (invocation.StartError is not null)
+        {
+            return SaveIdentityGate.Blocked($"无法启动读取器做身份验证：{invocation.StartError}");
+        }
+
+        if (invocation.TimedOut)
+        {
+            return SaveIdentityGate.Blocked("读取器身份验证超时。");
+        }
+
+        return ReaderSaveIdentityGate.Parse(invocation.Stdout);
+    }
+
+    /// <summary>身份安全门与日期安全门的合并结论：两者都允许才允许采集。</summary>
+    private sealed record AutoGate(SaveIdentityGate Identity, SnapshotGate Date)
+    {
+        public bool Allowed => Identity.Allowed && Date.Allowed;
+
+        public string Status => Identity.Allowed ? Date.Status : Identity.Status;
+
+        public IReadOnlyList<string> Reasons => Identity.Allowed ? Date.Reasons : Identity.Reasons;
     }
 
     private static TimeSpan RetryDelay(int failures)
