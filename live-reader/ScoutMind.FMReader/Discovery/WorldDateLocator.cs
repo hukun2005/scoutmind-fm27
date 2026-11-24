@@ -54,7 +54,7 @@ public static class WorldDateLocator
     public const int ZeroFieldOffset = 0xC;
 
     /// <summary>最多保留的命中数。</summary>
-    public const int MaxMatches = 32;
+    public const int MaxMatches = 4096;
 
     /// <summary>每次读取的区块大小。</summary>
     public const int BlockSize = 1 << 20;

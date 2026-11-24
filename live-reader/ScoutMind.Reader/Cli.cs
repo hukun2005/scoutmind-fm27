@@ -79,6 +79,15 @@ public sealed class Cli
             case CliCommand.DateLocate:
                 return await RunDateLocateAsync(options, cancellationToken).ConfigureAwait(false);
 
+            case CliCommand.StaticDateScan:
+                return await RunStaticDateScanAsync(options, cancellationToken).ConfigureAwait(false);
+
+            case CliCommand.DateRead:
+                return RunDateRead(options);
+
+            case CliCommand.ModuleInfo:
+                return RunModuleInfo(options);
+
             case CliCommand.Scan:
                 return await RunScanAsync(options, cancellationToken).ConfigureAwait(false);
 
@@ -288,6 +297,219 @@ public sealed class Cli
             "unsupported_build" => ExitCodes.Incompatible,
             _ => ExitCodes.Success,
         };
+    }
+    private int RunModuleInfo(CliOptions options)
+    {
+        var detected = new ScoutMind.FMReader.Engine.GameBuildDetector().Detect();
+        object document;
+        var status = "ok";
+        if (detected.ProcessId is null)
+        {
+            status = "game_not_running";
+            document = new { process_detected = false, status, diagnostics = detected.Diagnostics };
+        }
+        else
+        {
+            try
+            {
+                using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
+                var bounds = memory.Bounds;
+                document = new
+                {
+                    process_detected = true,
+                    pid = detected.ProcessId,
+                    build = detected.Build,
+                    plugin_version = detected.PluginVersion,
+                    app_id = detected.AppId,
+                    game_plugin_base = $"0x{bounds.GpBase:X}",
+                    game_plugin_end = $"0x{bounds.GpEnd:X}",
+                    game_plugin_size = bounds.GpEnd > bounds.GpBase ? bounds.GpEnd - bounds.GpBase : 0,
+                    game_assembly_base = $"0x{bounds.GaBase:X}",
+                    game_assembly_end = $"0x{bounds.GaEnd:X}",
+                    scan_region_count = bounds.ScanRegionCount,
+                    plugin_path = bounds.PluginPath,
+                    status,
+                    diagnostics = detected.Diagnostics,
+                };
+            }
+            catch (ScoutMind.FMReader.Probes.MemoryUnreadableException ex)
+            {
+                status = "unreadable";
+                document = new { process_detected = true, status, error = ex.Message, diagnostics = detected.Diagnostics };
+            }
+        }
+
+        if (options.Json)
+        {
+            WriteJson(document);
+        }
+        else
+        {
+            _stdout.WriteLine($"模块边界：{status}");
+            if (document is not null)
+            {
+                _stdout.WriteLine(System.Text.Json.JsonSerializer.Serialize(document));
+            }
+        }
+
+        return status switch
+        {
+            "game_not_running" => ExitCodes.NotFound,
+            "unreadable" => ExitCodes.Incompatible,
+            _ => ExitCodes.Success,
+        };
+    }
+    private async Task<int> RunStaticDateScanAsync(CliOptions options, CancellationToken cancellationToken)
+    {
+        if (options.ExpectedDate is null)
+        {
+            WriteUsageError("static-date-scan 需要 --expect <yyyy-MM-dd>。");
+            return ExitCodes.UsageError;
+        }
+
+        var scanner = new FmStaticDateScan();
+        var maxBytes = options.MaxScanMb is { } megabytes
+            ? megabytes * 1024L * 1024L
+            : StaticDateScan.DefaultMaxBytes;
+        var result = await scanner
+            .ScanAsync(options.ExpectedDate.Value, options.MaxDepth ?? 2, maxBytes, cancellationToken)
+            .ConfigureAwait(false);
+
+        var document = new
+        {
+            build = result.Build,
+            plugin_version = result.PluginVersion,
+            process_detected = result.ProcessDetected,
+            expected_date = options.ExpectedDate.Value.ToString("yyyy-MM-dd"),
+            module_regions = result.ModuleRegions.Select(item => new
+            {
+                start = $"0x{item.Start:X}",
+                size = item.Size,
+            }),
+            root_count = result.Roots.Count,
+            roots = result.Roots.Select(item => new
+            {
+                slot = $"0x{item.Slot:X}",
+                module_base = $"0x{item.ModuleBase:X}",
+                rva = $"0x{item.Rva:X}",
+                target = $"0x{item.Target:X}",
+                hop = item.Hop,
+                date_offset = $"0x{item.DateOffset:X}",
+                date = item.Date,
+            }),
+            status = result.Status,
+            diagnostics = result.Diagnostics,
+        };
+
+        if (options.Json)
+        {
+            WriteJson(document);
+        }
+        else
+        {
+            _stdout.WriteLine($"静态根扫描：{result.Status}，候选 {result.Roots.Count}");
+            foreach (var region in result.ModuleRegions)
+            {
+                _stdout.WriteLine($"  模块 0x{region.Start:X} 大小 {region.Size:N0}");
+            }
+
+            foreach (var root in result.Roots.Take(20))
+            {
+                _stdout.WriteLine(
+                    $"  RVA 0x{root.Rva:X}（{root.Hop} 跳，字段 +0x{root.DateOffset:X}）= {root.Date}");
+            }
+
+            foreach (var line in result.Diagnostics) _stdout.WriteLine(line);
+        }
+
+        return result.Status switch
+        {
+            "game_not_running" => ExitCodes.NotFound,
+            "unsupported_build" or "no_modules" => ExitCodes.Incompatible,
+            _ => ExitCodes.Success,
+        };
+    }
+    private int RunDateRead(CliOptions options)
+    {
+        if (options.Rva is null || options.FieldOffset is null)
+        {
+            WriteUsageError("date-read 需要 --rva 与 --field。");
+            return ExitCodes.UsageError;
+        }
+
+        var detected = new ScoutMind.FMReader.Engine.GameBuildDetector().Detect();
+        if (detected.ProcessId is null)
+        {
+            WriteJson(new { process_detected = false, status = "game_not_running" });
+            return ExitCodes.NotFound;
+        }
+
+        var gate = new ScoutMind.FMReader.Versioning.VersionGate()
+            .Evaluate(detected.AppId, detected.Build, detected.PluginVersion);
+        if (!gate.AllowScan)
+        {
+            WriteJson(new { process_detected = true, status = "unsupported_build", message = gate.Message });
+            return ExitCodes.Incompatible;
+        }
+
+        try
+        {
+            using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
+            var bounds = memory.Bounds;
+            if (bounds.GpEnd <= bounds.GpBase)
+            {
+                WriteJson(new { process_detected = true, status = "no_modules" });
+                return ExitCodes.Incompatible;
+            }
+
+            var slot = bounds.GpBase + options.Rva.Value;
+            if (slot >= bounds.GpEnd)
+            {
+                WriteJson(new
+                {
+                    process_detected = true,
+                    status = "rva_out_of_module",
+                    module_base = $"0x{bounds.GpBase:X}",
+                    module_end = $"0x{bounds.GpEnd:X}",
+                    slot = $"0x{slot:X}",
+                });
+                return ExitCodes.Incompatible;
+            }
+
+            var target = memory.Pointer(slot);
+            var raw = memory.UInt32(target + (ulong)options.FieldOffset.Value);
+            var decoded = ScoutMind.FMReader.Discovery.DateDiscovery.Decode(raw);
+            var document = new
+            {
+                process_detected = true,
+                build = detected.Build,
+                plugin_version = detected.PluginVersion,
+                module_base = $"0x{bounds.GpBase:X}",
+                rva = $"0x{options.Rva.Value:X}",
+                slot = $"0x{slot:X}",
+                target = $"0x{target:X}",
+                field_offset = $"0x{options.FieldOffset.Value:X}",
+                raw_value = $"0x{raw:X8}",
+                date = decoded?.ToString("yyyy-MM-dd"),
+                status = decoded is null ? "undecodable" : "ok",
+            };
+
+            if (options.Json)
+            {
+                WriteJson(document);
+            }
+            else
+            {
+                _stdout.WriteLine($"RVA 0x{options.Rva.Value:X} → {document.date ?? "(无法解码)"}（原始 0x{raw:X8}）");
+            }
+
+            return decoded is null ? ExitCodes.Incompatible : ExitCodes.Success;
+        }
+        catch (ScoutMind.FMReader.Probes.MemoryUnreadableException ex)
+        {
+            WriteJson(new { process_detected = true, status = "unreadable", message = ex.Message });
+            return ExitCodes.Incompatible;
+        }
     }
     private int RunStatus(CliOptions options)
     {
@@ -709,6 +931,9 @@ public sealed class Cli
         writer.WriteLine("  ScoutMind.LiveReader date-discovery --expect <yyyy-MM-dd> [--max-mb <1..8192>] [--json]");
         writer.WriteLine("  ScoutMind.LiveReader pointer-scan --target <0x地址> [--window <字节>] [--max-mb <1..8192>] [--json]");
         writer.WriteLine("  ScoutMind.LiveReader date-locate [--max-mb <1..8192>] [--json]");
+        writer.WriteLine("  ScoutMind.LiveReader module-info [--json]");
+        writer.WriteLine("  ScoutMind.LiveReader static-date-scan --expect <yyyy-MM-dd> [--depth 1|2] [--max-mb <1..8192>] [--json]");
+        writer.WriteLine("  ScoutMind.LiveReader date-read --rva <0x偏移> --field <0x字段偏移> [--json]");
         writer.WriteLine("  ScoutMind.LiveReader compatibility list [--json]");
         writer.WriteLine();
         writer.WriteLine("退出码：");
@@ -720,6 +945,9 @@ public sealed class Cli
         writer.WriteLine("  64 用法或配置错误");
     }
 }
+
+
+
 
 
 
