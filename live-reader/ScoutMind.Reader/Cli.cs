@@ -73,6 +73,12 @@ public sealed class Cli
             case CliCommand.DateDiscovery:
                 return await RunDateDiscoveryAsync(options, cancellationToken).ConfigureAwait(false);
 
+            case CliCommand.PointerScan:
+                return await RunPointerScanAsync(options, cancellationToken).ConfigureAwait(false);
+
+            case CliCommand.DateLocate:
+                return await RunDateLocateAsync(options, cancellationToken).ConfigureAwait(false);
+
             case CliCommand.Scan:
                 return await RunScanAsync(options, cancellationToken).ConfigureAwait(false);
 
@@ -118,7 +124,7 @@ public sealed class Cli
 
         var discovery = new FmDateDiscovery();
         var result = await discovery
-            .DiscoverAsync(options.ExpectedDate.Value, DateDiscovery.DefaultMaxBytes, cancellationToken)
+            .DiscoverAsync(options.ExpectedDate.Value, options.MaxScanMb is { } megabytes ? megabytes * 1024L * 1024L : DateDiscovery.DefaultMaxBytes, cancellationToken)
             .ConfigureAwait(false);
 
         var document = new
@@ -173,6 +179,116 @@ public sealed class Cli
         };
     }
 
+    private async Task<int> RunPointerScanAsync(CliOptions options, CancellationToken cancellationToken)
+    {
+        if (options.TargetAddress is null)
+        {
+            WriteUsageError("pointer-scan 需要 --target <0x地址>。");
+            return ExitCodes.UsageError;
+        }
+
+        var scanner = new FmPointerScan();
+        var window = options.WindowBytes ?? 0x1000;
+        var maxBytes = options.MaxScanMb is { } megabytes
+            ? megabytes * 1024L * 1024L
+            : PointerScan.DefaultMaxBytes;
+        var result = await scanner
+            .ScanAsync(options.TargetAddress.Value, window, maxBytes, cancellationToken)
+            .ConfigureAwait(false);
+
+        var document = new
+        {
+            build = result.Build,
+            plugin_version = result.PluginVersion,
+            process_detected = result.ProcessDetected,
+            target = $"0x{result.TargetStart:X}",
+            target_end = $"0x{result.TargetEnd:X}",
+            hit_count = result.Hits.Count,
+            hits = result.Hits.Select(item => new
+            {
+                slot = $"0x{item.SlotAddress:X}",
+                value = $"0x{item.Value:X}",
+                in_module = item.InModule,
+            }),
+            status = result.Status,
+            diagnostics = result.Diagnostics,
+        };
+
+        if (options.Json)
+        {
+            WriteJson(document);
+        }
+        else
+        {
+            _stdout.WriteLine($"指针扫描：0x{result.TargetStart:X} .. 0x{result.TargetEnd:X}　命中 {result.Hits.Count}");
+            foreach (var hit in result.Hits.Take(32))
+            {
+                _stdout.WriteLine(
+                    $"  slot 0x{hit.SlotAddress:X} -> 0x{hit.Value:X}{(hit.InModule ? "（模块内）" : string.Empty)}");
+            }
+
+            foreach (var line in result.Diagnostics) _stdout.WriteLine(line);
+        }
+
+        return result.Status switch
+        {
+            "game_not_running" => ExitCodes.NotFound,
+            "unsupported_build" => ExitCodes.Incompatible,
+            _ => ExitCodes.Success,
+        };
+    }
+    private async Task<int> RunDateLocateAsync(CliOptions options, CancellationToken cancellationToken)
+    {
+        var locator = new FmWorldDateLocator();
+        var maxBytes = options.MaxScanMb is { } megabytes
+            ? megabytes * 1024L * 1024L
+            : WorldDateLocator.DefaultMaxBytes;
+        var result = await locator.LocateAsync(maxBytes, cancellationToken).ConfigureAwait(false);
+
+        var document = new
+        {
+            build = result.Build,
+            plugin_version = result.PluginVersion,
+            process_detected = result.ProcessDetected,
+            match_count = result.Matches.Count,
+            matches = result.Matches.Select(item => new
+            {
+                date_address = $"0x{item.DateAddress:X}",
+                base_address = $"0x{item.BaseAddress:X}",
+                raw_date = $"0x{item.RawDate:X8}",
+                date = item.Date,
+                raw_reference = $"0x{item.RawReference:X8}",
+                reference = item.Reference,
+                date_field_offset = "0x44",
+            }),
+            status = result.Status,
+            verification_status = result.Matches.Count == 0 ? "not_found" : "unverified_candidate",
+            diagnostics = result.Diagnostics,
+        };
+
+        if (options.Json)
+        {
+            WriteJson(document);
+        }
+        else
+        {
+            _stdout.WriteLine($"世界日期定位：命中 {result.Matches.Count}");
+            foreach (var match in result.Matches.Take(16))
+            {
+                _stdout.WriteLine(
+                    $"  {match.Date}（参考 {match.Reference}）字段 0x{match.DateAddress:X} 基址 0x{match.BaseAddress:X}");
+            }
+
+            foreach (var line in result.Diagnostics) _stdout.WriteLine(line);
+        }
+
+        return result.Status switch
+        {
+            "game_not_running" => ExitCodes.NotFound,
+            "unsupported_build" => ExitCodes.Incompatible,
+            _ => ExitCodes.Success,
+        };
+    }
     private int RunStatus(CliOptions options)
     {
         var status = GetPipeline().Detect();
@@ -590,7 +706,9 @@ public sealed class Cli
         writer.WriteLine("  ScoutMind.LiveReader probe [--json] [--report <文件>]");
         writer.WriteLine("  ScoutMind.LiveReader scan [--output <目录>] [--timeout <秒>] [--json]");
         writer.WriteLine("  ScoutMind.LiveReader date [--json]");
-        writer.WriteLine("  ScoutMind.LiveReader date-discovery --expect <yyyy-MM-dd> [--json]");
+        writer.WriteLine("  ScoutMind.LiveReader date-discovery --expect <yyyy-MM-dd> [--max-mb <1..8192>] [--json]");
+        writer.WriteLine("  ScoutMind.LiveReader pointer-scan --target <0x地址> [--window <字节>] [--max-mb <1..8192>] [--json]");
+        writer.WriteLine("  ScoutMind.LiveReader date-locate [--max-mb <1..8192>] [--json]");
         writer.WriteLine("  ScoutMind.LiveReader compatibility list [--json]");
         writer.WriteLine();
         writer.WriteLine("退出码：");
@@ -602,4 +720,7 @@ public sealed class Cli
         writer.WriteLine("  64 用法或配置错误");
     }
 }
+
+
+
 
