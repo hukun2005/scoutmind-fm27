@@ -22,6 +22,7 @@ from ..schemas import SaveCreate
 from ..utils import iso, payload_checksum, utcnow
 from .deps import get_active_save, get_current_user
 from .routes_adapters import maybe_adapt
+from .save_context import resolve_save_context
 from .uploads import import_slot, read_request_payload, upload_slot
 
 # 导入写库限流统一由 uploads.import_slot() 提供（按事件循环惰性创建，避免跨循环复用）。
@@ -132,6 +133,8 @@ def save_summary(save_id: int, db: Session = Depends(get_db), user=Depends(get_c
 async def import_transfers(
     request: Request,
     save_id: int | None = Query(default=None),
+    save_identity_id: int | None = Query(default=None),
+    save_session_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     save: FmSave = Depends(get_active_save),
     user=Depends(get_current_user),
@@ -146,6 +149,7 @@ async def import_transfers(
     target = db.get(FmSave, save_id) if save_id else save
     if target is None or target.user_id != user.id:
         raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
+    context = resolve_save_context(db, target, save_identity_id, save_session_id)
     try:
         document = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -163,7 +167,13 @@ async def import_transfers(
         validated = ScanPayload.model_validate(document)
     except ValueError as exc:
         raise ProtocolError(f"交易报文不符合协议：{exc}") from exc
-    outcome = ScanImporter(db).import_payload(target.id, validated, raw)
+    outcome = ScanImporter(db).import_payload(
+        target.id,
+        validated,
+        raw,
+        identity_id=context.identity_id,
+        session_id=context.session_id,
+    )
     return _outcome_payload(outcome)
 
 
@@ -171,6 +181,8 @@ async def import_transfers(
 async def import_squad_csv_route(
     request: Request,
     save_id: int | None = Query(default=None),
+    save_identity_id: int | None = Query(default=None),
+    save_session_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     save: FmSave = Depends(get_active_save),
     user=Depends(get_current_user),
@@ -184,6 +196,7 @@ async def import_squad_csv_route(
     target = db.get(FmSave, save_id) if save_id else save
     if target is None or target.user_id != user.id:
         raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
+    resolve_save_context(db, target, save_identity_id, save_session_id)
     try:
         result = import_squad_csv(db, target.id, raw)
     except ValueError as exc:
@@ -276,6 +289,8 @@ def get_import(
 async def import_scan(
     request: Request,
     save_id: int | None = Query(default=None),
+    save_identity_id: int | None = Query(default=None),
+    save_session_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     save: FmSave = Depends(get_active_save),
     user=Depends(get_current_user),
@@ -287,6 +302,7 @@ async def import_scan(
     target_save = db.get(FmSave, save_id) if save_id else save
     if target_save is None or target_save.user_id != user.id:
         raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
+    context = resolve_save_context(db, target_save, save_identity_id, save_session_id)
     importer = ScanImporter(db)
     # A dropped FMSuperScout dump is converted by the adapter layer, then imported like any other scan.
     # Both steps are CPU/IO heavy for a 44k-player scan: run them off the event loop so /health and
@@ -300,7 +316,14 @@ async def import_scan(
             raise ProtocolError(f"FMSuperScout 适配结果不符合扫描协议：{exc}") from exc
         async with upload_slot(), import_slot():
             try:
-                outcome = await asyncio.to_thread(importer.import_payload, target_save.id, validated, raw)
+                outcome = await asyncio.to_thread(
+                    importer.import_payload,
+                    target_save.id,
+                    validated,
+                    raw,
+                    identity_id=context.identity_id,
+                    session_id=context.session_id,
+                )
             except ImportInProgressError as busy:
                 raise HTTPException(
                     status_code=409,
@@ -315,7 +338,13 @@ async def import_scan(
         return body
     async with upload_slot(), import_slot():
         try:
-            outcome = await asyncio.to_thread(importer.import_bytes, target_save.id, raw)
+            outcome = await asyncio.to_thread(
+                importer.import_bytes,
+                target_save.id,
+                raw,
+                identity_id=context.identity_id,
+                session_id=context.session_id,
+            )
         except ImportInProgressError as busy:
             raise HTTPException(
                 status_code=409,
@@ -378,6 +407,8 @@ def _job_payload(job: ImportJob | None) -> dict[str, Any] | None:
         "warnings": json.loads(job.warnings_json or "[]"),
         "coverage": json.loads(job.coverage_json or "{}"),
         "raw_payload_path": job.raw_payload_path,
+        "save_identity_id": job.save_identity_id,
+        "save_session_id": job.save_session_id,
     }
 
 

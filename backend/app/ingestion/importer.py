@@ -135,14 +135,32 @@ class ScanImporter:
 
     # -- public API ---------------------------------------------------------------------------------------------
 
-    def import_bytes(self, save_id: int, raw: bytes) -> ImportOutcome:
+    def import_bytes(
+        self,
+        save_id: int,
+        raw: bytes,
+        *,
+        identity_id: int | None = None,
+        session_id: int | None = None,
+    ) -> ImportOutcome:
         """Parse and import a raw payload (JSON or NDJSON)."""
         payload, structural_warnings = parse_payload(raw)
         payload.warnings.extend(structural_warnings)
-        return self.import_payload(save_id, payload, raw)
+        return self.import_payload(save_id, payload, raw, identity_id=identity_id, session_id=session_id)
 
-    def import_payload(self, save_id: int, payload: ScanPayload, raw: bytes | None = None) -> ImportOutcome:
-        """Import an already parsed payload; the caller owns the ``save_id`` existence check."""
+    def import_payload(
+        self,
+        save_id: int,
+        payload: ScanPayload,
+        raw: bytes | None = None,
+        *,
+        identity_id: int | None = None,
+        session_id: int | None = None,
+    ) -> ImportOutcome:
+        """Import an already parsed payload; the caller owns the ``save_id`` existence check.
+
+        ``identity_id`` / ``session_id`` 由路由层校验后传入，仅作为审计归属写入 ImportJob。
+        """
         existing = self.session.scalar(
             select(ImportJob).where(
                 ImportJob.fm_save_id == save_id,
@@ -155,7 +173,7 @@ class ScanImporter:
             return self._duplicate_outcome(existing)
 
         try:
-            job = self._begin_job(save_id, payload, existing, raw)
+            job = self._begin_job(save_id, payload, existing, raw, identity_id=identity_id, session_id=session_id)
         except DuplicateScanError as duplicate:
             # 并发提交同一个 scan_id：另一个请求已经写入，返回它的结果而不是重复应用。
             return self._duplicate_outcome(duplicate.job)
@@ -171,7 +189,14 @@ class ScanImporter:
     # -- job lifecycle ------------------------------------------------------------------------------------------
 
     def _begin_job(
-        self, save_id: int, payload: ScanPayload, existing: ImportJob | None, raw: bytes | None
+        self,
+        save_id: int,
+        payload: ScanPayload,
+        existing: ImportJob | None,
+        raw: bytes | None,
+        *,
+        identity_id: int | None = None,
+        session_id: int | None = None,
     ) -> ImportJob:
         if existing is not None:
             self.session.execute(delete(ImportRow).where(ImportRow.import_job_id == existing.id))
@@ -179,6 +204,8 @@ class ScanImporter:
             job.status = "running"
             job.finished_at = None
             job.fm_save_id = save_id
+            job.save_identity_id = identity_id or job.save_identity_id
+            job.save_session_id = session_id or job.save_session_id
             job.warnings_json = "[]"
             job.coverage_json = "{}"
             job.player_count = 0
@@ -194,6 +221,8 @@ class ScanImporter:
                 game_build=payload.game.build,
                 status="running",
                 received_at=utcnow(),
+                save_identity_id=identity_id,
+                save_session_id=session_id,
             )
             self.session.add(job)
         if raw is not None:
