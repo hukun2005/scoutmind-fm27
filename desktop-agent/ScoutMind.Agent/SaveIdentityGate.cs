@@ -2,6 +2,31 @@ using System.Text.Json;
 
 namespace ScoutMind.Agent;
 
+/// <summary>读取器输出的一条身份证据（只含规范化哈希，不含原始内容）。</summary>
+public sealed record SaveIdentityEvidence(
+    string Type,
+    string Source,
+    string Hash,
+    string? Version,
+    string? Confidence,
+    string? ObservedAt,
+    string? Detail);
+
+/// <summary>读取器身份诊断的完整可转发视图；仅用于上报，不代表后端结论。</summary>
+public sealed record SaveIdentitySnapshot(
+    string Status,
+    string? Fingerprint,
+    int FingerprintVersion,
+    string? Kind,
+    string? Confidence,
+    string? SessionKey,
+    string? GameBuild,
+    string? PluginVersion,
+    bool Ambiguous,
+    bool SnapshotEligible,
+    bool AutomaticSnapshotEnabled,
+    IReadOnlyList<SaveIdentityEvidence> Evidence);
+
 /// <summary>
 /// 存档身份安全门判定。只有读取器明确给出 <c>status=verified</c>、<c>snapshot_eligible=true</c>
 /// 且 <c>automatic_snapshot_enabled=true</c> 时才允许继续采集。
@@ -30,6 +55,9 @@ public sealed record SaveIdentityGate(
     bool AutomaticSnapshotEnabled,
     IReadOnlyList<string> Reasons)
 {
+    /// <summary>可上报给后端的完整身份视图；解析失败或 BLOCKED 时为 <c>null</c>。</summary>
+    public SaveIdentitySnapshot? Snapshot { get; init; }
+
     /// <summary>构造 BLOCKED 判定。</summary>
     /// <param name="reasons">原因。</param>
     /// <returns>判定。</returns>
@@ -91,6 +119,19 @@ public static class ReaderSaveIdentityGate
 
             var snapshotEligible = ReadBool(root, "snapshot_eligible");
             var automaticSnapshotEnabled = ReadBool(root, "automatic_snapshot_enabled");
+            var snapshot = new SaveIdentitySnapshot(
+                status,
+                fingerprint,
+                ReadInt(identity, "version") ?? 1,
+                kind,
+                confidence,
+                sessionKey,
+                gameBuild,
+                session is { } se3 ? ReadString(se3, "plugin_version") : null,
+                ReadBool(root, "ambiguous"),
+                snapshotEligible,
+                automaticSnapshotEnabled,
+                ReadEvidence(root));
 
             var reasons = ReadStringArray(root, "conflicts");
             reasons.AddRange(ReadStringArray(root, "missing_evidence"));
@@ -115,39 +156,39 @@ public static class ReaderSaveIdentityGate
                 }
 
                 return new SaveIdentityGate(false, status, fingerprint, kind, confidence, sessionKey, gameBuild,
-                    snapshotEligible, automaticSnapshotEnabled, reasons);
+                    snapshotEligible, automaticSnapshotEnabled, reasons) { Snapshot = snapshot };
             }
 
             if (string.IsNullOrWhiteSpace(fingerprint) || string.IsNullOrWhiteSpace(sessionKey))
             {
                 reasons.Add("身份声称已验证，但缺少指纹或会话键：按 BLOCKED 处理。");
                 return new SaveIdentityGate(false, status, fingerprint, kind, confidence, sessionKey, gameBuild,
-                    snapshotEligible, automaticSnapshotEnabled, reasons);
+                    snapshotEligible, automaticSnapshotEnabled, reasons) { Snapshot = snapshot };
             }
 
             if (!HasStrongEvidence(root))
             {
                 reasons.Add("身份声称已验证，但缺少第一/第二优先级强证据：按 BLOCKED 处理。");
                 return new SaveIdentityGate(false, status, fingerprint, kind, confidence, sessionKey, gameBuild,
-                    snapshotEligible, automaticSnapshotEnabled, reasons);
+                    snapshotEligible, automaticSnapshotEnabled, reasons) { Snapshot = snapshot };
             }
 
             if (!automaticSnapshotEnabled)
             {
                 reasons.Add("自动快照在本版本保持关闭（automatic_snapshot_enabled=false）。");
                 return new SaveIdentityGate(false, status, fingerprint, kind, confidence, sessionKey, gameBuild,
-                    snapshotEligible, automaticSnapshotEnabled, reasons);
+                    snapshotEligible, automaticSnapshotEnabled, reasons) { Snapshot = snapshot };
             }
 
             if (!snapshotEligible)
             {
                 reasons.Add("存档身份尚未满足自动快照条件（snapshot_eligible=false）。");
                 return new SaveIdentityGate(false, status, fingerprint, kind, confidence, sessionKey, gameBuild,
-                    snapshotEligible, automaticSnapshotEnabled, reasons);
+                    snapshotEligible, automaticSnapshotEnabled, reasons) { Snapshot = snapshot };
             }
 
             return new SaveIdentityGate(true, status, fingerprint, kind, confidence, sessionKey, gameBuild,
-                snapshotEligible, automaticSnapshotEnabled, reasons);
+                snapshotEligible, automaticSnapshotEnabled, reasons) { Snapshot = snapshot };
         }
         catch (JsonException)
         {
@@ -181,6 +222,49 @@ public static class ReaderSaveIdentityGate
 
     private static JsonElement? ReadObject(JsonElement root, string name) =>
         root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Object ? value : null;
+
+    private static IReadOnlyList<SaveIdentityEvidence> ReadEvidence(JsonElement root)
+    {
+        var result = new List<SaveIdentityEvidence>();
+        if (!root.TryGetProperty("evidence", out var evidence) || evidence.ValueKind != JsonValueKind.Array)
+        {
+            return result;
+        }
+
+        foreach (var item in evidence.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var type = ReadString(item, "type");
+            var hash = ReadString(item, "hash");
+            if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(hash))
+            {
+                continue;
+            }
+
+            result.Add(new SaveIdentityEvidence(
+                type,
+                ReadString(item, "source") ?? "unknown",
+                hash,
+                ReadString(item, "version"),
+                ReadString(item, "confidence"),
+                ReadString(item, "observed_at"),
+                ReadString(item, "detail")));
+        }
+
+        return result;
+    }
+
+    private static int? ReadInt(JsonElement? root, string name) =>
+        root is { } element
+        && element.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.Number
+        && value.TryGetInt32(out var parsed)
+            ? parsed
+            : null;
 
     private static string? ReadString(JsonElement root, string name) =>
         root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String

@@ -120,3 +120,62 @@ def test_save_identity_columns_are_nullable(tmp_path) -> None:
         assert columns["save_identity_id"]["nullable"] is True
         assert columns["save_session_id"]["nullable"] is True
     engine.dispose()
+
+
+LIFECYCLE_PREVIOUS = "c3d8f1a2b407"
+
+
+def test_lifecycle_migration_adds_audit_and_columns(tmp_path) -> None:
+    """V3.2.7.2：只新增审计表与可空列，保留 V3.2.7 表结构。"""
+    database_url = f"sqlite:///{(tmp_path / 'lifecycle.db').as_posix()}"
+    _alembic(database_url, "upgrade", LIFECYCLE_PREVIOUS)
+    _alembic(database_url, "upgrade", "head")
+
+    engine = create_engine(database_url, future=True)
+    inspector = inspect(engine)
+    assert "save_identity_audit_events" in set(inspector.get_table_names())
+
+    identity_columns = {column["name"]: column for column in inspector.get_columns("save_identities")}
+    assert identity_columns["verified_at"]["nullable"] is True
+    assert identity_columns["verified_by"]["nullable"] is True
+
+    session_columns = {column["name"]: column for column in inspector.get_columns("save_sessions")}
+    assert session_columns["agent_id"]["nullable"] is True
+    assert session_columns["last_heartbeat_at"]["nullable"] is True
+
+    audit_columns = {column["name"] for column in inspector.get_columns("save_identity_audit_events")}
+    assert {
+        "event_type",
+        "identity_id",
+        "session_id",
+        "capture_id",
+        "old_status",
+        "new_status",
+        "evidence_summary",
+        "actor",
+        "reason",
+        "occurred_at",
+    } <= audit_columns
+    engine.dispose()
+
+
+def test_lifecycle_downgrade_keeps_v327_schema(tmp_path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'lifecycle-down.db').as_posix()}"
+    _alembic(database_url, "upgrade", "head")
+    _alembic(database_url, "downgrade", LIFECYCLE_PREVIOUS)
+
+    engine = create_engine(database_url, future=True)
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    assert "save_identity_audit_events" not in tables
+    assert "save_identities" in tables
+    assert "save_sessions" in tables
+
+    identity_columns = {column["name"] for column in inspector.get_columns("save_identities")}
+    assert "verified_at" not in identity_columns
+    assert "verified_by" not in identity_columns
+
+    session_columns = {column["name"] for column in inspector.get_columns("save_sessions")}
+    assert "agent_id" not in session_columns
+    assert "last_heartbeat_at" not in session_columns
+    engine.dispose()

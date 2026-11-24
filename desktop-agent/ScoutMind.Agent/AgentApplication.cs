@@ -263,6 +263,11 @@ public sealed class AgentApplication
         var stateStore = new CaptureStateStore(configuration.QueueDirectory);
         var readerTimeout = TimeSpan.FromSeconds(Math.Max(180, configuration.Config.TimeoutSeconds + 120));
         var runner = new ReaderRunner(configuration.ReaderPath, readerTimeout);
+        using var identityClient = new BackendClient(
+            configuration.Config.BackendBaseUrl,
+            configuration.Config.ApiToken,
+            _syncTimeout);
+        var identitySync = new SaveIdentitySync(identityClient);
         var interval = TimeSpan.FromMinutes(minutes);
         var maxRetries = 3;
         var state = stateStore.Load();
@@ -307,12 +312,58 @@ public sealed class AgentApplication
                 continue;
             }
 
+            var binding = await identitySync.EnsureAsync(gate.Identity, cancellationToken).ConfigureAwait(false);
+            if (!binding.Ok)
+            {
+                // 后端不可达或会话未 verified：本轮不得写入，也不得伪造成功。
+                state = state with { Status = "identity_sync_failed" };
+                stateStore.Save(state);
+                _stderr.WriteLine($"[第 {round} 轮] 存档身份/会话未能在后端建立：{binding.Error}");
+                await DelayAsync(interval, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            // 采集开始时登记 capture_context；没有 capture_id 就不进入扫描后的写入路径。
+            var capture = await identityClient.StartCaptureAsync(
+                new
+                {
+                    game_build = gate.Identity.GameBuild,
+                    scan_scope = "players",
+                    status = "scanning",
+                    metadata = new
+                    {
+                        session_key = gate.Identity.SessionKey,
+                        fingerprint = gate.Identity.Fingerprint,
+                    },
+                },
+                cancellationToken,
+                identitySync.Context).ConfigureAwait(false);
+            var captureId = capture.Ok ? capture.ReadInt("id") : null;
+            if (captureId is null)
+            {
+                state = state with { Status = "identity_sync_failed" };
+                stateStore.Save(state);
+                _stderr.WriteLine($"[第 {round} 轮] 无法登记采集上下文：{capture.Error}");
+                await DelayAsync(interval, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            async Task MarkCaptureAsync(string status, string? errorCode = null)
+            {
+                await identityClient.UpdateCaptureAsync(
+                    captureId.Value,
+                    new { status, error_code = errorCode },
+                    CancellationToken.None,
+                    identitySync.Context).ConfigureAwait(false);
+            }
+
             var invocation = await runner
                 .RunAsync(new[] { "scan", "--output", queue.ScanDirectory, "--json" }, cancellationToken)
                 .ConfigureAwait(false);
             var transport = MapReaderTransportFailure(invocation);
             if (transport is not null)
             {
+                await MarkCaptureAsync("failed", "reader_transport_failed").ConfigureAwait(false);
                 state = state with { Status = "retry_pending", ConsecutiveFailures = state.ConsecutiveFailures + 1 };
                 stateStore.Save(state);
                 _stderr.WriteLine($"[第 {round} 轮] {transport.Value.Message}；{RetryDelay(state.ConsecutiveFailures)} 后重试。");
@@ -323,6 +374,7 @@ public sealed class AgentApplication
             var result = TryDeserialize<ScanResult>(invocation.Stdout);
             if (result is null || result.State != ReaderState.ScanCompleted || result.OutputFile is null)
             {
+                await MarkCaptureAsync("failed", "reader_scan_incomplete").ConfigureAwait(false);
                 state = state with { Status = "retry_pending", ConsecutiveFailures = state.ConsecutiveFailures + 1 };
                 stateStore.Save(state);
                 _stderr.WriteLine($"[第 {round} 轮] 扫描未完成：{result?.FailureReason ?? "无有效结果"}；{RetryDelay(state.ConsecutiveFailures)} 后重试。");
@@ -337,6 +389,7 @@ public sealed class AgentApplication
             }
             catch (Exception ex) when (ex is IOException or JsonException or InvalidDataException)
             {
+                await MarkCaptureAsync("failed", "scan_manifest_unreadable").ConfigureAwait(false);
                 queue.EnqueuePending(result.OutputFile);
                 state = state with { Status = "retry_pending", ConsecutiveFailures = state.ConsecutiveFailures + 1 };
                 stateStore.Save(state);
@@ -360,6 +413,12 @@ public sealed class AgentApplication
                     current_identity = afterKey,
                     scan_id = info.ScanId,
                 });
+                await identitySync.InvalidateAsync("save_switched", cancellationToken).ConfigureAwait(false);
+                await identityClient.UpdateCaptureAsync(
+                    captureId.Value,
+                    new { status = "failed", error_code = "save_changed_during_capture", scan_id = info.ScanId },
+                    CancellationToken.None,
+                    null).ConfigureAwait(false);
                 state = state with { Status = "identity_changed", ConsecutiveFailures = 0 };
                 stateStore.Save(state);
                 _stderr.WriteLine($"[第 {round} 轮] 扫描期间存档发生变化：{beforeKey} → {afterKey}；结果已移入 {folder}");
@@ -376,6 +435,7 @@ public sealed class AgentApplication
             if (sameDate)
             {
                 var duplicate = queue.ArchiveDuplicate(result.OutputFile);
+                await MarkCaptureAsync("completed").ConfigureAwait(false);
                 state = state with { Status = "completed", ConsecutiveFailures = 0 };
                 stateStore.Save(state);
                 _stdout.WriteLine($"[第 {round} 轮] 游戏日期 {info.GameDate} 未变化，重复扫描已隔离到 {duplicate}。");
@@ -383,11 +443,37 @@ public sealed class AgentApplication
                 continue;
             }
 
+            // 结果落盘后、导入前再次确认会话可写：扫描可能耗时较久，期间会话可能被切换或超时失效。
+            var submit = await identitySync.EnsureAsync(afterScan, cancellationToken).ConfigureAwait(false);
+            if (!submit.Ok)
+            {
+                var folder = queue.FailAll(result.OutputFile, new
+                {
+                    failed_at = DateTimeOffset.UtcNow.ToString("O"),
+                    code = "save_session_invalidated",
+                    message = "提交前复核失败：会话或身份不可写，本轮结果已作废。",
+                    detail = submit.Error,
+                    scan_id = info.ScanId,
+                });
+                await MarkCaptureAsync("failed", "save_session_invalidated").ConfigureAwait(false);
+                state = state with { Status = "identity_changed", ConsecutiveFailures = 0 };
+                stateStore.Save(state);
+                _stderr.WriteLine($"[第 {round} 轮] 提交前会话复核失败：{submit.Error}；结果已移入 {folder}");
+                await DelayAsync(interval, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
             state = state with { SaveName = saveKey, LastScanId = info.ScanId, Status = "importing" };
             stateStore.Save(state);
-            var synced = await SyncOneAsync(result.OutputFile, configuration, queue, cancellationToken).ConfigureAwait(false);
+            var synced = await SyncOneAsync(result.OutputFile, configuration, queue, cancellationToken, identitySync.Context)
+                .ConfigureAwait(false);
             if (synced)
             {
+                await identityClient.UpdateCaptureAsync(
+                    captureId.Value,
+                    new { status = "completed", scan_id = info.ScanId },
+                    CancellationToken.None,
+                    identitySync.Context).ConfigureAwait(false);
                 state = state with
                 {
                     LastGameDate = info.GameDate ?? state.LastGameDate,
@@ -399,6 +485,7 @@ public sealed class AgentApplication
             }
             else
             {
+                await MarkCaptureAsync("failed", "import_failed").ConfigureAwait(false);
                 state = state with { Status = "retry_pending", ConsecutiveFailures = state.ConsecutiveFailures + 1 };
                 stateStore.Save(state);
                 if (state.ConsecutiveFailures >= maxRetries)
@@ -414,6 +501,7 @@ public sealed class AgentApplication
         }
 
         _stdout.WriteLine("自动采集已停止。");
+        await identitySync.InvalidateAsync("agent_stopped", CancellationToken.None).ConfigureAwait(false);
         return AgentExitCodes.Success;
     }
 
@@ -571,7 +659,8 @@ public sealed class AgentApplication
         string path,
         AgentRuntimeConfiguration configuration,
         ScanQueue queue,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SaveContextQuery? context = null)
     {
         var claimed = queue.Claim(path);
         if (claimed is null)
@@ -636,7 +725,7 @@ public sealed class AgentApplication
         BackendSyncResult result;
         try
         {
-            result = await client.PostScanAsync(payload.Json, cancellationToken).ConfigureAwait(false);
+            result = await client.PostScanAsync(payload.Json, cancellationToken, context).ConfigureAwait(false);
         }
         catch (ArgumentException ex)
         {
