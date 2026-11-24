@@ -1,7 +1,7 @@
 # ScoutMind FM27 V3.2.7 实施报告
 
 **版本代号：** Save Identity & Multi-Save Intelligence
-**分支：** `codex/v3.2.7-save-identity`（基于 `origin/main`，**未合并 main、未发 Release**）
+**分支：** `codex/v3.2.7-save-identity`（已按用户指令快进合并至 `main`，`d702868`；未发 Release）
 **基线：** `776a9a53da18110e407397ab5af4bf30a711ce83`
 
 ## 一、结论摘要
@@ -101,7 +101,7 @@ V3.2.7 建立了从“识别存档 → 生成身份 → 检测切换 → 持久�
 
 ## 九、安全边界确认
 
-- 未合并 `main`，未创建 Release/Tag，未删除分支，未关闭 PR #6；本轮只推送 `codex/v3.2.7-save-identity` 分支。
+- 经用户明确指令，`codex/v3.2.7-save-identity` 已快进合并并推送 `main`；未创建 Release/Tag，未删除分支，未关闭 PR #6。
 - 未修改任何历史 Alembic migration。
 - 未删除或弱化既有测试断言。
 - 未把 UNKNOWN/DISCOVERED 提升为 VERIFIED。
