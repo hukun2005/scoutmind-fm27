@@ -48,6 +48,13 @@
 
 证据目录：[save-identity-e2e](save-identity-e2e/live-http.json)（`environment.json`、`live-http.json`、`server.log`、`SHA256SUMS.txt`、`migration-safety.json`）。
 
+### 2.1 真实游戏手动受控验收工具
+
+Reader 的自动采集门固定关闭（`snapshot_eligible=false`），因此真实游戏切换无法用 `agent auto` 完成。
+已提供 `scripts/manual-real-save-switch.py`：读取游戏内真实 `save-identity --json` 输出，驱动后端完成
+注册/确认/会话/采集/切换失效校验，并将结果写入 `docs/evidence/v3.2.7.2/real-fm27/`。
+该工具已用临时后端自测 12/12 通过；真实 FM27 结果仍等待人工在游戏内执行。
+
 ## 3. 未执行项（不得写成 PASS）
 
 | 项目 | 状态 | 原因 |
