@@ -1,0 +1,23 @@
+INFO:     Started server process [61872]
+INFO:     Waiting for application startup.
+SCOUTMIND_API_TOKEN 未配置：本地 API 无鉴权，只能监听 127.0.0.1
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8017 (Press CTRL+C to quit)
+INFO:     127.0.0.1:53876 - "GET /api/v1/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53716 - "GET /api/v1/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53718 - "POST /api/v1/saves HTTP/1.1" 201 Created
+INFO:     127.0.0.1:53720 - "POST /api/v1/saves HTTP/1.1" 201 Created
+INFO:     127.0.0.1:53722 - "POST /api/v1/imports/scan?save_id=1&save_identity_id=1 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:53724 - "POST /api/v1/imports/scan?save_id=2&save_identity_id=999999 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:53726 - "POST /api/v1/imports/scan?save_id=1&save_identity_id=2 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:53728 - "POST /api/v1/imports/scan?save_id=2&save_identity_id=3 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:58521 - "POST /api/v1/imports/scan?save_id=2&save_identity_id=1&save_session_id=2 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:65041 - "POST /api/v1/imports/scan?save_id=1&save_session_id=3 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:65043 - "POST /api/v1/imports/scan?save_id=1&save_session_id=4 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:65045 - "POST /api/v1/imports/scan?save_id=2&save_identity_id=1&save_session_id=5 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:65047 - "POST /api/v1/imports/scan?save_id=2 HTTP/1.1" 201 Created
+INFO:     127.0.0.1:65049 - "POST /api/v1/imports/scan?save_id=2&save_identity_id=1&save_session_id=1 HTTP/1.1" 201 Created
+INFO:     127.0.0.1:65051 - "POST /api/v1/captures?save_id=1&save_session_id=3 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:65053 - "POST /api/v1/captures?save_id=1&save_session_id=4 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:65055 - "POST /api/v1/captures?save_id=1&save_identity_id=1 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:65057 - "POST /api/v1/captures?save_id=2&save_identity_id=1&save_session_id=1 HTTP/1.1" 201 Created

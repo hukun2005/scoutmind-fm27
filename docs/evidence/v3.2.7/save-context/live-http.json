@@ -1,0 +1,645 @@
+{
+  "environment": {
+    "captured_at": "2026-11-24T16:02:19.931767+00:00",
+    "python": "3.13.15",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "database": "<temp>\\sm-savecontext-live\\live.db",
+    "api": "http://127.0.0.1:8017/api/v1",
+    "health": {
+      "status": 200,
+      "body": {
+        "status": "ok",
+        "version": "0.1.0",
+        "database": "sqlite",
+        "demo_mode": false,
+        "timestamp": "2026-11-24T16:02:19Z"
+      }
+    },
+    "real_save_fingerprints": {
+      "A": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+      "B": "si:v1:file:ab0bd79502eec32b392f86847344014073486a0c218362b0faccef58e8672665"
+    },
+    "game_build": "26620374"
+  },
+  "seeded_ids": {
+    "save_a": 2,
+    "save_b": 1,
+    "identity_a": 1,
+    "identity_b": 2,
+    "identity_conflict": 3,
+    "session_a": 1,
+    "session_b": 2,
+    "session_old": 3,
+    "session_switch": 4,
+    "session_build": 5
+  },
+  "scenarios": [
+    {
+      "label": "create_save_b",
+      "request": {
+        "method": "POST",
+        "path": "/saves",
+        "params": {},
+        "body": {
+          "name": "<save-B>",
+          "game_version": "27.1",
+          "game_build": "26620374"
+        },
+        "file": null
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "id": 1,
+          "name": "<save-B>",
+          "game_version": "27.1",
+          "game_build": "26620374",
+          "created_at": "2026-11-24T16:02:20Z",
+          "is_active": true,
+          "player_count": 0,
+          "snapshot_count": 0,
+          "transfer_count": 0,
+          "last_import_at": null
+        }
+      }
+    },
+    {
+      "label": "create_save_a",
+      "request": {
+        "method": "POST",
+        "path": "/saves",
+        "params": {},
+        "body": {
+          "name": "<save-A>",
+          "game_version": "27.1",
+          "game_build": "26620374"
+        },
+        "file": null
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "id": 2,
+          "name": "<save-A>",
+          "game_version": "27.1",
+          "game_build": "26620374",
+          "created_at": "2026-11-24T16:02:20Z",
+          "is_active": true,
+          "player_count": 0,
+          "snapshot_count": 0,
+          "transfer_count": 0,
+          "last_import_at": null
+        }
+      }
+    },
+    {
+      "label": "S1_cross_save_identity",
+      "request": {
+        "method": "POST",
+        "path": "/imports/scan",
+        "params": {
+          "save_id": 1,
+          "save_identity_id": 1
+        },
+        "body": null,
+        "file": "<scan.json multipart>"
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_context_mismatch",
+            "message": "存档身份不属于当前存档"
+          }
+        }
+      }
+    },
+    {
+      "label": "S2_identity_not_found",
+      "request": {
+        "method": "POST",
+        "path": "/imports/scan",
+        "params": {
+          "save_id": 2,
+          "save_identity_id": 999999
+        },
+        "body": null,
+        "file": "<scan.json multipart>"
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_context_mismatch",
+            "message": "存档身份不属于当前存档"
+          }
+        }
+      }
+    },
+    {
+      "label": "S3_unverified_identity",
+      "request": {
+        "method": "POST",
+        "path": "/imports/scan",
+        "params": {
+          "save_id": 1,
+          "save_identity_id": 2
+        },
+        "body": null,
+        "file": "<scan.json multipart>"
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_identity_unverified",
+            "message": "存档身份尚未验证，已阻止写入"
+          }
+        }
+      }
+    },
+    {
+      "label": "S4_conflict_identity",
+      "request": {
+        "method": "POST",
+        "path": "/imports/scan",
+        "params": {
+          "save_id": 2,
+          "save_identity_id": 3
+        },
+        "body": null,
+        "file": "<scan.json multipart>"
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_context_mismatch",
+            "message": "存档身份处于冲突或失效状态，已阻止写入"
+          }
+        }
+      }
+    },
+    {
+      "label": "S5_session_of_other_save",
+      "request": {
+        "method": "POST",
+        "path": "/imports/scan",
+        "params": {
+          "save_id": 2,
+          "save_identity_id": 1,
+          "save_session_id": 2
+        },
+        "body": null,
+        "file": "<scan.json multipart>"
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_context_mismatch",
+            "message": "会话不属于当前存档"
+          }
+        }
+      }
+    },
+    {
+      "label": "S6_invalidated_session",
+      "request": {
+        "method": "POST",
+        "path": "/imports/scan",
+        "params": {
+          "save_id": 1,
+          "save_session_id": 3
+        },
+        "body": null,
+        "file": "<scan.json multipart>"
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_session_invalidated",
+            "message": "会话已失效，不能提交新数据"
+          }
+        }
+      }
+    },
+    {
+      "label": "S7_switching_session",
+      "request": {
+        "method": "POST",
+        "path": "/imports/scan",
+        "params": {
+          "save_id": 1,
+          "save_session_id": 4
+        },
+        "body": null,
+        "file": "<scan.json multipart>"
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_switch_in_progress",
+            "message": "存档正在切换，已暂停写入"
+          }
+        }
+      }
+    },
+    {
+      "label": "S8_build_mismatch",
+      "request": {
+        "method": "POST",
+        "path": "/imports/scan",
+        "params": {
+          "save_id": 2,
+          "save_identity_id": 1,
+          "save_session_id": 5
+        },
+        "body": null,
+        "file": "<scan.json multipart>"
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_context_mismatch",
+            "message": "存档身份的 game build 与会话不一致"
+          }
+        }
+      }
+    },
+    {
+      "label": "S9_legacy_without_context",
+      "request": {
+        "method": "POST",
+        "path": "/imports/scan",
+        "params": {
+          "save_id": 2
+        },
+        "body": null,
+        "file": "<scan.json multipart>"
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "job_id": 1,
+          "status": "succeeded",
+          "duplicate": false,
+          "scan_id": "legacy-6fe39ebb68",
+          "save_id": 2,
+          "players_created": 1,
+          "players_updated": 0,
+          "instances_matched": 0,
+          "players_imported": 1,
+          "snapshots_created": 1,
+          "snapshots_skipped": 0,
+          "unresolved_created": 0,
+          "unresolved_observations_created": 0,
+          "unresolved_observations_skipped": 0,
+          "unresolved_candidates_matched": 0,
+          "rows_skipped": 0,
+          "canonical_candidates_created": 0,
+          "transfers_created": 0,
+          "transfers_updated": 0,
+          "transfers_skipped": 0,
+          "statistics_created": 0,
+          "statistics_updated": 0,
+          "rows_rejected": 0,
+          "warnings": [],
+          "errors": [],
+          "coverage": {
+            "players": 1,
+            "transfers": 0,
+            "player_fields": 1.0,
+            "transfer_fields": 0.0,
+            "statistics": 0.0
+          }
+        }
+      }
+    },
+    {
+      "label": "S10_verified_context_import",
+      "request": {
+        "method": "POST",
+        "path": "/imports/scan",
+        "params": {
+          "save_id": 2,
+          "save_identity_id": 1,
+          "save_session_id": 1
+        },
+        "body": null,
+        "file": "<scan.json multipart>"
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "job_id": 2,
+          "status": "succeeded",
+          "duplicate": false,
+          "scan_id": "good-6130fcd392",
+          "save_id": 2,
+          "players_created": 0,
+          "players_updated": 1,
+          "instances_matched": 0,
+          "players_imported": 1,
+          "snapshots_created": 0,
+          "snapshots_skipped": 1,
+          "unresolved_created": 0,
+          "unresolved_observations_created": 0,
+          "unresolved_observations_skipped": 0,
+          "unresolved_candidates_matched": 0,
+          "rows_skipped": 1,
+          "canonical_candidates_created": 0,
+          "transfers_created": 0,
+          "transfers_updated": 0,
+          "transfers_skipped": 0,
+          "statistics_created": 0,
+          "statistics_updated": 0,
+          "rows_rejected": 0,
+          "warnings": [],
+          "errors": [],
+          "coverage": {
+            "players": 1,
+            "transfers": 0,
+            "player_fields": 1.0,
+            "transfer_fields": 0.0,
+            "statistics": 0.0
+          }
+        }
+      }
+    },
+    {
+      "label": "S11_capture_invalidated_session",
+      "request": {
+        "method": "POST",
+        "path": "/captures",
+        "params": {
+          "save_id": 1,
+          "save_session_id": 3
+        },
+        "body": {
+          "status": "monitoring",
+          "reader_version": "27.1",
+          "scan_scope": "players",
+          "game_build": "26620374",
+          "revision": 0
+        },
+        "file": null
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_session_invalidated",
+            "message": "会话已失效，不能提交新数据"
+          }
+        }
+      }
+    },
+    {
+      "label": "S12_capture_switching_session",
+      "request": {
+        "method": "POST",
+        "path": "/captures",
+        "params": {
+          "save_id": 1,
+          "save_session_id": 4
+        },
+        "body": {
+          "status": "monitoring",
+          "reader_version": "27.1",
+          "scan_scope": "players",
+          "game_build": "26620374",
+          "revision": 0
+        },
+        "file": null
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_switch_in_progress",
+            "message": "存档正在切换，已暂停写入"
+          }
+        }
+      }
+    },
+    {
+      "label": "S13_capture_cross_save_identity",
+      "request": {
+        "method": "POST",
+        "path": "/captures",
+        "params": {
+          "save_id": 1,
+          "save_identity_id": 1
+        },
+        "body": {
+          "status": "monitoring",
+          "reader_version": "27.1",
+          "scan_scope": "players",
+          "game_build": "26620374",
+          "revision": 0
+        },
+        "file": null
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_context_mismatch",
+            "message": "存档身份不属于当前存档"
+          }
+        }
+      }
+    },
+    {
+      "label": "S14_capture_verified_context",
+      "request": {
+        "method": "POST",
+        "path": "/captures",
+        "params": {
+          "save_id": 2,
+          "save_identity_id": 1,
+          "save_session_id": 1
+        },
+        "body": {
+          "status": "monitoring",
+          "reader_version": "27.1",
+          "scan_scope": "players",
+          "game_build": "26620374",
+          "revision": 0
+        },
+        "file": null
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "id": 1,
+          "save_id": 2,
+          "game_date": null,
+          "reader_version": "27.1",
+          "game_build": "26620374",
+          "scan_scope": "players",
+          "status": "monitoring",
+          "attempt_count": 0,
+          "max_attempts": 3,
+          "next_retry_at": null,
+          "scan_id": null,
+          "import_job_id": null,
+          "supplemental": false,
+          "revision": 0,
+          "observed_at": null,
+          "started_at": null,
+          "finished_at": null,
+          "error_code": null,
+          "error_message": null,
+          "date_source": "unknown",
+          "date_confidence": "unknown",
+          "date_read_status": "unavailable",
+          "save_identity_id": 1,
+          "save_session_id": 1,
+          "metadata": {},
+          "created_at": "2026-11-24T16:02:28Z",
+          "updated_at": "2026-11-24T16:02:28Z"
+        }
+      }
+    }
+  ],
+  "assertions": [
+    {
+      "label": "S1_cross_save_identity",
+      "expected_status": 409,
+      "expected_code": "save_context_mismatch",
+      "actual_status": 409,
+      "actual_code": "save_context_mismatch",
+      "pass": true
+    },
+    {
+      "label": "S2_identity_not_found",
+      "expected_status": 409,
+      "expected_code": "save_context_mismatch",
+      "actual_status": 409,
+      "actual_code": "save_context_mismatch",
+      "pass": true
+    },
+    {
+      "label": "S3_unverified_identity",
+      "expected_status": 409,
+      "expected_code": "save_identity_unverified",
+      "actual_status": 409,
+      "actual_code": "save_identity_unverified",
+      "pass": true
+    },
+    {
+      "label": "S4_conflict_identity",
+      "expected_status": 409,
+      "expected_code": "save_context_mismatch",
+      "actual_status": 409,
+      "actual_code": "save_context_mismatch",
+      "pass": true
+    },
+    {
+      "label": "S5_session_of_other_save",
+      "expected_status": 409,
+      "expected_code": "save_context_mismatch",
+      "actual_status": 409,
+      "actual_code": "save_context_mismatch",
+      "pass": true
+    },
+    {
+      "label": "S6_invalidated_session",
+      "expected_status": 409,
+      "expected_code": "save_session_invalidated",
+      "actual_status": 409,
+      "actual_code": "save_session_invalidated",
+      "pass": true
+    },
+    {
+      "label": "S7_switching_session",
+      "expected_status": 409,
+      "expected_code": "save_switch_in_progress",
+      "actual_status": 409,
+      "actual_code": "save_switch_in_progress",
+      "pass": true
+    },
+    {
+      "label": "S8_build_mismatch",
+      "expected_status": 409,
+      "expected_code": "save_context_mismatch",
+      "actual_status": 409,
+      "actual_code": "save_context_mismatch",
+      "pass": true
+    },
+    {
+      "label": "S9_legacy_without_context",
+      "expected_status": 201,
+      "expected_code": null,
+      "actual_status": 201,
+      "actual_code": null,
+      "pass": true
+    },
+    {
+      "label": "S10_verified_context_import",
+      "expected_status": 201,
+      "expected_code": null,
+      "actual_status": 201,
+      "actual_code": null,
+      "pass": true
+    },
+    {
+      "label": "S11_capture_invalidated_session",
+      "expected_status": 409,
+      "expected_code": "save_session_invalidated",
+      "actual_status": 409,
+      "actual_code": "save_session_invalidated",
+      "pass": true
+    },
+    {
+      "label": "S12_capture_switching_session",
+      "expected_status": 409,
+      "expected_code": "save_switch_in_progress",
+      "actual_status": 409,
+      "actual_code": "save_switch_in_progress",
+      "pass": true
+    },
+    {
+      "label": "S13_capture_cross_save_identity",
+      "expected_status": 409,
+      "expected_code": "save_context_mismatch",
+      "actual_status": 409,
+      "actual_code": "save_context_mismatch",
+      "pass": true
+    },
+    {
+      "label": "S14_capture_verified_context",
+      "expected_status": 201,
+      "expected_code": null,
+      "actual_status": 201,
+      "actual_code": null,
+      "pass": true
+    }
+  ],
+  "audit": {
+    "successful_import_job": {
+      "job_id": 2,
+      "job_status": "succeeded",
+      "job_save_identity_id": 1,
+      "job_save_session_id": 1,
+      "expected_identity_id": 1,
+      "expected_session_id": 1
+    },
+    "successful_capture": {
+      "capture_id": 1,
+      "save_identity_id": 1,
+      "save_session_id": 1
+    },
+    "save_b_import_jobs_after_rejections": 0,
+    "save_a_job_scan_ids": [
+      "legacy-6fe39ebb68",
+      "good-6130fcd392"
+    ]
+  },
+  "all_pass": true
+}

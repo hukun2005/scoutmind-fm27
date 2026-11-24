@@ -29,6 +29,31 @@
 
 校验和：`ab-switch/SHA256SUMS.txt`。
 
+## save_context 跨存档隔离联调（真实后端，2026-11-25 00:02 CST）
+
+后端以独立 SQLite 库（先 `alembic upgrade head` 全量迁移）在 `127.0.0.1:8017` 启动，全部场景用真实 HTTP 请求执行。存档 A/B 通过 `POST /api/v1/saves` 创建；身份与会话按真实指纹（A=`si:v1:file:b887415ab5…67418083`、B=`si:v1:file:ab0bd795…672665`，Build 26620374）落库——后端目前没有创建身份的 HTTP 接口（身份由 Reader 产生，Phase 6 才由 Agent 上报），因此这两类行由脚本直接写入该临时库。
+
+| 场景 | 请求 | 结果 |
+|---|---|---|
+| S1 跨存档身份 | B 的存档 + A 的 identity | 409 `save_context_mismatch` |
+| S2 身份不存在 | A 的存档 + identity=999999 | 409 `save_context_mismatch` |
+| S3 未验证身份 | B 的存档 + B 的 candidate identity | 409 `save_identity_unverified` |
+| S4 冲突身份 | A 的存档 + conflict identity | 409 `save_context_mismatch` |
+| S5 会话属于其他存档 | A 的存档 + A 的身份 + B 的会话 | 409 `save_context_mismatch` |
+| S6 旧会话已失效 | B 的存档 + 已 invalidated 会话 | 409 `save_session_invalidated` |
+| S7 切换中会话 | B 的存档 + switching 会话 | 409 `save_switch_in_progress` |
+| S8 会话 build 不一致 | A 的存档 + A 的身份 + build=99999999 会话 | 409 `save_context_mismatch` |
+| S9 未声明上下文（历史流程） | A 的存档，无身份/会话参数 | 201（旧行为保持） |
+| S10 已验证上下文导入 | A 的存档 + A 的身份 + A 的 verified 会话 | 201，`job_id=2` |
+| S11 采集登记：失效会话 | B 的存档 + invalidated 会话 | 409 `save_session_invalidated` |
+| S12 采集登记：切换会话 | B 的存档 + switching 会话 | 409 `save_switch_in_progress` |
+| S13 采集登记：跨存档身份 | B 的存档 + A 的身份 | 409 `save_context_mismatch` |
+| S14 采集登记：已验证上下文 | A 的存档 + A 的身份 + 会话 | 201，`capture_id=1` |
+
+写入审计：S10 的导入任务记录 `save_identity_id=1` / `save_session_id=1`，S14 的采集记录同样带上这两个归属；全部拒绝请求之后，存档 B 下 `ImportJob` 数为 0（隔离失败没有残留写入）。
+
+证据：`save-context/live-http.json`（请求/响应原文、环境与断言）、`save-context/server-access.log`（uvicorn 访问日志，含每条 409/201）、`save-context/SHA256SUMS.txt`。
+
 ## 关键事实
 
 - 上一轮判定为 `ambiguous` 的 3 个候选文件（108,969,104 / 107,268,485 / 103,998,391 字节）已于 2026-11-24 23:46:18–23:46:36 被移入回收站，原路径 `...\Football Manager 27\games\` 下已无对应文件；本轮用新存档重做，故不再受该状态影响。
@@ -40,7 +65,8 @@
 
 | 任务书要求 | 文件 | 原因 |
 |---|---|---|
-| 采集期间切换存档 | `save-switch-during-capture.json` | 需要后端 + Agent 真实联调，本轮未启动这两个服务 |
+| 采集期间切换存档 | `save-switch-during-capture.json` | 需要 Agent 在游戏内实际切换存档并触发采集；本轮只联调了后端接口，未启动 Agent |
+| 导入进行中会话被并发失效（`final_guard` 真实竞态） | — | 需要可控的长导入窗口与并发切换，本轮只由 `test_save_isolation.py` 单元测试覆盖，未做真实竞态 |
 | PostgreSQL 16 迁移 | — | 本机无 PG16 实例；SQLite fresh upgrade + round-trip + `check_migration_safety.py` 已通过 |
 | GitHub Actions 最新结论 | — | 分支已推送并合并至 main（`738875c`）；本次未重新核对 run 结论，不记 PASS |
 
