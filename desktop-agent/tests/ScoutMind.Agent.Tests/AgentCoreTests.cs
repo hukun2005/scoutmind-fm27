@@ -154,6 +154,7 @@ public sealed class AgentCoreTests : IDisposable
         Assert.True(File.Exists(pending!), "信封应进入 pending");
         Assert.True(File.Exists(ScanQueue.MetaPathFor(pending!)), "meta 必须一起进入 pending");
         Assert.True(File.Exists(ScanManifest.PathFor(pending!)), "manifest 必须一起进入 pending");
+        Assert.False(File.Exists(claimed), "processing 中不得留下副本，否则同一任务会被同步两次");
 
         var archived = queue.ArchiveAll(pending!);
         Assert.True(File.Exists(archived), "归档的信封应存在");

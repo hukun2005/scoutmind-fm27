@@ -199,6 +199,13 @@ public sealed class ScanQueue
 
         var targetStem = Path.Combine(PendingDirectory, stem);
         CopyAll(fullPath, targetStem);
+        // The copy exists in pending/ now; the processing/ original must not stay behind or the next
+        // ListOutstanding would enqueue the same task twice.
+        foreach (var (source, _) in Sidecars(fullPath))
+        {
+            File.Delete(source);
+        }
+
         return destination;
     }
 
