@@ -1161,6 +1161,9 @@ class SaveIdentity(TimestampMixin, Base):
     plugin_version: Mapped[str | None] = mapped_column(String(32))
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    # 只为“已验证”身份写入；升级主体与时间必须可追溯（V3.2.7.2）。
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime)
+    verified_by: Mapped[str | None] = mapped_column(String(64))
 
 
 class SaveEvidence(TimestampMixin, Base):
@@ -1206,7 +1209,9 @@ class SaveSession(TimestampMixin, Base):
     session_ended_at: Mapped[datetime | None] = mapped_column(DateTime)
     game_build: Mapped[str | None] = mapped_column(String(64))
     plugin_version: Mapped[str | None] = mapped_column(String(32))
+    agent_id: Mapped[str | None] = mapped_column(String(64))
     session_status: Mapped[str] = mapped_column(String(16), default="created", nullable=False)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_verified_at: Mapped[datetime | None] = mapped_column(DateTime)
     invalidated_reason: Mapped[str | None] = mapped_column(String(64))
 
@@ -1229,4 +1234,42 @@ class SaveIdentityConflict(TimestampMixin, Base):
     resolved_by: Mapped[str | None] = mapped_column(String(64))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
     notes: Mapped[str | None] = mapped_column(Text)
+
+
+class SaveIdentityAuditEvent(TimestampMixin, Base):
+    """存档身份/会话/采集的不可变审计事件（V3.2.7.2 Phase 6）。
+
+    只追加，不覆盖：错误的结论通过新的修正事件表达。``evidence_summary`` 只存规范化摘要，
+    不存原始内存或存档内容。
+    """
+
+    __tablename__ = "save_identity_audit_events"
+    __table_args__ = (
+        Index("ix_save_identity_audit_identity", "identity_id", "occurred_at"),
+        Index("ix_save_identity_audit_session", "session_id", "occurred_at"),
+        Index("ix_save_identity_audit_capture", "capture_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    identity_id: Mapped[int | None] = mapped_column(Integer)
+    session_id: Mapped[int | None] = mapped_column(Integer)
+    capture_id: Mapped[int | None] = mapped_column(Integer)
+    event_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    old_status: Mapped[str | None] = mapped_column(String(24))
+    new_status: Mapped[str | None] = mapped_column(String(24))
+    old_fingerprint: Mapped[str | None] = mapped_column(String(128))
+    new_fingerprint: Mapped[str | None] = mapped_column(String(128))
+    evidence_summary: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    actor: Mapped[str] = mapped_column(String(64), default="backend", nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    correlation_id: Mapped[str | None] = mapped_column(String(64))
+
+
+@event.listens_for(SaveIdentityAuditEvent, "before_update")
+@event.listens_for(SaveIdentityAuditEvent, "before_delete")
+def _reject_save_identity_audit_rewrite(*_args: object) -> None:
+    """审计事件不可覆盖：修正必须追加新事件。"""
+    raise ValueError("save_identity_audit_events 是不可覆盖的审计表：禁止更新或删除")
 
