@@ -234,8 +234,13 @@ def compare(readers: StageCounts | None, dump: StageCounts | None, scan: StageCo
                 "reader_objects": readers.total,
                 "dump_players": dump.total,
                 "delta": delta,
-                "reason": "upstream_not_exported" if delta > 0 else ("dump_added_rows" if delta < 0 else "match"),
-                "note": "上游只导出已识别的球员对象；差值不是本阶段可以补齐的数据",
+                "reason": (
+                    "upstream_not_exported"
+                    if delta > 0
+                    else ("reader_sample_smaller" if delta < 0 else "match")
+                ),
+                "note": "上游只导出已识别的球员对象；probe 的 integrity 探测只覆盖它抽样到的对象，"
+                "因此 probe 数量小于 dump 属于测量范围差异，不是丢数据",
             }
         )
     if dump and scan:

@@ -1,0 +1,141 @@
+{
+  "schema": "scoutmind.live-probe.summary.v1",
+  "generated_at": "2026-11-24T14:22:56",
+  "environment": {
+    "game_build": "26620374",
+    "plugin_version": "27.1",
+    "app_id": "4530370",
+    "layout": "FM27_1",
+    "layout_status": "Verified",
+    "engine_version": "1.0.0",
+    "reader_version": "0.1.0"
+  },
+  "probe": {
+    "passed": true,
+    "exit_code": 0,
+    "duration_ms": 5385,
+    "failure_reason": null
+  },
+  "available": true,
+  "scan_readiness": true,
+  "uid_diagnostics": {
+    "totalObjects": 96,
+    "uniqueObjects": 96,
+    "validUids": 96,
+    "sentinelUids": 0,
+    "zeroUids": 0,
+    "unreadableUids": 0,
+    "duplicateAddresses": 0,
+    "duplicateValidUids": 0,
+    "freeAgentCandidates": 0
+  },
+  "sentinel_samples": 0,
+  "field_checks": [
+    {
+      "probe": "player",
+      "status": "Passed",
+      "samples": 32,
+      "failed": 0,
+      "passed": 10
+    },
+    {
+      "probe": "club",
+      "status": "Passed",
+      "samples": 32,
+      "failed": 0,
+      "passed": 2
+    },
+    {
+      "probe": "team",
+      "status": "Passed",
+      "samples": 32,
+      "failed": 0,
+      "passed": 4
+    },
+    {
+      "probe": "contract",
+      "status": "Failed",
+      "samples": 32,
+      "failed": 2,
+      "passed": 3
+    },
+    {
+      "probe": "loan",
+      "status": "NotApplicable",
+      "samples": 0,
+      "failed": 0,
+      "passed": 0
+    },
+    {
+      "probe": "transfer",
+      "status": "Inconclusive",
+      "samples": 0,
+      "failed": 0,
+      "passed": 0
+    },
+    {
+      "probe": "integrity",
+      "status": "Passed",
+      "samples": 96,
+      "failed": 0,
+      "passed": 7
+    },
+    {
+      "probe": "attributes.technical",
+      "status": "Passed",
+      "samples": 32,
+      "failed": 0,
+      "passed": 24
+    },
+    {
+      "probe": "attributes.mental",
+      "status": "Passed",
+      "samples": 32,
+      "failed": 0,
+      "passed": 28
+    },
+    {
+      "probe": "attributes.physical",
+      "status": "Passed",
+      "samples": 32,
+      "failed": 0,
+      "passed": 16
+    },
+    {
+      "probe": "position",
+      "status": "Passed",
+      "samples": 32,
+      "failed": 0,
+      "passed": 2
+    },
+    {
+      "probe": "nation",
+      "status": "Passed",
+      "samples": 32,
+      "failed": 0,
+      "passed": 2
+    },
+    {
+      "probe": "team_relation",
+      "status": "Passed",
+      "samples": 32,
+      "failed": 0,
+      "passed": 4
+    },
+    {
+      "probe": "execution_layout",
+      "status": "Passed",
+      "samples": 0,
+      "failed": 0,
+      "passed": 1
+    },
+    {
+      "probe": "women_database",
+      "status": "Inconclusive",
+      "samples": 0,
+      "failed": 0,
+      "passed": 1
+    }
+  ],
+  "note": "Only counts and status are kept; samples (names/addresses) stay in the local artifacts/ directory."
+}

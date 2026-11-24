@@ -160,14 +160,20 @@ public sealed class BackendClient : IDisposable
                     TryReadDuplicate(trimmedBody),
                     attempt);
             }
-            catch (Exception ex) when ((ex is HttpRequestException or TaskCanceledException)
-                                       && !cancellationToken.IsCancellationRequested)
+            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
+                return new BackendSyncResult(
+                    false,
+                    null,
+                    null,
+                    $"上传超时：{ex.Message}；服务端可能仍在导入，将按 scan_id 核实",
+                    false,
+                    attempt);
+            }
+            catch (HttpRequestException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                // 连接失败可以重试；超时不能：服务端可能已经在导入，重试只会制造第二个请求。
                 transportError = ex.Message;
-                if (attempt == 2)
-                {
-                    break;
-                }
             }
         }
 
@@ -202,7 +208,10 @@ public sealed class BackendClient : IDisposable
                 request.Headers.TryAddWithoutValidation("X-ScoutMind-Token", _apiToken);
             }
 
-            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            // 核实查询必须比上传快：上传已经占满一次 60 s，这里最多再等 15 s。
+            using var shortTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            shortTimeout.CancelAfter(TimeSpan.FromSeconds(15));
+            using var response = await _httpClient.SendAsync(request, shortTimeout.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 return null;
