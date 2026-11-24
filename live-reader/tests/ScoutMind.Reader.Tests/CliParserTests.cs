@@ -73,6 +73,28 @@ public static class CliParserTests
             Assert.False(CliCommandParser.Parse(Array.Empty<string>()).Ok, "缺少子命令必须失败");
         });
 
+        harness.Case("date-discovery 必须提供 --expect 且日期格式受限", () =>
+        {
+            var ok = CliCommandParser.Parse(new[] { "date-discovery", "--expect", "2026-10-23" });
+            Assert.True(ok.Ok, "合法用法应通过");
+            Assert.Equal(CliCommand.DateDiscovery, ok.Options!.Command, "子命令应为日期候选发现");
+            Assert.Equal(new DateOnly(2026, 10, 23), ok.Options.ExpectedDate, "期望日期应被解析");
+
+            Assert.False(CliCommandParser.Parse(new[] { "date-discovery" }).Ok, "缺少 --expect 必须失败");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "date-discovery", "--expect", "2026-13-40" }).Ok,
+                "非法日期必须失败");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "date-discovery", "--expect", "23/10/2026" }).Ok,
+                "非 yyyy-MM-dd 必须失败");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "date-discovery", "--expect", "2026-10-23", "--expect", "2026-10-24" }).Ok,
+                "重复 --expect 必须失败");
+            Assert.False(
+                CliCommandParser.Parse(new[] { "status", "--expect", "2026-10-23" }).Ok,
+                "status 不接受 --expect");
+        });
+
         harness.Case("--help 被识别为帮助命令", () =>
         {
             Assert.Equal(CliCommand.Help, CliCommandParser.Parse(new[] { "--help" }).Options!.Command, "--help 应为帮助");

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using ScoutMind.Contracts;
+using ScoutMind.FMReader.Discovery;
 using ScoutMind.FMReader.Engine;
 
 namespace ScoutMind.Reader;
@@ -69,6 +70,9 @@ public sealed class Cli
             case CliCommand.Date:
                 return await RunDateAsync(options, cancellationToken).ConfigureAwait(false);
 
+            case CliCommand.DateDiscovery:
+                return await RunDateDiscoveryAsync(options, cancellationToken).ConfigureAwait(false);
+
             case CliCommand.Scan:
                 return await RunScanAsync(options, cancellationToken).ConfigureAwait(false);
 
@@ -101,6 +105,71 @@ public sealed class Cli
             FmDateProbeState.DateDetected => ExitCodes.Success,
             FmDateProbeState.GameNotRunning => ExitCodes.NotFound,
             _ => ExitCodes.Incompatible,
+        };
+    }
+
+    private async Task<int> RunDateDiscoveryAsync(CliOptions options, CancellationToken cancellationToken)
+    {
+        if (options.ExpectedDate is null)
+        {
+            WriteUsageError("date-discovery 需要 --expect <yyyy-MM-dd>。");
+            return ExitCodes.UsageError;
+        }
+
+        var discovery = new FmDateDiscovery();
+        var result = await discovery
+            .DiscoverAsync(options.ExpectedDate.Value, DateDiscovery.DefaultMaxBytes, cancellationToken)
+            .ConfigureAwait(false);
+
+        var document = new
+        {
+            build = result.Build,
+            plugin_version = result.PluginVersion,
+            app_id = result.AppId,
+            layout = result.Layout,
+            process_detected = result.ProcessDetected,
+            expected_date = result.ExpectedDate,
+            encoded_value = result.EncodedValue,
+            candidate_count = result.Candidates.Count,
+            candidates = result.Candidates.Select(item => new
+            {
+                candidate_id = item.Index,
+                address = $"0x{item.Address:X}",
+                region = $"0x{item.RegionStart:X}",
+                raw_value = $"0x{item.RawValue:X8}",
+                decode_rule = "year<<16|day_of_year",
+                field_type = "u32",
+                source = "date_discovery_scan",
+            }),
+            current_date = (string?)null,
+            date_source = result.Candidates.Count > 0 ? "memory_candidate" : "unknown",
+            verification_status = result.VerificationStatus,
+            diagnostics = result.Diagnostics,
+        };
+
+        if (options.Json)
+        {
+            WriteJson(document);
+        }
+        else
+        {
+            _stdout.WriteLine($"日期候选发现：期望 {result.ExpectedDate}（编码 0x{result.EncodedValue:X8}）");
+            _stdout.WriteLine($"进程：{result.Build ?? "(未检测)"} · 布局：{result.Layout ?? "(无)"} · 状态：{result.VerificationStatus}");
+            _stdout.WriteLine($"候选数：{result.Candidates.Count}");
+            foreach (var candidate in result.Candidates)
+            {
+                _stdout.WriteLine(
+                    $"  #{candidate.Index} 0x{candidate.Address:X}（区域 0x{candidate.RegionStart:X}）");
+            }
+
+            foreach (var line in result.Diagnostics) _stdout.WriteLine(line);
+        }
+
+        return result.VerificationStatus switch
+        {
+            "game_not_running" => ExitCodes.NotFound,
+            "unsupported_build" or "layout_not_verified" => ExitCodes.Incompatible,
+            _ => ExitCodes.Success,
         };
     }
 
@@ -520,6 +589,8 @@ public sealed class Cli
         writer.WriteLine("  ScoutMind.LiveReader status [--json]");
         writer.WriteLine("  ScoutMind.LiveReader probe [--json] [--report <文件>]");
         writer.WriteLine("  ScoutMind.LiveReader scan [--output <目录>] [--timeout <秒>] [--json]");
+        writer.WriteLine("  ScoutMind.LiveReader date [--json]");
+        writer.WriteLine("  ScoutMind.LiveReader date-discovery --expect <yyyy-MM-dd> [--json]");
         writer.WriteLine("  ScoutMind.LiveReader compatibility list [--json]");
         writer.WriteLine();
         writer.WriteLine("退出码：");
@@ -531,3 +602,4 @@ public sealed class Cli
         writer.WriteLine("  64 用法或配置错误");
     }
 }
+

@@ -14,6 +14,11 @@ internal sealed class FakeMemory : IMemorySource
     public ulong ModuleStart { get; init; } = 0x1000_0000;
     public ulong ModuleEnd { get; init; } = 0x2000_0000;
 
+    /// <summary>测试里显式声明的可读区域；空表示不支持区域枚举。</summary>
+    public List<MemoryRegion> RegionList { get; } = new();
+
+    public IReadOnlyList<MemoryRegion> Regions => RegionList;
+
     public void Write(ulong address, byte[] bytes)
     {
         for (var offset = 0; offset < bytes.Length; offset++)

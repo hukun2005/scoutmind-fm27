@@ -58,6 +58,14 @@ public sealed class WinMemorySource : IMemorySource, IDisposable
     internal GameProcess Game => _game;
 
     /// <inheritdoc />
+    public IReadOnlyList<MemoryRegion> Regions =>
+        _scan.ScanRegions.Select(static item => new MemoryRegion(item.start, item.size)).ToArray();
+
+    /// <inheritdoc />
+    public bool TryReadBlock(ulong address, byte[] buffer, int length) =>
+        length > 0 && length <= buffer.Length && _scan.ReadBlock(address, buffer, length);
+
+    /// <inheritdoc />
     public bool InModule(ulong address) => _scan.InGp(address) || _scan.InGa(address);
 
     /// <inheritdoc />
