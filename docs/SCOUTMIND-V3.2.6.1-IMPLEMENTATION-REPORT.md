@@ -107,10 +107,12 @@
 - 3 次完全关闭/重启（PID 110436 → 113432 → 58416），每次堆地址和结构指纹都变化；
 - 三次引用链签名始终为 `chain:gp:0x586B520:date+0x7F4`，第三次达成 `restart_verified`；
 - 每次都用 `date-read --rva 0x586B520 --field 0x7F4` 独立复核，均解析到 `2026-11-06`；
-- 结构同构的 10 条相邻记录仍作为排除诊断保留，未被误选。
+- 结构同构的 10 条相邻记录仍作为排除诊断保留，未被误选；
+- 会话 3 内推进 1 天后，同一链对象读到 `2026-11-07`（`0x07EA0137`），界面确认一致，
+  身份未因日期变化而丢失，仍为 `restart_verified`。
 
-证据：`docs/evidence/v3.2.6.1/world-date-reference-chain-session-{1,2,3}.json` 与
-`reference-chain-recheck-session-{1,2,3}.json`。
+证据：`docs/evidence/v3.2.6.1/world-date-reference-chain-session-{1,2,3}.json`、
+`reference-chain-recheck-session-{1,2,3}.json` 与 `world-date-reference-chain-date-advance.json`。
 
 自动快照仍为 `BLOCKED`：安全门只剩“存档身份未经验证”一条原因。
 在存档身份接入真实校验前，不得因为 `restart_verified` 而放行自动快照。
@@ -130,7 +132,7 @@
 2. 存档身份识别尚未实现，自动快照必须继续保持关闭；
 3. 引用链已用于区分同构记录，但“模块静态可达”只说明该对象在活的世界状态里，不单独证明它就是世界日期；
 4. 引用链版本的**真实验证已完成**（3 次独立进程 → `restart_verified`），
-   但仍需在日期推进/回退场景补验，才能说明日期变化后身份依然稳定；
+   日期推进已验证（`2026-11-06` → `2026-11-07`）；回退因游戏界面不支持而无法验证；
 5. 只有存档身份接入真实校验后，才允许重新评估自动快照。
 
 ## 7. PR 更新

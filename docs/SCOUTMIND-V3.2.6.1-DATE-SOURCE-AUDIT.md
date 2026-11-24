@@ -88,5 +88,6 @@ ScoutMind.LiveReader world-date --diagnostics [--verify yyyy-MM-dd] [--state <�
 - 真实 FM27 验证已执行（两次独立进程），但因同构日期记录共享签名，身份不唯一，
   结构指纹版的跨重启验证与自动快照均保持 BLOCKED；
 - 引用链版已完成真实验证：3 次独立进程（110436 → 113432 → 58416）均与界面日期
-  `2026-11-06` 一致，第三次达到 `restart_verified`；
+  `2026-11-06` 一致，第三次达到 `restart_verified`；推进 1 天后同一链读到 `2026-11-07`，
+  界面确认一致；
 - 自动快照仍保持 BLOCKED，唯一原因是存档身份未实现。

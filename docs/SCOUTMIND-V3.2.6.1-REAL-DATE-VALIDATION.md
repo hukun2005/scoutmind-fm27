@@ -169,6 +169,9 @@ dotnet test desktop-agent/tests/ScoutMind.Agent.Tests             # 16 PASS / 0 
 | 解析目标 | `0x1A386B369C0 + 0x7F4` | `0x1CC1BAF720 + 0x7F4` | `0x2B4142EB910 + 0x7F4` |
 | 原始值 / 日期 | `0x07EA0136` / `2026-11-06` | 同左 | 同左 |
 
+会话 3 内推进 1 天后，同一链对象读出 `2026-11-07`（`0x07EA0137`），界面显示确认一致，
+身份与 `restart_verified` 均保持（证据：`world-date-reference-chain-date-advance.json`）。
+
 原始证据：
 `docs/evidence/v3.2.6.1/world-date-reference-chain-session-{1,2,3}.json`、
 `docs/evidence/v3.2.6.1/reference-chain-recheck-session-{1,2,3}.json`。
@@ -184,8 +187,8 @@ dotnet test desktop-agent/tests/ScoutMind.Agent.Tests             # 16 PASS / 0 
 | 真实界面日期匹配（结构指纹版） | **BLOCKED** | 同构日期记录 10 条共享签名，无法唯一确定对象 |
 | 引用链版真实诊断（3 次会话） | **PASS** | `session_verified` ×2 → `restart_verified` |
 | 真实界面日期匹配（引用链版） | **PASS** | 三次会话均与界面日期 `2026-11-06` 一致 |
-| 日期推进后复验 | NOT_RUN | 本轮未推进游戏内日期 |
-| 日期回退复验 | NOT_RUN | 本轮未回退游戏内日期 |
+| 日期推进后复验 | **PASS** | 会话 3 内推进 1 天，同一链读到 `2026-11-07`，界面日期确认一致 |
+| 日期回退复验 | NOT_RUN（游戏不支持） | 界面只能向后推进日期，无法构造回退场景 |
 | 真实候选总数 vs 旧实现 | **PASS** | 旧实现 2 GB 截断只见 2 条；完整预算 142–143 条，证明“最新日期”选择不可靠 |
 | 自动快照开放前验证 | **BLOCKED** | 存档身份未实现（安全门按设计保持关闭） |
 
