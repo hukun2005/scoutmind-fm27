@@ -197,12 +197,31 @@ def register_capture(
 def update_capture(
     capture_id: int,
     body: CaptureRunUpdate,
+    save_identity_id: int | None = Query(default=None),
+    save_session_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     row = db.get(CaptureRun, capture_id)
     if row is None or row.fm_save_id != save.id:
         raise HTTPException(status_code=404, detail={"code": "capture_not_found", "message": "采集记录不存在"})
+    # V3.2.7.2：声明了身份/会话时，更新采集状态同样要做存档上下文校验，
+    # 否则采集记录可在会话失效后被“补记”为完成。
+    context = resolve_save_context(db, save, save_identity_id, save_session_id)
+    if context.identity_id is not None:
+        if row.save_identity_id is not None and row.save_identity_id != context.identity_id:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "save_context_mismatch", "message": "采集记录归属于其他存档身份"},
+            )
+        row.save_identity_id = context.identity_id
+    if context.session_id is not None:
+        if row.save_session_id is not None and row.save_session_id != context.session_id:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "save_context_mismatch", "message": "采集记录归属于其他会话"},
+            )
+        row.save_session_id = context.session_id
     if body.status is not None:
         if body.status not in STATUSES:
             raise HTTPException(status_code=422, detail={"code": "invalid_status", "message": "未知采集状态"})
