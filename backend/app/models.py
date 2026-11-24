@@ -966,6 +966,11 @@ class CaptureRun(TimestampMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     metadata_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
 
+    # 游戏日期的来源与可信度：没有经过真实内存读取验证的日期不能标成 verified。
+    date_source: Mapped[str | None] = mapped_column(String(32))
+    date_confidence: Mapped[str | None] = mapped_column(String(16))
+    date_read_status: Mapped[str | None] = mapped_column(String(24))
+
 
 class TransferEventCandidate(TimestampMixin, Base):
     """An observed club change; never promoted to a paid transfer without explicit evidence."""
