@@ -1,0 +1,36 @@
+{
+  "version": "3.2.7",
+  "captured_at": "2026-11-24T15:26:28Z",
+  "captured_on_branch": "codex/v3.2.7-save-identity",
+  "commit": "d8ad828eee96a77b5f196dcef1adee50d87347ad",
+  "os": "Windows",
+  "dotnet_sdk": "10.0.404",
+  "python": "3.13.15",
+  "fm": {
+    "process_detected": true,
+    "build": "26620374",
+    "plugin_version": "27.1"
+  },
+  "save_identity": {
+    "status": "discovered",
+    "fingerprint": "si:v1:unresolved:26620374",
+    "kind": "unresolved",
+    "confidence": "low",
+    "ambiguous": true,
+    "reason": "存在多个候选存档文件，且未定位到游戏内 Save ID / World ID",
+    "snapshot_eligible": false,
+    "automatic_snapshot_enabled": false
+  },
+  "world_date": {
+    "status": "heuristic",
+    "confidence": "heuristic",
+    "selected_date": "2026-11-07",
+    "identity_signature": "chain:gp:0x586B520:date+0x7F4"
+  },
+  "evidence_files": [
+    "identity-live-run-1.json",
+    "identity-live-run-2.json",
+    "world-date-live.json"
+  ],
+  "privacy_note": "证据仅包含进程号、构建号、插件版本、内存地址与日期，不含经理名、俱乐部名或文件路径。"
+}
