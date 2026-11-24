@@ -1,0 +1,1271 @@
+{
+  "environment": {
+    "captured_at": "2026-11-24T16:36:56.662921+00:00",
+    "python": "3.13.15",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "database": "C:\\Users\\hukun\\AppData\\Local\\Temp\\sm-saveidentity-e2e-178bkfdm\\live.db",
+    "api": "http://127.0.0.1:61764/api/v1",
+    "server_pid": 116912,
+    "game_build": "26620374",
+    "real_save_fingerprints": {
+      "A": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+      "B": "si:v1:file:ab0bd79502eec32b392f86847344014073486a0c218362b0faccef58e8672665",
+      "provenance": "2026-11-24 实测真实 .fm 文件（docs/evidence/v3.2.7/save-context/live-http.json）；本轮未启动 FM27"
+    },
+    "limits": "真实 HTTP + 真实 SQLite；未运行 FM27 游戏内切换，故“游戏内切换存档采集”仍为 NOT_RUN"
+  },
+  "scenarios": [
+    {
+      "label": "health",
+      "request": {
+        "method": "GET",
+        "path": "/health",
+        "params": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "status": "ok",
+          "version": "0.1.0",
+          "database": "sqlite",
+          "demo_mode": false,
+          "timestamp": "2026-11-24T16:36:56Z"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "status=ok"
+      },
+      "ok": true
+    },
+    {
+      "label": "create_save_a",
+      "request": {
+        "method": "POST",
+        "path": "/saves",
+        "params": {},
+        "body": {
+          "name": "E2E 存档 A"
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "id": 1,
+          "name": "E2E 存档 A",
+          "game_version": "27.1",
+          "game_build": "26620374",
+          "created_at": "2026-11-24T16:36:56Z",
+          "is_active": true,
+          "player_count": 0,
+          "snapshot_count": 0,
+          "transfer_count": 0,
+          "last_import_at": null
+        }
+      },
+      "expect": {
+        "status": 201,
+        "check": "返回存档 A"
+      },
+      "ok": true
+    },
+    {
+      "label": "create_save_b",
+      "request": {
+        "method": "POST",
+        "path": "/saves",
+        "params": {},
+        "body": {
+          "name": "E2E 存档 B"
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "id": 2,
+          "name": "E2E 存档 B",
+          "game_version": "27.1",
+          "game_build": "26620374",
+          "created_at": "2026-11-24T16:36:56Z",
+          "is_active": true,
+          "player_count": 0,
+          "snapshot_count": 0,
+          "transfer_count": 0,
+          "last_import_at": null
+        }
+      },
+      "expect": {
+        "status": 201,
+        "check": "返回存档 B"
+      },
+      "ok": true
+    },
+    {
+      "label": "register_a_candidate",
+      "request": {
+        "method": "POST",
+        "path": "/save-identities/register",
+        "params": {
+          "save_id": 1
+        },
+        "body": {
+          "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "fingerprint_version": 1,
+          "identity_status": "candidate",
+          "confidence": "medium",
+          "kind": "save_file",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "evidence": [
+            {
+              "type": "save_file_hash",
+              "source": "file",
+              "hash": "b887415ab5",
+              "confidence": "medium"
+            }
+          ],
+          "agent_id": "acceptance-e2e",
+          "session_key": "101248:agent-start:26620374"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "identity_id": 1,
+          "save_id": 1,
+          "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "fingerprint_version": 1,
+          "identity_status": "candidate",
+          "confidence": "medium",
+          "kind": "save_file",
+          "evidence_level": "secondary",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "first_seen_at": "2026-11-24T16:36:56Z",
+          "last_seen_at": "2026-11-24T16:36:56Z",
+          "verified_at": null,
+          "verified_by": null,
+          "protocol_version": "save-identity/v1",
+          "evidence": [
+            {
+              "type": "save_file_hash",
+              "source": "file",
+              "hash": "b887415ab5",
+              "version": null,
+              "confidence": "medium",
+              "observed_at": "2026-11-24T16:36:56Z"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "identity_status=candidate"
+      },
+      "ok": true
+    },
+    {
+      "label": "register_a_idempotent",
+      "request": {
+        "method": "POST",
+        "path": "/save-identities/register",
+        "params": {
+          "save_id": 1
+        },
+        "body": {
+          "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "fingerprint_version": 1,
+          "identity_status": "candidate",
+          "confidence": "medium",
+          "kind": "save_file",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "evidence": [
+            {
+              "type": "save_file_hash",
+              "source": "file",
+              "hash": "b887415ab5",
+              "confidence": "medium"
+            }
+          ],
+          "agent_id": "acceptance-e2e",
+          "session_key": "101248:agent-start:26620374"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "identity_id": 1,
+          "save_id": 1,
+          "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "fingerprint_version": 1,
+          "identity_status": "candidate",
+          "confidence": "medium",
+          "kind": "save_file",
+          "evidence_level": "secondary",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "first_seen_at": "2026-11-24T16:36:56Z",
+          "last_seen_at": "2026-11-24T16:36:56Z",
+          "verified_at": null,
+          "verified_by": null,
+          "protocol_version": "save-identity/v1",
+          "evidence": [
+            {
+              "type": "save_file_hash",
+              "source": "file",
+              "hash": "b887415ab5",
+              "version": null,
+              "confidence": "medium",
+              "observed_at": "2026-11-24T16:36:56Z"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "同一 identity_id 且证据不重复"
+      },
+      "ok": true
+    },
+    {
+      "label": "client_cannot_self_verify",
+      "request": {
+        "method": "POST",
+        "path": "/save-identities/register",
+        "params": {
+          "save_id": 1
+        },
+        "body": {
+          "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "fingerprint_version": 1,
+          "identity_status": "verified",
+          "confidence": "verified",
+          "kind": "save_file",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "evidence": [
+            {
+              "type": "save_file_hash",
+              "source": "file",
+              "hash": "b887415ab5",
+              "confidence": "medium"
+            }
+          ],
+          "agent_id": "acceptance-e2e",
+          "session_key": "101248:agent-start:26620374"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "identity_id": 1,
+          "save_id": 1,
+          "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "fingerprint_version": 1,
+          "identity_status": "candidate",
+          "confidence": "high",
+          "kind": "save_file",
+          "evidence_level": "secondary",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "first_seen_at": "2026-11-24T16:36:56Z",
+          "last_seen_at": "2026-11-24T16:36:56Z",
+          "verified_at": null,
+          "verified_by": null,
+          "protocol_version": "save-identity/v1",
+          "evidence": [
+            {
+              "type": "save_file_hash",
+              "source": "file",
+              "hash": "b887415ab5",
+              "version": null,
+              "confidence": "medium",
+              "observed_at": "2026-11-24T16:36:56Z"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "客户端声明 verified 仍被证据封顶为 candidate"
+      },
+      "ok": true
+    },
+    {
+      "label": "session_for_candidate_is_created",
+      "request": {
+        "method": "POST",
+        "path": "/save-sessions/start",
+        "params": {
+          "save_id": 1
+        },
+        "body": {
+          "identity_id": 1,
+          "session_key": "101248:a1:26620374",
+          "process_id": 101248,
+          "process_start_time": "2026-11-24T16:36:56.406770+00:00",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "agent_id": "acceptance-e2e"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "session_id": 1,
+          "save_id": 1,
+          "identity_id": 1,
+          "session_key": "101248:a1:26620374",
+          "process_id": 101248,
+          "process_start_time": "2026-11-24T16:36:56Z",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "agent_id": "acceptance-e2e",
+          "status": "created",
+          "started_at": "2026-11-24T16:36:56Z",
+          "last_heartbeat_at": "2026-11-24T16:36:56Z",
+          "last_verified_at": null,
+          "ended_at": null,
+          "invalidated_reason": null
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "未验证身份只能得到 created"
+      },
+      "ok": true
+    },
+    {
+      "label": "heartbeat_blocks_unverified",
+      "request": {
+        "method": "POST",
+        "path": "/save-sessions/1/heartbeat",
+        "params": {
+          "save_id": 1
+        },
+        "body": {
+          "identity_id": 1,
+          "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "game_build": "26620374"
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_identity_unverified",
+            "message": "存档身份尚未验证，不能维持可写会话"
+          }
+        }
+      },
+      "expect": {
+        "status": 409,
+        "check": "save_identity_unverified"
+      },
+      "ok": true
+    },
+    {
+      "label": "verify_a",
+      "request": {
+        "method": "POST",
+        "path": "/save-identities/1/verify",
+        "params": {
+          "save_id": 1
+        },
+        "body": {
+          "confirmed_fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "basis": "验收：人工确认界面生涯与存档 A 一致",
+          "actor": "acceptance"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "identity_id": 1,
+          "save_id": 1,
+          "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "fingerprint_version": 1,
+          "identity_status": "verified",
+          "confidence": "verified",
+          "kind": "save_file",
+          "evidence_level": "secondary",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "first_seen_at": "2026-11-24T16:36:56Z",
+          "last_seen_at": "2026-11-24T16:36:56Z",
+          "verified_at": "2026-11-24T16:36:56Z",
+          "verified_by": "acceptance",
+          "protocol_version": "save-identity/v1",
+          "evidence": [
+            {
+              "type": "user_confirmed",
+              "source": "user",
+              "hash": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+              "version": null,
+              "confidence": "high",
+              "observed_at": "2026-11-24T16:36:56Z"
+            },
+            {
+              "type": "save_file_hash",
+              "source": "file",
+              "hash": "b887415ab5",
+              "version": null,
+              "confidence": "medium",
+              "observed_at": "2026-11-24T16:36:56Z"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "identity_status=verified"
+      },
+      "ok": true
+    },
+    {
+      "label": "session_after_verify",
+      "request": {
+        "method": "POST",
+        "path": "/save-sessions/start",
+        "params": {
+          "save_id": 1
+        },
+        "body": {
+          "identity_id": 1,
+          "session_key": "101248:a2:26620374",
+          "process_id": 101248,
+          "process_start_time": "2026-11-24T16:36:56.406770+00:00",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "agent_id": "acceptance-e2e"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "session_id": 2,
+          "save_id": 1,
+          "identity_id": 1,
+          "session_key": "101248:a2:26620374",
+          "process_id": 101248,
+          "process_start_time": "2026-11-24T16:36:56Z",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "agent_id": "acceptance-e2e",
+          "status": "verified",
+          "started_at": "2026-11-24T16:36:56Z",
+          "last_heartbeat_at": "2026-11-24T16:36:56Z",
+          "last_verified_at": "2026-11-24T16:36:56Z",
+          "ended_at": null,
+          "invalidated_reason": null
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "status=verified"
+      },
+      "ok": true
+    },
+    {
+      "label": "heartbeat_ok",
+      "request": {
+        "method": "POST",
+        "path": "/save-sessions/2/heartbeat",
+        "params": {
+          "save_id": 1
+        },
+        "body": {
+          "identity_id": 1,
+          "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "game_build": "26620374"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "session_id": 2,
+          "save_id": 1,
+          "identity_id": 1,
+          "session_key": "101248:a2:26620374",
+          "process_id": 101248,
+          "process_start_time": "2026-11-24T16:36:56Z",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "agent_id": "acceptance-e2e",
+          "status": "verified",
+          "started_at": "2026-11-24T16:36:56Z",
+          "last_heartbeat_at": "2026-11-24T16:36:56Z",
+          "last_verified_at": "2026-11-24T16:36:56Z",
+          "ended_at": null,
+          "invalidated_reason": null
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "status=verified"
+      },
+      "ok": true
+    },
+    {
+      "label": "capture_with_verified_context",
+      "request": {
+        "method": "POST",
+        "path": "/captures",
+        "params": {
+          "save_id": 1,
+          "save_identity_id": 1,
+          "save_session_id": 2
+        },
+        "body": {
+          "game_date": "2026-11-25",
+          "reader_version": "0.1.0",
+          "game_build": "26620374",
+          "scan_scope": "players",
+          "status": "scanning",
+          "revision": 0
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "id": 1,
+          "save_id": 1,
+          "game_date": "2026-11-25",
+          "reader_version": "0.1.0",
+          "game_build": "26620374",
+          "scan_scope": "players",
+          "status": "scanning",
+          "attempt_count": 0,
+          "max_attempts": 3,
+          "next_retry_at": null,
+          "scan_id": null,
+          "import_job_id": null,
+          "supplemental": false,
+          "revision": 0,
+          "observed_at": null,
+          "started_at": "2026-11-24T16:36:56Z",
+          "finished_at": null,
+          "error_code": null,
+          "error_message": null,
+          "date_source": "unknown",
+          "date_confidence": "unverified",
+          "date_read_status": "detected",
+          "save_identity_id": 1,
+          "save_session_id": 2,
+          "metadata": {},
+          "created_at": "2026-11-24T16:36:56Z",
+          "updated_at": "2026-11-24T16:36:56Z"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "check": "采集记录带身份/会话归属"
+      },
+      "ok": true
+    },
+    {
+      "label": "capture_patch_with_context",
+      "request": {
+        "method": "PATCH",
+        "path": "/captures/1",
+        "params": {
+          "save_id": 1,
+          "save_identity_id": 1,
+          "save_session_id": 2
+        },
+        "body": {
+          "status": "completed"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": 1,
+          "save_id": 1,
+          "game_date": "2026-11-25",
+          "reader_version": "0.1.0",
+          "game_build": "26620374",
+          "scan_scope": "players",
+          "status": "completed",
+          "attempt_count": 0,
+          "max_attempts": 3,
+          "next_retry_at": null,
+          "scan_id": null,
+          "import_job_id": null,
+          "supplemental": false,
+          "revision": 0,
+          "observed_at": null,
+          "started_at": "2026-11-24T16:36:56Z",
+          "finished_at": "2026-11-24T16:36:56Z",
+          "error_code": null,
+          "error_message": null,
+          "date_source": "unknown",
+          "date_confidence": "unverified",
+          "date_read_status": "detected",
+          "save_identity_id": 1,
+          "save_session_id": 2,
+          "metadata": {},
+          "created_at": "2026-11-24T16:36:56Z",
+          "updated_at": "2026-11-24T16:36:56Z"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "status=completed"
+      },
+      "ok": true
+    },
+    {
+      "label": "cross_save_session_rejected",
+      "request": {
+        "method": "POST",
+        "path": "/save-sessions/start",
+        "params": {
+          "save_id": 2
+        },
+        "body": {
+          "identity_id": 1,
+          "session_key": "101248:b-cross:26620374",
+          "game_build": "26620374"
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_context_mismatch",
+            "message": "会话声明的身份不属于当前存档"
+          }
+        }
+      },
+      "expect": {
+        "status": 409,
+        "check": "save_context_mismatch"
+      },
+      "ok": true
+    },
+    {
+      "label": "switch_invalidates_session",
+      "request": {
+        "method": "POST",
+        "path": "/save-sessions/2/heartbeat",
+        "params": {
+          "save_id": 1
+        },
+        "body": {
+          "identity_id": 1,
+          "fingerprint": "si:v1:file:ab0bd79502eec32b392f86847344014073486a0c218362b0faccef58e8672665",
+          "game_build": "26620374"
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_context_mismatch",
+            "message": "心跳指纹与身份不一致，会话已失效"
+          }
+        }
+      },
+      "expect": {
+        "status": 409,
+        "check": "指纹不一致 → 会话失效"
+      },
+      "ok": true
+    },
+    {
+      "label": "gate_blocks_after_switch",
+      "request": {
+        "method": "GET",
+        "path": "/save-identities/1",
+        "params": {
+          "save_id": 1
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "identity_id": 1,
+          "save_id": 1,
+          "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "fingerprint_version": 1,
+          "identity_status": "verified",
+          "confidence": "verified",
+          "kind": "save_file",
+          "evidence_level": "secondary",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "first_seen_at": "2026-11-24T16:36:56Z",
+          "last_seen_at": "2026-11-24T16:36:56Z",
+          "verified_at": "2026-11-24T16:36:56Z",
+          "verified_by": "acceptance",
+          "protocol_version": "save-identity/v1",
+          "evidence": [
+            {
+              "type": "user_confirmed",
+              "source": "user",
+              "hash": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+              "version": null,
+              "confidence": "high",
+              "observed_at": "2026-11-24T16:36:56Z"
+            },
+            {
+              "type": "save_file_hash",
+              "source": "file",
+              "hash": "b887415ab5",
+              "version": null,
+              "confidence": "medium",
+              "observed_at": "2026-11-24T16:36:56Z"
+            }
+          ],
+          "sessions": [
+            {
+              "session_id": 2,
+              "save_id": 1,
+              "identity_id": 1,
+              "session_key": "101248:a2:26620374",
+              "process_id": 101248,
+              "process_start_time": "2026-11-24T16:36:56Z",
+              "game_build": "26620374",
+              "plugin_version": "27.1",
+              "agent_id": "acceptance-e2e",
+              "status": "invalidated",
+              "started_at": "2026-11-24T16:36:56Z",
+              "last_heartbeat_at": "2026-11-24T16:36:56Z",
+              "last_verified_at": "2026-11-24T16:36:56Z",
+              "ended_at": "2026-11-24T16:36:56Z",
+              "invalidated_reason": "fingerprint_mismatch"
+            },
+            {
+              "session_id": 1,
+              "save_id": 1,
+              "identity_id": 1,
+              "session_key": "101248:a1:26620374",
+              "process_id": 101248,
+              "process_start_time": "2026-11-24T16:36:56Z",
+              "game_build": "26620374",
+              "plugin_version": "27.1",
+              "agent_id": "acceptance-e2e",
+              "status": "created",
+              "started_at": "2026-11-24T16:36:56Z",
+              "last_heartbeat_at": "2026-11-24T16:36:56Z",
+              "last_verified_at": null,
+              "ended_at": null,
+              "invalidated_reason": null
+            }
+          ],
+          "capture_allowed": false,
+          "blockers": [
+            "最近会话状态为 invalidated。"
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "capture_allowed=false 且阻断原因为会话失效"
+      },
+      "ok": true
+    },
+    {
+      "label": "stale_session_cannot_patch",
+      "request": {
+        "method": "PATCH",
+        "path": "/captures/1",
+        "params": {
+          "save_id": 1,
+          "save_identity_id": 1,
+          "save_session_id": 2
+        },
+        "body": {
+          "status": "failed"
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "save_session_invalidated",
+            "message": "会话已失效，不能提交新数据"
+          }
+        }
+      },
+      "expect": {
+        "status": 409,
+        "check": "save_session_invalidated"
+      },
+      "ok": true
+    },
+    {
+      "label": "return_after_switch",
+      "request": {
+        "method": "POST",
+        "path": "/save-identities/register",
+        "params": {
+          "save_id": 1
+        },
+        "body": {
+          "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "fingerprint_version": 1,
+          "identity_status": "verified",
+          "confidence": "verified",
+          "kind": "save_file",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "evidence": [
+            {
+              "type": "save_file_hash",
+              "source": "file",
+              "hash": "b887415ab5",
+              "confidence": "medium"
+            }
+          ],
+          "agent_id": "acceptance-e2e",
+          "session_key": "101248:agent-start:26620374"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "identity_id": 1,
+          "save_id": 1,
+          "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "fingerprint_version": 1,
+          "identity_status": "verified",
+          "confidence": "verified",
+          "kind": "save_file",
+          "evidence_level": "secondary",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "first_seen_at": "2026-11-24T16:36:56Z",
+          "last_seen_at": "2026-11-24T16:36:56Z",
+          "verified_at": "2026-11-24T16:36:56Z",
+          "verified_by": "acceptance",
+          "protocol_version": "save-identity/v1",
+          "evidence": [
+            {
+              "type": "user_confirmed",
+              "source": "user",
+              "hash": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+              "version": null,
+              "confidence": "high",
+              "observed_at": "2026-11-24T16:36:56Z"
+            },
+            {
+              "type": "save_file_hash",
+              "source": "file",
+              "hash": "b887415ab5",
+              "version": null,
+              "confidence": "medium",
+              "observed_at": "2026-11-24T16:36:56Z"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "身份仍为 verified"
+      },
+      "ok": true
+    },
+    {
+      "label": "session_recovered",
+      "request": {
+        "method": "POST",
+        "path": "/save-sessions/start",
+        "params": {
+          "save_id": 1
+        },
+        "body": {
+          "identity_id": 1,
+          "session_key": "101248:a3:26620374",
+          "process_id": 101248,
+          "process_start_time": "2026-11-24T16:36:56.406770+00:00",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "agent_id": "acceptance-e2e"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "session_id": 3,
+          "save_id": 1,
+          "identity_id": 1,
+          "session_key": "101248:a3:26620374",
+          "process_id": 101248,
+          "process_start_time": "2026-11-24T16:36:56Z",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "agent_id": "acceptance-e2e",
+          "status": "verified",
+          "started_at": "2026-11-24T16:36:56Z",
+          "last_heartbeat_at": "2026-11-24T16:36:56Z",
+          "last_verified_at": "2026-11-24T16:36:56Z",
+          "ended_at": null,
+          "invalidated_reason": null
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "status=verified"
+      },
+      "ok": true
+    },
+    {
+      "label": "gate_allows_recovered",
+      "request": {
+        "method": "GET",
+        "path": "/save-identities/1",
+        "params": {
+          "save_id": 1
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "identity_id": 1,
+          "save_id": 1,
+          "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "fingerprint_version": 1,
+          "identity_status": "verified",
+          "confidence": "verified",
+          "kind": "save_file",
+          "evidence_level": "secondary",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "first_seen_at": "2026-11-24T16:36:56Z",
+          "last_seen_at": "2026-11-24T16:36:56Z",
+          "verified_at": "2026-11-24T16:36:56Z",
+          "verified_by": "acceptance",
+          "protocol_version": "save-identity/v1",
+          "evidence": [
+            {
+              "type": "user_confirmed",
+              "source": "user",
+              "hash": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+              "version": null,
+              "confidence": "high",
+              "observed_at": "2026-11-24T16:36:56Z"
+            },
+            {
+              "type": "save_file_hash",
+              "source": "file",
+              "hash": "b887415ab5",
+              "version": null,
+              "confidence": "medium",
+              "observed_at": "2026-11-24T16:36:56Z"
+            }
+          ],
+          "sessions": [
+            {
+              "session_id": 3,
+              "save_id": 1,
+              "identity_id": 1,
+              "session_key": "101248:a3:26620374",
+              "process_id": 101248,
+              "process_start_time": "2026-11-24T16:36:56Z",
+              "game_build": "26620374",
+              "plugin_version": "27.1",
+              "agent_id": "acceptance-e2e",
+              "status": "verified",
+              "started_at": "2026-11-24T16:36:56Z",
+              "last_heartbeat_at": "2026-11-24T16:36:56Z",
+              "last_verified_at": "2026-11-24T16:36:56Z",
+              "ended_at": null,
+              "invalidated_reason": null
+            },
+            {
+              "session_id": 2,
+              "save_id": 1,
+              "identity_id": 1,
+              "session_key": "101248:a2:26620374",
+              "process_id": 101248,
+              "process_start_time": "2026-11-24T16:36:56Z",
+              "game_build": "26620374",
+              "plugin_version": "27.1",
+              "agent_id": "acceptance-e2e",
+              "status": "invalidated",
+              "started_at": "2026-11-24T16:36:56Z",
+              "last_heartbeat_at": "2026-11-24T16:36:56Z",
+              "last_verified_at": "2026-11-24T16:36:56Z",
+              "ended_at": "2026-11-24T16:36:56Z",
+              "invalidated_reason": "fingerprint_mismatch"
+            },
+            {
+              "session_id": 1,
+              "save_id": 1,
+              "identity_id": 1,
+              "session_key": "101248:a1:26620374",
+              "process_id": 101248,
+              "process_start_time": "2026-11-24T16:36:56Z",
+              "game_build": "26620374",
+              "plugin_version": "27.1",
+              "agent_id": "acceptance-e2e",
+              "status": "created",
+              "started_at": "2026-11-24T16:36:56Z",
+              "last_heartbeat_at": "2026-11-24T16:36:56Z",
+              "last_verified_at": null,
+              "ended_at": null,
+              "invalidated_reason": null
+            }
+          ],
+          "capture_allowed": true,
+          "blockers": []
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "capture_allowed=true"
+      },
+      "ok": true
+    },
+    {
+      "label": "different_fingerprint_conflict",
+      "request": {
+        "method": "POST",
+        "path": "/save-identities/register",
+        "params": {
+          "save_id": 1
+        },
+        "body": {
+          "fingerprint": "si:v1:file:ab0bd79502eec32b392f86847344014073486a0c218362b0faccef58e8672665",
+          "fingerprint_version": 1,
+          "identity_status": "verified",
+          "confidence": "verified",
+          "kind": "save_file",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "evidence": [
+            {
+              "type": "save_file_hash",
+              "source": "file",
+              "hash": "ab0bd795",
+              "confidence": "medium"
+            },
+            {
+              "type": "game_internal_save_id",
+              "source": "memory",
+              "hash": "internal-b",
+              "confidence": "high"
+            }
+          ],
+          "agent_id": "acceptance-e2e",
+          "session_key": "101248:agent-start:26620374"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "identity_id": 2,
+          "save_id": 1,
+          "fingerprint": "si:v1:file:ab0bd79502eec32b392f86847344014073486a0c218362b0faccef58e8672665",
+          "fingerprint_version": 1,
+          "identity_status": "conflict",
+          "confidence": "verified",
+          "kind": "save_file",
+          "evidence_level": "primary",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "first_seen_at": "2026-11-24T16:36:56Z",
+          "last_seen_at": "2026-11-24T16:36:56Z",
+          "verified_at": null,
+          "verified_by": null,
+          "protocol_version": "save-identity/v1",
+          "evidence": [
+            {
+              "type": "game_internal_save_id",
+              "source": "memory",
+              "hash": "internal-b",
+              "version": null,
+              "confidence": "high",
+              "observed_at": "2026-11-24T16:36:56Z"
+            },
+            {
+              "type": "save_file_hash",
+              "source": "file",
+              "hash": "ab0bd795",
+              "version": null,
+              "confidence": "medium",
+              "observed_at": "2026-11-24T16:36:56Z"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "新指纹被标记 conflict，旧 verified 不被替换"
+      },
+      "ok": true
+    },
+    {
+      "label": "gate_blocks_on_conflict",
+      "request": {
+        "method": "GET",
+        "path": "/save-identities/1",
+        "params": {
+          "save_id": 1
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "identity_id": 1,
+          "save_id": 1,
+          "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+          "fingerprint_version": 1,
+          "identity_status": "verified",
+          "confidence": "verified",
+          "kind": "save_file",
+          "evidence_level": "secondary",
+          "game_build": "26620374",
+          "plugin_version": "27.1",
+          "first_seen_at": "2026-11-24T16:36:56Z",
+          "last_seen_at": "2026-11-24T16:36:56Z",
+          "verified_at": "2026-11-24T16:36:56Z",
+          "verified_by": "acceptance",
+          "protocol_version": "save-identity/v1",
+          "evidence": [
+            {
+              "type": "user_confirmed",
+              "source": "user",
+              "hash": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+              "version": null,
+              "confidence": "high",
+              "observed_at": "2026-11-24T16:36:56Z"
+            },
+            {
+              "type": "save_file_hash",
+              "source": "file",
+              "hash": "b887415ab5",
+              "version": null,
+              "confidence": "medium",
+              "observed_at": "2026-11-24T16:36:56Z"
+            }
+          ],
+          "sessions": [
+            {
+              "session_id": 3,
+              "save_id": 1,
+              "identity_id": 1,
+              "session_key": "101248:a3:26620374",
+              "process_id": 101248,
+              "process_start_time": "2026-11-24T16:36:56Z",
+              "game_build": "26620374",
+              "plugin_version": "27.1",
+              "agent_id": "acceptance-e2e",
+              "status": "verified",
+              "started_at": "2026-11-24T16:36:56Z",
+              "last_heartbeat_at": "2026-11-24T16:36:56Z",
+              "last_verified_at": "2026-11-24T16:36:56Z",
+              "ended_at": null,
+              "invalidated_reason": null
+            },
+            {
+              "session_id": 2,
+              "save_id": 1,
+              "identity_id": 1,
+              "session_key": "101248:a2:26620374",
+              "process_id": 101248,
+              "process_start_time": "2026-11-24T16:36:56Z",
+              "game_build": "26620374",
+              "plugin_version": "27.1",
+              "agent_id": "acceptance-e2e",
+              "status": "invalidated",
+              "started_at": "2026-11-24T16:36:56Z",
+              "last_heartbeat_at": "2026-11-24T16:36:56Z",
+              "last_verified_at": "2026-11-24T16:36:56Z",
+              "ended_at": "2026-11-24T16:36:56Z",
+              "invalidated_reason": "fingerprint_mismatch"
+            },
+            {
+              "session_id": 1,
+              "save_id": 1,
+              "identity_id": 1,
+              "session_key": "101248:a1:26620374",
+              "process_id": 101248,
+              "process_start_time": "2026-11-24T16:36:56Z",
+              "game_build": "26620374",
+              "plugin_version": "27.1",
+              "agent_id": "acceptance-e2e",
+              "status": "created",
+              "started_at": "2026-11-24T16:36:56Z",
+              "last_heartbeat_at": "2026-11-24T16:36:56Z",
+              "last_verified_at": null,
+              "ended_at": null,
+              "invalidated_reason": null
+            }
+          ],
+          "capture_allowed": false,
+          "blockers": [
+            "存在未处理的存档身份冲突。"
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "存在未处理冲突 → 停止采集"
+      },
+      "ok": true
+    },
+    {
+      "label": "audit_trail",
+      "request": {
+        "method": "GET",
+        "path": "/save-identity-audit",
+        "params": {
+          "save_id": 1,
+          "limit": 200
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "total": 8,
+          "event_types": [
+            "conflict_detected",
+            "registered",
+            "session_invalidated",
+            "session_started",
+            "user_confirmed"
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "包含注册/确认/会话失效/冲突审计"
+      },
+      "ok": true
+    },
+    {
+      "label": "audit_save_isolation",
+      "request": {
+        "method": "GET",
+        "path": "/save-identity-audit",
+        "params": {
+          "save_id": 2,
+          "limit": 200
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "total": 0
+        }
+      },
+      "expect": {
+        "status": 200,
+        "check": "存档 B 无 A 的审计事件"
+      },
+      "ok": true
+    }
+  ],
+  "failures": [],
+  "ok": true
+}

@@ -231,3 +231,16 @@
 
 - `status`: `completed | pending | future | agreed | bid_rejected | cancelled | failed | unknown`
 - `transfer_type` 增加 `loan_buyout`（租借买断，计入成交统计）
+
+## 8. 存档身份协议（save-identity/v1，V3.2.7.2）
+
+扫描报文之外，Agent 还需上报“这份数据属于哪个存档”的身份证据与会话心跳。完整定义见
+`docs/SCOUTMIND-V3.2.7.2-IDENTITY-PROTOCOL.md`，摘要：
+
+- 指纹：`si:v1:file:<sha256>` 或 `si:v1:unresolved:<build>`；
+- 证据类型：`game_internal_save_id`、`world_id`、`save_file_hash`、`save_file_metadata`、
+  `save_file_header`、`career_metadata`、`game_session_metadata`、`user_confirmed`、`legacy_unverified`；
+- 身份状态：`unknown / discovered / candidate / verified / conflict / invalidated`；
+- 会话键：`PID:进程启动时间:Build`；会话状态：`created / verified / switching / invalidated / closed`；
+- 写入采集/导入时必须携带 `save_identity_id` 与 `save_session_id`，后端校验归属、指纹、build 与会话状态；
+- 未解析或 ambiguous 的身份不得作为 `verified`，也不会被静默升级。

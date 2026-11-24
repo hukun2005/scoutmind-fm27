@@ -1,0 +1,29 @@
+INFO:     Started server process [116912]
+INFO:     Waiting for application startup.
+SCOUTMIND_API_TOKEN 未配置：本地 API 无鉴权，只能监听 127.0.0.1
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:61764 (Press CTRL+C to quit)
+INFO:     127.0.0.1:61765 - "GET /api/v1/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61769 - "POST /api/v1/saves HTTP/1.1" 201 Created
+INFO:     127.0.0.1:61770 - "POST /api/v1/saves HTTP/1.1" 201 Created
+INFO:     127.0.0.1:61771 - "POST /api/v1/save-identities/register?save_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61773 - "POST /api/v1/save-identities/register?save_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61774 - "POST /api/v1/save-identities/register?save_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61775 - "POST /api/v1/save-sessions/start?save_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61776 - "POST /api/v1/save-sessions/1/heartbeat?save_id=1 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:61777 - "POST /api/v1/save-identities/1/verify?save_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61778 - "POST /api/v1/save-sessions/start?save_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61779 - "POST /api/v1/save-sessions/2/heartbeat?save_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61780 - "POST /api/v1/captures?save_id=1&save_identity_id=1&save_session_id=2 HTTP/1.1" 201 Created
+INFO:     127.0.0.1:61781 - "PATCH /api/v1/captures/1?save_id=1&save_identity_id=1&save_session_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61782 - "POST /api/v1/save-sessions/start?save_id=2 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:61783 - "POST /api/v1/save-sessions/2/heartbeat?save_id=1 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:61784 - "GET /api/v1/save-identities/1?save_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61785 - "PATCH /api/v1/captures/1?save_id=1&save_identity_id=1&save_session_id=2 HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:61786 - "POST /api/v1/save-identities/register?save_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61787 - "POST /api/v1/save-sessions/start?save_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61788 - "GET /api/v1/save-identities/1?save_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61789 - "POST /api/v1/save-identities/register?save_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61790 - "GET /api/v1/save-identities/1?save_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61791 - "GET /api/v1/save-identity-audit?save_id=1&limit=200 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61792 - "GET /api/v1/save-identity-audit?save_id=2&limit=200 HTTP/1.1" 200 OK

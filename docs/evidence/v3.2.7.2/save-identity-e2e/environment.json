@@ -1,0 +1,15 @@
+{
+  "captured_at": "2026-11-24T16:36:56.662921+00:00",
+  "python": "3.13.15",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "database": "C:\\Users\\hukun\\AppData\\Local\\Temp\\sm-saveidentity-e2e-178bkfdm\\live.db",
+  "api": "http://127.0.0.1:61764/api/v1",
+  "server_pid": 116912,
+  "game_build": "26620374",
+  "real_save_fingerprints": {
+    "A": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+    "B": "si:v1:file:ab0bd79502eec32b392f86847344014073486a0c218362b0faccef58e8672665",
+    "provenance": "2026-11-24 实测真实 .fm 文件（docs/evidence/v3.2.7/save-context/live-http.json）；本轮未启动 FM27"
+  },
+  "limits": "真实 HTTP + 真实 SQLite；未运行 FM27 游戏内切换，故“游戏内切换存档采集”仍为 NOT_RUN"
+}
