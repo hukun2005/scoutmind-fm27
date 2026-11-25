@@ -37,6 +37,12 @@ public enum PersonVerificationState
 
     /// <summary>构建或布局不匹配。</summary>
     UnsupportedBuild,
+
+    /// <summary>历史验证所属存档已不是当前存档；记录保留但当前不可用。</summary>
+    Stale,
+
+    /// <summary>存档内证据（构建/布局/会话/字段/记录）已变化，必须重新读取并确认。</summary>
+    RevalidationRequired,
 }
 
 /// <summary>验证输入：全部来自只读观测与人工确认，不包含内存写入。</summary>
@@ -61,6 +67,9 @@ public enum PersonVerificationState
 /// <param name="ConfirmationSource">确认方式（例如游戏界面截图、人工核对记录）。</param>
 /// <param name="EvidenceReference">证据文档或记录引用。</param>
 /// <param name="ObservedAt">观测时间。</param>
+/// <param name="Scope">Verified 所属存档作用域；缺失时最多到 HumanReviewPending/RevalidationRequired。</param>
+/// <param name="CurrentSaveIdentityFingerprint">本次观测到的 Save Identity 指纹；用于判定历史作用域是否属于当前存档。</param>
+/// <param name="CurrentSessionKey">本次会话键；旧会话不得沿用历史 Verified。</param>
 public sealed record PersonVerificationRequest(
     string CandidateId,
     string LayoutVersion,
@@ -82,7 +91,10 @@ public sealed record PersonVerificationRequest(
     string? Reviewer,
     string? ConfirmationSource,
     string? EvidenceReference,
-    DateTimeOffset ObservedAt);
+    DateTimeOffset ObservedAt,
+    VerifiedIdentityScope? Scope = null,
+    string? CurrentSaveIdentityFingerprint = null,
+    string? CurrentSessionKey = null);
 
 /// <summary>验证审计记录（脱敏，不含任何内存地址）。</summary>
 /// <param name="Timestamp">操作时间。</param>
@@ -103,6 +115,8 @@ public sealed record PersonVerificationRequest(
 /// <param name="Reviewer">确认人。</param>
 /// <param name="ConfirmationSource">确认来源。</param>
 /// <param name="EvidenceReference">证据引用。</param>
+/// <param name="SaveIdentityFingerprint">存档身份指纹；未提供作用域时为 <c>null</c>。</param>
+/// <param name="SaveSessionKey">采集会话键；未提供作用域时为 <c>null</c>。</param>
 public sealed record PersonVerificationAuditEntry(
     DateTimeOffset Timestamp,
     string Outcome,
@@ -121,7 +135,9 @@ public sealed record PersonVerificationAuditEntry(
     IReadOnlyList<string> RejectionReasons,
     string? Reviewer,
     string? ConfirmationSource,
-    string? EvidenceReference)
+    string? EvidenceReference,
+    string? SaveIdentityFingerprint = null,
+    string? SaveSessionKey = null)
 {
     /// <summary>序列化为单行 JSON（用于审计日志）。</summary>
     /// <returns>单行 JSON。</returns>
@@ -148,6 +164,11 @@ public sealed record PersonVerificationAuditEntry(
         reviewer = Reviewer,
         confirmation_source = ConfirmationSource,
         evidence_reference = EvidenceReference,
+        save_scope = new
+        {
+            save_identity_fingerprint = SaveIdentityFingerprint,
+            save_session_key = SaveSessionKey,
+        },
     }, new JsonSerializerOptions
     {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
@@ -273,6 +294,12 @@ public sealed class PersonVerificationGate
             reasons.Add("human_confirmation_incomplete");
             state = PersonVerificationState.HumanReviewPending;
         }
+        else if (ScopeMismatch(request) is { } scopeMismatch)
+        {
+            // 没有存档作用域或作用域与本次观测不一致时，历史确认不能直接沿用。
+            reasons.Add(scopeMismatch);
+            state = PersonVerificationState.RevalidationRequired;
+        }
         else
         {
             state = PersonVerificationState.Verified;
@@ -307,7 +334,9 @@ public sealed class PersonVerificationGate
             reasons,
             request.Reviewer,
             request.ConfirmationSource,
-            request.EvidenceReference);
+            request.EvidenceReference,
+            request.Scope?.SaveIdentityFingerprint,
+            request.Scope?.SaveSessionKey);
 
         return new PersonVerificationDecision(
             state,
@@ -315,6 +344,85 @@ public sealed class PersonVerificationGate
             reasons,
             warnings,
             audit);
+    }
+
+    /// <summary>检查 Verified 作用域是否与本次观测一致；返回 <c>null</c> 表示一致。</summary>
+    private static string? ScopeMismatch(PersonVerificationRequest request)
+    {
+        var scope = request.Scope;
+        if (scope is null)
+        {
+            return "verified_scope_missing";
+        }
+
+        if (!scope.IsComplete)
+        {
+            return "verified_scope_incomplete";
+        }
+
+        if (string.IsNullOrWhiteSpace(request.CurrentSaveIdentityFingerprint))
+        {
+            return "current_save_identity_missing";
+        }
+
+        if (!string.Equals(
+                scope.SaveIdentityFingerprint,
+                request.CurrentSaveIdentityFingerprint,
+                StringComparison.Ordinal))
+        {
+            return "scope_save_identity_mismatch";
+        }
+
+        if (string.IsNullOrWhiteSpace(request.CurrentSessionKey))
+        {
+            return "current_session_missing";
+        }
+
+        if (!string.Equals(scope.SaveSessionKey, request.CurrentSessionKey, StringComparison.Ordinal))
+        {
+            return "scope_session_mismatch";
+        }
+
+        if (!string.Equals(scope.GameBuild, request.ObservedBuild, StringComparison.Ordinal))
+        {
+            return "scope_game_build_mismatch";
+        }
+
+        if (!string.Equals(scope.LayoutVersion, request.LayoutVersion, StringComparison.Ordinal))
+        {
+            return "scope_layout_version_mismatch";
+        }
+
+        if (request.AttributeLink?.Target.Uid != scope.PersonUid)
+        {
+            return "scope_person_uid_mismatch";
+        }
+
+        if (!string.Equals(
+                VerifiedIdentityScope.NormalizeName(scope.DisplayName),
+                VerifiedIdentityScope.NormalizeName(request.DisplayName),
+                StringComparison.Ordinal))
+        {
+            return "scope_display_name_mismatch";
+        }
+
+        if (request.DateOfBirth is { } dateOfBirth)
+        {
+            if (dateOfBirth != scope.DateOfBirth)
+            {
+                return "scope_date_of_birth_mismatch";
+            }
+        }
+        else if (!string.Equals(
+                     scope.ApprovedAlternativeStrategy,
+                     request.ApprovedAlternativeStrategy,
+                     StringComparison.Ordinal))
+        {
+            // 没有生日时必须使用同一套已批准策略，不能事后换一套口径。
+            return "scope_alternative_strategy_mismatch";
+        }
+
+        return null;
     }
 
     private static IReadOnlyList<string> CollectVerifiedFields(

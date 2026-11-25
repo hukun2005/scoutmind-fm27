@@ -832,6 +832,9 @@ internal static class Program
                     Console.WriteLine("  --reviewer <id>            确认人");
                     Console.WriteLine("  --source <text>            确认来源（如 fm27-ui）");
                     Console.WriteLine("  --evidence <path>          证据文档引用");
+                    Console.WriteLine("  --save-identity <fp>       Save Identity 指纹；缺省时不得 Mark(Verified)");
+                    Console.WriteLine("  --save-id <label>          存档标签（默认与指纹一致）");
+                    Console.WriteLine("  --session <key>            采集会话键（默认 pid:build）");
                     Console.WriteLine("  --alternative-strategy <s> 经批准的替代生日验证策略");
                     Console.WriteLine("  --name <text>              按姓名精确选人（与 --dob 组合，必须唯一）");
                     Console.WriteLine("  --dob <yyyy-MM-dd>         按出生日期筛选目标");
@@ -848,6 +851,8 @@ internal static class Program
                 var reviewer = FlagValue(args, "--reviewer");
                 var confirmationSource = FlagValue(args, "--source");
                 var evidenceReference = FlagValue(args, "--evidence");
+                var saveIdentityFingerprint = FlagValue(args, "--save-identity");
+                var saveId = FlagValue(args, "--save-id") ?? saveIdentityFingerprint;
                 var alternativeStrategy = FlagValue(args, "--alternative-strategy");
                 var nameFilter = FlagValue(args, "--name");
                 var dobFilterText = FlagValue(args, "--dob");
@@ -879,6 +884,10 @@ internal static class Program
                     status.Gate?.Status.ToString(),
                     buildSupported,
                     status.AccessDenied);
+                var sessionKey = FlagValue(args, "--session")
+                                 ?? (status.ProcessId is { } processId
+                                     ? string.Concat(processId.ToString(CultureInfo.InvariantCulture), ":", status.Build ?? "unknown")
+                                     : null);
 
                 string? displayName = null;
                 DateOnly? dateOfBirth = null;
@@ -978,6 +987,32 @@ internal static class Program
                     ca = target.Ca;
                     link = new AttributeRecordLinker().Link(PersonIdentityFields.FromFacts(target), facts);
 
+                    // Verified 必须绑定存档身份与会话：缺 --save-identity 时保持 RevalidationRequired。
+                    VerifiedIdentityScope? scope = null;
+                    if (!string.IsNullOrWhiteSpace(saveIdentityFingerprint)
+                        && !string.IsNullOrWhiteSpace(sessionKey)
+                        && !string.IsNullOrWhiteSpace(displayName)
+                        && (dateOfBirth is not null || !string.IsNullOrWhiteSpace(alternativeStrategy))
+                        && link.Target.Uid is { } confirmedUid
+                        && link.CompatibleCandidates.Count > 0)
+                    {
+                        scope = new VerifiedIdentityScope(
+                            string.IsNullOrWhiteSpace(saveId) ? saveIdentityFingerprint! : saveId!,
+                            saveIdentityFingerprint!,
+                            sessionKey!,
+                            status.Build ?? "unknown",
+                            candidate.GameVersion,
+                            confirmedUid,
+                            displayName!,
+                            dateOfBirth ?? default,
+                            alternativeStrategy,
+                            VerifiedIdentityScope.AttributeRecordIdentityOf(link.CompatibleCandidates[0].Facts),
+                            DateTimeOffset.Now,
+                            reviewer ?? string.Empty,
+                            confirmationSource ?? string.Empty,
+                            evidenceReference ?? string.Empty);
+                    }
+
                     var calibration = new PersonCalibrationEngine(memory).Run(
                         candidate,
                         new[] { target.PersonPointer },
@@ -1013,7 +1048,10 @@ internal static class Program
                         reviewer,
                         confirmationSource,
                         evidenceReference,
-                        DateTimeOffset.Now);
+                        DateTimeOffset.Now,
+                        scope,
+                        saveIdentityFingerprint,
+                        sessionKey);
                     var decision = new PersonVerificationGate().Evaluate(request);
                     var json = ToJson(new
                     {
@@ -1022,6 +1060,18 @@ internal static class Program
                         mark_verified = decision.MarkVerified,
                         reasons = decision.Reasons,
                         warnings = decision.Warnings,
+                        save_scope = scope is null
+                            ? null
+                            : new
+                            {
+                                save_id = scope.SaveId,
+                                save_identity_fingerprint = scope.SaveIdentityFingerprint,
+                                save_session_key = scope.SaveSessionKey,
+                                game_build = scope.GameBuild,
+                                layout_version = scope.LayoutVersion,
+                                person_uid = scope.PersonUid,
+                                attribute_record_identity = scope.AttributeRecordIdentity,
+                            },
                         target = new
                         {
                             index = targetIndex,

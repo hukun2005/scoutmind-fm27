@@ -27,6 +27,11 @@ internal static class PersonVerificationGateTests
         harness.Run("验证门控：没有属性记录关联最多到 StructurallyValid", MissingAttributeLink);
         harness.Run("验证门控：指针无效为 Rejected", InvalidPointer);
         harness.Run("验证门控：结构校验失败为 Rejected", InvalidStructure);
+        harness.Run("验证门控：缺少存档作用域不得 Verified", ScopeMissing);
+        harness.Run("验证门控：存档指纹不一致不得 Verified", SaveScopeMismatch);
+        harness.Run("验证门控：旧会话不得沿用 Verified", SessionMismatch);
+        harness.Run("验证门控：缺少当前存档身份不得 Verified", MissingCurrentSaveIdentity);
+        harness.Run("验证门控：作用域构建号不一致不得 Verified", ScopeBuildMismatch);
         harness.Run("验证审计：包含必需字段且不含内存地址", AuditLineIsCompleteAndSanitized);
         harness.Run("布局入口：Verified 必须来自 GameUiAgreement 且有证据", LayoutMarkRequiresEvidence);
     }
@@ -159,6 +164,43 @@ internal static class PersonVerificationGateTests
         TestHarness.True(decision.Reasons.Contains("structure_invalid"), "原因");
     }
 
+    private static void ScopeMissing()
+    {
+        var decision = Evaluate(Request(humanConfirmed: true, includeScope: false));
+        TestHarness.Equal(PersonVerificationState.RevalidationRequired, decision.State, "无作用域不得 Verified");
+        TestHarness.True(!decision.MarkVerified, "无作用域不得 Mark");
+        TestHarness.True(decision.Reasons.Contains("verified_scope_missing"), "原因");
+    }
+
+    private static void SaveScopeMismatch()
+    {
+        var decision = Evaluate(Request(humanConfirmed: true, currentFingerprint: "si:v1:file:bbbb"));
+        TestHarness.Equal(PersonVerificationState.RevalidationRequired, decision.State, "跨存档不得 Verified");
+        TestHarness.True(decision.Reasons.Contains("scope_save_identity_mismatch"), "原因");
+    }
+
+    private static void SessionMismatch()
+    {
+        var decision = Evaluate(Request(humanConfirmed: true, currentSession: "99999:other"));
+        TestHarness.Equal(PersonVerificationState.RevalidationRequired, decision.State, "旧会话不得 Verified");
+        TestHarness.True(decision.Reasons.Contains("scope_session_mismatch"), "原因");
+    }
+
+    private static void MissingCurrentSaveIdentity()
+    {
+        var decision = Evaluate(Request(humanConfirmed: true, currentFingerprint: null));
+        TestHarness.Equal(PersonVerificationState.RevalidationRequired, decision.State, "无当前身份不得 Verified");
+        TestHarness.True(decision.Reasons.Contains("current_save_identity_missing"), "原因");
+    }
+
+    private static void ScopeBuildMismatch()
+    {
+        var scope = BuildScope(observedBuild: "99999999");
+        var decision = Evaluate(Request(humanConfirmed: true, scope: scope));
+        TestHarness.Equal(PersonVerificationState.RevalidationRequired, decision.State, "作用域构建不一致不得 Verified");
+        TestHarness.True(decision.Reasons.Contains("scope_game_build_mismatch"), "原因");
+    }
+
     private static void AuditLineIsCompleteAndSanitized()
     {
         var decision = Evaluate(Request(humanConfirmed: true));
@@ -213,7 +255,11 @@ internal static class PersonVerificationGateTests
         string observedBuild = "26620374",
         string expectedBuild = "26620374",
         bool buildSupported = true,
-        bool layoutMatches = true) =>
+        bool layoutMatches = true,
+        bool includeScope = true,
+        VerifiedIdentityScope? scope = null,
+        string? currentFingerprint = SaveFingerprint,
+        string? currentSession = SessionKey) =>
         new(
             PersonLayoutCandidate.Fm27_1_20261125.CandidateId,
             "27.1",
@@ -235,7 +281,36 @@ internal static class PersonVerificationGateTests
             reviewer,
             source,
             evidence,
-            ObservedAt);
+            ObservedAt,
+            includeScope ? scope ?? BuildScope(observedBuild, name, dateOfBirth, alternative) : null,
+            currentFingerprint,
+            currentSession);
+
+    private const string SaveFingerprint = "si:v1:file:aaaa";
+    private const string SessionKey = "72012:2026-11-25T15:00:00Z:26620374";
+
+    private static VerifiedIdentityScope BuildScope(
+        string observedBuild = "26620374",
+        string? name = "Dominic Calvert-Lewin",
+        string? dateOfBirth = "1997-03-16",
+        string? alternative = null,
+        string fingerprint = SaveFingerprint,
+        string session = SessionKey) =>
+        new(
+            "save-a",
+            fingerprint,
+            session,
+            observedBuild,
+            "27.1",
+            1001,
+            name ?? string.Empty,
+            ParseDate(dateOfBirth) ?? default,
+            alternative,
+            "record-identity",
+            ObservedAt,
+            "tester",
+            "fm27-ui",
+            "docs/evidence/v3.2.8/HUMAN-REVIEW.md");
 
     private static AttributeLinkResult BuildLink(
         AttributeLinkStatus status,
