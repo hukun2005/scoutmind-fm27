@@ -1,8 +1,9 @@
-"""进程内取消信号（V3.2.7.4）。
+"""进程内取消信号（V3.2.7.4，V3.2.7.5 补充跨进程兜底）。
 
-导入 Worker 与 HTTP 取消请求运行在同一个后端进程内（与 ``uploads.import_slot`` 的进程内
-限流假设一致）。跨进程部署时本注册表无法直接生效：此时取消仍会写入数据库状态，
-Worker 在任务结束前无法感知，最终由 ``GET /imports/{id}`` 显示 ``cancel_requested`` 或已完成的真实状态。
+导入 Worker 与 HTTP 取消请求通常运行在同一个后端进程内，此时本注册表提供最快速的取消响应。
+跨进程部署时本注册表无法直接生效，因此 Worker 的安全检查点还会读取数据库中的任务状态
+（``cancel_requested`` / ``cancelled``），并且终态写入带有 ``status='running'`` 守卫：
+取消一旦先落库，业务写入整体回滚，不会被覆盖成 ``succeeded``。
 """
 
 from __future__ import annotations

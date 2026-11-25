@@ -215,6 +215,92 @@ def test_startup_recovery_cancels_requested_and_audits(tmp_path):
         assert len(restarted) == 1
 
 
+def test_cross_process_cancel_before_commit_rolls_back(tmp_path, monkeypatch):
+    """另一个后端进程写入 cancel_requested 后，Worker 不得把终态覆盖成 succeeded。"""
+    _engine, Factory = make_engine(tmp_path)
+    save_id = seed_save(Factory)
+    with Factory() as setup:
+        identity, session, _gate = prepare_write_env(setup, save_id)
+        identity_id, session_id = identity.id, session.id
+
+    original_apply = ScanImporter._apply
+
+    def cancel_in_other_process(self, job, payload):
+        # 模拟另一个后端进程：只能改数据库状态，无法置位本进程的 threading.Event。
+        with Factory() as other:
+            other.execute(
+                update(ImportJob)
+                .where(ImportJob.id == job.id)
+                .values(status="cancel_requested")
+                .execution_options(synchronize_session=False)
+            )
+            other.commit()
+        return original_apply(self, job, payload)
+
+    monkeypatch.setattr(ScanImporter, "_apply", cancel_in_other_process)
+    with Factory() as db:
+        fence = _fence(db, save_id, identity_id, session_id, "op-xproc")
+        with pytest.raises(ImportCancelled):
+            ScanImporter(db, raw_dir=tmp_path / "raw").import_payload(
+                save_id,
+                _document("scan-xproc"),
+                identity_id=identity_id,
+                session_id=session_id,
+                fence=fence,
+                operation_id="op-xproc",
+            )
+
+    with Factory() as db:
+        job = db.scalar(select(ImportJob).where(ImportJob.scan_id == "scan-xproc"))
+        assert job.status == "cancelled"
+        assert job.cancelled_at is not None
+        assert db.scalar(select(func.count()).select_from(PlayerSnapshot)) == 0
+
+
+def test_checkpoint_reads_cancel_requested_from_database(tmp_path, monkeypatch):
+    """安全检查点必须能读到另一个进程提交的 cancel_requested（不只依赖进程内事件）。"""
+    _engine, Factory = make_engine(tmp_path)
+    save_id = seed_save(Factory)
+    with Factory() as setup:
+        identity, session, _gate = prepare_write_env(setup, save_id)
+        identity_id, session_id = identity.id, session.id
+
+    original_apply = ScanImporter._apply
+    seen: dict[str, bool] = {}
+
+    def cancel_then_check(self, job, payload):
+        with Factory() as other:
+            other.execute(
+                update(ImportJob)
+                .where(ImportJob.id == job.id)
+                .values(status="cancel_requested")
+                .execution_options(synchronize_session=False)
+            )
+            other.commit()
+        seen["db"] = self._cancel_requested_in_db(job.id)
+        self._check_cancel(job, 200)  # 命中检查点：必须读取数据库状态
+        return original_apply(self, job, payload)
+
+    monkeypatch.setattr(ScanImporter, "_apply", cancel_then_check)
+    with Factory() as db:
+        fence = _fence(db, save_id, identity_id, session_id, "op-checkpoint")
+        with pytest.raises(ImportCancelled):
+            ScanImporter(db, raw_dir=tmp_path / "raw").import_payload(
+                save_id,
+                _document("scan-checkpoint"),
+                identity_id=identity_id,
+                session_id=session_id,
+                fence=fence,
+                operation_id="op-checkpoint",
+            )
+
+    assert seen.get("db") is True
+    with Factory() as db:
+        job = db.scalar(select(ImportJob).where(ImportJob.scan_id == "scan-checkpoint"))
+        assert job.status == "cancelled"
+        assert db.scalar(select(func.count()).select_from(PlayerSnapshot)) == 0
+
+
 def test_cancel_finished_job_is_not_cancellable_and_is_idempotent(client, save, db):
     """HTTP：已完成任务取消返回 409；queued 任务取消幂等且只写一次审计。"""
     from tests.test_unified_import_identity import _register, _scan_doc, _start

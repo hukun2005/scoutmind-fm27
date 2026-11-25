@@ -18,7 +18,7 @@ from typing import Callable
 from uuid import uuid4
 
 from sqlalchemy import delete, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from ..analytics.fees import compute_effective_fee
@@ -294,6 +294,21 @@ class ScanImporter:
                 self._mark_failed(job.id, f"提交前身份校验失败：{exc}")
                 raise
 
+        # 跨进程取消保护：终态必须绑定 ``status='running'`` 守卫再写入。
+        # 另一个后端进程可能已把任务改为 cancel_requested，此时 rowcount=0 表示取消获胜，
+        # 业务写入整体回滚，不能把取消覆盖成 succeeded。
+        guarded = self.session.execute(
+            update(ImportJob)
+            .where(ImportJob.id == job.id, ImportJob.status == "running")
+            .values(status=outcome.status)
+            .execution_options(synchronize_session=False)
+        )
+        if guarded.rowcount != 1:
+            self.session.rollback()
+            self._mark_cancelled(job.id, "cancel_requested_cross_process")
+            raise ImportCancelled(job)
+        job.status = outcome.status
+
         # 成功写入与审计同一事务提交：要么数据+“已接受”一起可见，要么都不可见。
         self._audit(
             job,
@@ -557,9 +572,31 @@ class ScanImporter:
         )
 
     def _check_cancel(self, job: ImportJob, processed: int) -> None:
-        """每 N 行检查一次取消信号；只在安全检查点响应，保证不会留下半行数据。"""
-        if processed % _CANCEL_CHECKPOINT_ROWS == 0 and cancellation.is_requested(job.id):
+        """每 N 行检查一次取消信号；只在安全检查点响应，保证不会留下半行数据。
+
+        先查进程内事件（同进程取消立即生效），再查数据库状态（覆盖跨进程取消：
+        另一个后端进程只能把任务改成 ``cancel_requested``，无法置位本进程的事件）。
+        """
+        if processed % _CANCEL_CHECKPOINT_ROWS != 0:
+            return
+        if cancellation.is_requested(job.id) or self._cancel_requested_in_db(job.id):
             raise ImportCancelled(job)
+
+    def _cancel_requested_in_db(self, job_id: int) -> bool:
+        """读取**已提交**的任务状态，用于跨进程取消。
+
+        使用独立连接而不是当前会话：导入事务尚未提交，当前会话看不到其他进程在事务开始后
+        写入的 ``cancel_requested``。SQLite 单写者模型下读取可能短暂返回 busy，此时按“未取消”
+        处理，由提交前的 ``status='running'`` 守卫兜底。
+        """
+        try:
+            with self.session.get_bind().connect() as conn:
+                status = conn.execute(
+                    select(ImportJob.status).where(ImportJob.id == job_id)
+                ).scalar_one_or_none()
+        except OperationalError:
+            return False
+        return status in {"cancel_requested", "cancelled"}
 
     def _mark_failed(self, job_id: int, message: str) -> None:
         job = self.session.get(ImportJob, job_id)
@@ -613,7 +650,6 @@ class ScanImporter:
             else ("partial" if outcome.rows_rejected else "succeeded")
         )
         self._touch_source(job, payload, outcome)
-        job.status = outcome.status
         job.finished_at = utcnow()
         job.player_count = outcome.snapshots_created
         job.transfer_count = outcome.transfers_created
