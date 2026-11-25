@@ -23,6 +23,8 @@ internal static class AttributeRecordLinkerTests
         harness.Run("关联：目标缺少生日时不能 Verified", TargetMissingBirthday);
         harness.Run("关联：姓名匹配忽略重音与大小写", AccentInsensitiveName);
         harness.Run("关联：候选缺少生日时不能 Verified", CandidateMissingBirthday);
+        harness.Run("候选索引：与逐条关联结果完全一致", IndexMatchesDirectLink);
+        harness.Run("候选索引：可对多个目标复用且不改变结果", IndexCanBeReused);
         harness.Run("字段快照：完整记录读取姓名/生日/CA/PA/俱乐部/UID", FactsReaderReadsFields);
         harness.Run("字段快照：缺失俱乐部与 UID 不默认为 0", FactsReaderKeepsMissingFieldsNull);
         harness.Run("字段快照：不可读记录优雅失败", FactsReaderUnreadableRecord);
@@ -184,6 +186,45 @@ internal static class AttributeRecordLinkerTests
         TestHarness.True(facts.Ca is null, "不可读 CA 保持 null");
         TestHarness.True(facts.MissingFields.Contains("date_of_birth"), "应标记缺失生日");
         TestHarness.True(facts.MissingFields.Contains("name"), "应标记缺失姓名");
+    }
+
+    private static void IndexMatchesDirectLink()
+    {
+        var target = Target();
+        var records = new[]
+        {
+            Facts(0x1000),
+            Facts(0x1200, dateOfBirth: "1998-01-01"),
+        };
+        var linker = new AttributeRecordLinker();
+        var direct = linker.Link(target, records);
+        var indexed = linker.Link(target, AttributeRecordIndex.Build(records));
+
+        TestHarness.Equal(direct.Status, indexed.Status, "状态");
+        TestHarness.Equal(direct.CompatibleCandidates.Count, indexed.CompatibleCandidates.Count, "兼容候选数");
+        TestHarness.Equal(direct.Conflicts.Count, indexed.Conflicts.Count, "冲突数");
+        TestHarness.Equal(direct.Reason, indexed.Reason, "原因");
+    }
+
+    private static void IndexCanBeReused()
+    {
+        var records = new[]
+        {
+            Facts(0x1000),
+            Facts(0x1200, first: "Other", second: "Player", uid: 2002),
+        };
+        var linker = new AttributeRecordLinker();
+        var index = AttributeRecordIndex.Build(records);
+
+        var first = linker.Link(Target(), index);
+        var second = linker.Link(Target(uid: 2002, first: "Other", second: "Player"), index);
+        var directFirst = linker.Link(Target(), records);
+        var directSecond = linker.Link(Target(uid: 2002, first: "Other", second: "Player"), records);
+
+        TestHarness.Equal(directFirst.Status, first.Status, "第一次复用");
+        TestHarness.Equal(directSecond.Status, second.Status, "第二次复用");
+        TestHarness.Equal(directFirst.CompatibleCandidates.Count, first.CompatibleCandidates.Count, "第一次候选数");
+        TestHarness.Equal(directSecond.CompatibleCandidates.Count, second.CompatibleCandidates.Count, "第二次候选数");
     }
 
     private static AttributeLinkResult Link(
