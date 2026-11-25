@@ -31,7 +31,7 @@
 | 8 | 审计事件完整性 | PASS | 本文 §4 |
 | 9 | RT-001~025 | 21 PASS / 3 PARTIAL / 1 NOT_RUN | [TEST-MATRIX.md](./TEST-MATRIX.md) |
 | 10 | 文档 | PASS | 本目录 |
-| 11 | 提交与 PR | 待创建（不合并、不发布、不删分支、不开自动快照） | PR 链接以 GitHub 为准 |
+| 11 | 提交与 PR | 已创建 PR #9（**未合并、未发布、未删分支、未开自动快照**） | https://github.com/hukun2005/scoutmind-fm27/pull/9 |
 
 ## 2. 关键修复
 
