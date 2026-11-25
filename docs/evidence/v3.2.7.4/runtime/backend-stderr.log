@@ -1,0 +1,5 @@
+INFO:     Started server process [123876]
+INFO:     Waiting for application startup.
+SCOUTMIND_API_TOKEN 未配置：本地 API 无鉴权，只能监听 127.0.0.1
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8123 (Press CTRL+C to quit)

@@ -1,0 +1,113 @@
+{
+  "tool": "verify_worker_fencing",
+  "synthetic_identity": true,
+  "real_fm27": false,
+  "api": "http://127.0.0.1:8123/api/v1",
+  "checks": [
+    {
+      "label": "baseline_import",
+      "ok": true,
+      "expect": "201",
+      "observed": 201
+    },
+    {
+      "label": "switch_rotates_generation",
+      "ok": true,
+      "expect": "generation ≥ 1",
+      "observed": {
+        "save_id": 3,
+        "generation": 1,
+        "invalidated_session_id": 3,
+        "next_session_id": null,
+        "protocol_version": "write-safety/v1"
+      }
+    },
+    {
+      "label": "stale_session_rejected",
+      "ok": true,
+      "expect": "409 旧会话不可写",
+      "observed": {
+        "status": 409,
+        "code": "save_session_invalidated"
+      }
+    },
+    {
+      "label": "cancel_completed_rejected",
+      "ok": true,
+      "expect": "409 import_not_cancellable",
+      "observed": {
+        "status": 409,
+        "code": "import_not_cancellable"
+      }
+    },
+    {
+      "label": "cancel_queued",
+      "ok": true,
+      "expect": "200 cancelled",
+      "observed": {
+        "status": 200,
+        "job_status": "cancelled"
+      }
+    },
+    {
+      "label": "cancel_queued_idempotent",
+      "ok": true,
+      "expect": "200 幂等",
+      "observed": {
+        "status": 200,
+        "job_status": "cancelled"
+      }
+    },
+    {
+      "label": "cancel_commit_race_atomic",
+      "ok": true,
+      "expect": "取消成功→无写入；或提交成功→取消 409",
+      "observed": {
+        "cancel": [
+          409,
+          "import_not_cancellable",
+          null
+        ],
+        "import_status": 201,
+        "import_code": null,
+        "final_job_status": "succeeded"
+      }
+    },
+    {
+      "label": "audit_cancel_events",
+      "ok": true,
+      "expect": "含 worker_cancel_requested / worker_cancelled",
+      "observed": [
+        "identity_verified",
+        "registered",
+        "save_switched",
+        "session_created",
+        "session_invalidated",
+        "worker_cancel_requested",
+        "worker_cancelled",
+        "worker_started",
+        "write_accepted"
+      ]
+    },
+    {
+      "label": "audit_worker_started",
+      "ok": true,
+      "expect": "含 worker_started",
+      "observed": [
+        "identity_verified",
+        "registered",
+        "save_switched",
+        "session_created",
+        "session_invalidated",
+        "worker_cancel_requested",
+        "worker_cancelled",
+        "worker_started",
+        "write_accepted"
+      ]
+    }
+  ],
+  "failures": [],
+  "partials": [],
+  "ok": true,
+  "status": "PASS"
+}

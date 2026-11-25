@@ -143,11 +143,26 @@ def test_gated_save_accepts_valid_context_and_records_operation(client, save, db
             "save_session_id": session["session_id"],
             "operation_id": "op-http-1",
         },
-        json=_scan_doc("gated-ok-replay"),
+        json=_scan_doc("gated-ok"),
     )
     assert replay.status_code in {200, 201}, replay.text
     assert replay.json()["duplicate"] is True
     assert replay.json()["job_id"] == job.id
+
+    # V3.2.7.4：同一 operation_id 但内容不同必须冲突，绝不能被当作“重复成功”。
+    conflict = client.post(
+        "/api/v1/imports/scan",
+        params={
+            "save_identity_id": identity["identity_id"],
+            "save_session_id": session["session_id"],
+            "operation_id": "op-http-1",
+        },
+        json=_scan_doc("gated-ok-replay"),
+    )
+    assert conflict.status_code == 409, conflict.text
+    assert _code(conflict) == "operation_conflict"
+    db.expire_all()
+    assert db.query(PlayerSnapshot).count() >= 1
 
 
 def test_other_import_entrypoints_require_context(client, save):

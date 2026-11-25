@@ -361,8 +361,18 @@ def bind_session_to_gate(db: Session, save: FmSave, session: SaveSession) -> int
         and gate.current_identity_id != session.save_identity_id
         and gate.current_session_id not in (None, session.id)
     ):
-        rotate_generation(db, save, reason="identity_switch", actor="agent", next_identity_id=session.save_identity_id)
+        # next_session_id 必须显式传入：否则 rotate_generation 会把刚创建的新会话也置为
+        # invalidated，导致身份切换后新会话永远无法写入（PR #8 审查 F-01）。
+        rotate_generation(
+            db,
+            save,
+            reason="identity_switch",
+            actor="agent",
+            next_session_id=session.id,
+            next_identity_id=session.save_identity_id,
+        )
         gate = ensure_gate(db, save.id)
+        session = db.get(SaveSession, session.id) or session
     session.session_epoch = gate.generation
     gate.current_session_id = session.id
     gate.current_identity_id = session.save_identity_id

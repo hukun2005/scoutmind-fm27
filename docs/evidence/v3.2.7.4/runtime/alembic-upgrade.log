@@ -1,0 +1,27 @@
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> a65960362a18, initial scoutmind schema
+INFO  [alembic.runtime.migration] Running upgrade a65960362a18 -> ba679f76cb1b, v2 squad recruitment development performance tables
+INFO  [alembic.runtime.migration] Running upgrade ba679f76cb1b -> fd65d0d5f75d, player availability, loan records and transfer candidates
+INFO  [alembic.runtime.migration] Running upgrade fd65d0d5f75d -> 4e04ac4ffc89, club provenance, save user club and squad assignments
+INFO  [alembic.runtime.migration] Running upgrade 4e04ac4ffc89 -> a72e84a1a299, drop circular fk on fm_saves user club
+INFO  [alembic.runtime.migration] Running upgrade a72e84a1a299 -> 992f85fb22b8, record how the managed club was chosen
+INFO  [alembic.runtime.migration] Running upgrade 992f85fb22b8 -> c3f0f7a92b14, scope import job idempotency to (fm_save_id, scan_id)
+INFO  [alembic.runtime.migration] Running upgrade c3f0f7a92b14 -> d5a1c7e04f22, add identity_conflicts
+INFO  [alembic.runtime.migration] Running upgrade d5a1c7e04f22 -> e7b2d91c4a35, identity conflict lifecycle columns
+INFO  [alembic.runtime.migration] Running upgrade e7b2d91c4a35 -> f3a9c57e21d8, transfer statistics indexes
+INFO  [alembic.runtime.migration] Running upgrade f3a9c57e21d8 -> a4d8e1f63c09, identity conflict review audit
+INFO  [alembic.runtime.migration] Running upgrade a4d8e1f63c09 -> b6e2f4a70d15, historical transfer pipeline schema
+INFO  [alembic.runtime.migration] Running upgrade b6e2f4a70d15 -> d2f7a91b64e0, transfer fee raw amounts and currency audit
+INFO  [alembic.runtime.migration] Running upgrade d2f7a91b64e0 -> f0a2c6d81b47, add transfer_history.source_id foreign key
+INFO  [alembic.runtime.migration] Running upgrade f0a2c6d81b47 -> b7c1e2f4a901, field evidence samples
+INFO  [alembic.runtime.migration] Running upgrade b7c1e2f4a901 -> c8d2e5f7a013, canonical player observations
+INFO  [alembic.runtime.migration] Running upgrade c8d2e5f7a013 -> d9e3f6a8b124, canonical review audit and conflict detail
+INFO  [alembic.runtime.migration] Running upgrade d9e3f6a8b124 -> e5a1b2c3d4f6, automatic capture runs
+INFO  [alembic.runtime.migration] Running upgrade e5a1b2c3d4f6 -> f6a7b8c9d0e1, transfer event candidates
+INFO  [alembic.runtime.migration] Running upgrade f6a7b8c9d0e1 -> a8c4d5e6f701, unresolved players: candidates, observations and manual decisions
+INFO  [alembic.runtime.migration] Running upgrade a8c4d5e6f701 -> b7e2c9d4a105, capture runs: record where a game date came from and how far it can be trusted
+INFO  [alembic.runtime.migration] Running upgrade b7e2c9d4a105 -> c3d8f1a2b407, V3.2.7 存档身份：身份 / 证据 / 会话 / 冲突，并给采集与导入增加身份归属列。
+INFO  [alembic.runtime.migration] Running upgrade c3d8f1a2b407 -> d4b7c1e2f9a3, V3.2.7.2 存档身份生命周期：验证主体、会话心跳与不可变审计事件。
+INFO  [alembic.runtime.migration] Running upgrade d4b7c1e2f9a3 -> e1c9a7b3d452, V3.2.7.3 写入安全：存档写入门次与导入操作身份。
+INFO  [alembic.runtime.migration] Running upgrade e1c9a7b3d452 -> b5d9c2e7f4a1, V3.2.7.4 导入 Worker 生命周期：queued / cancel_requested / cancelled 与重试计数。

@@ -1,0 +1,30 @@
+{
+  "tool": "simulate_network_failure",
+  "mode": "Unreachable",
+  "started_at": "2026-11-25T05:15:02.5785227Z",
+  "status": "PASS",
+  "attempts": [
+    {
+      "attempt": 1,
+      "target": "127.0.0.1:9",
+      "reachable": false,
+      "elapsed_ms": 838
+    },
+    {
+      "attempt": 2,
+      "target": "127.0.0.1:9",
+      "reachable": false,
+      "elapsed_ms": 808
+    },
+    {
+      "attempt": 3,
+      "target": "127.0.0.1:9",
+      "reachable": false,
+      "elapsed_ms": 810
+    }
+  ],
+  "error": null,
+  "note": "只验证连接失败与退避节奏；真实 Agent 重试由 verify_worker_fencing 与 Agent 单测覆盖。",
+  "finished_at": "2026-11-25T05:15:06.2847570Z"
+}
+

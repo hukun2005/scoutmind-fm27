@@ -294,7 +294,7 @@ def main() -> int:
 
     status, audit = request(api, "GET", "/save-identity-audit", params={"save_id": args.save_a, "limit": 200})
     events = {item.get("event_type") for item in audit.get("items", [])}
-    check("audit_a", "/save-identity-audit", status, {"total": audit.get("total"), "event_types": sorted(events)}, 200, {"registered", "user_confirmed", "session_started", "session_invalidated"}.issubset(events), "A 审计含注册/确认/会话失效")
+    check("audit_a", "/save-identity-audit", status, {"total": audit.get("total"), "event_types": sorted(events)}, 200, {"registered", "identity_verified", "session_created", "session_invalidated"}.issubset(events), "A 审计含注册/确认/会话失效")
 
     status, audit_b = request(api, "GET", "/save-identity-audit", params={"save_id": args.save_b, "limit": 200})
     check("audit_b_isolated", "/save-identity-audit", status, {"total": audit_b.get("total")}, 200, audit_b.get("total", 0) >= 1 and identity_a not in {item.get("identity_id") for item in audit_b.get("items", [])}, "B 审计不含 A 身份")
