@@ -1,0 +1,62 @@
+{
+  "tool": "manual-agent-e",
+  "phase": "layout-calibration",
+  "executed_at": "2026-11-25T14:40:00Z",
+  "synthetic_identity": false,
+  "real_fm27": true,
+  "status": "NOT_RUN",
+  "ok": false,
+  "blocked_by": "name_storage_model_changed",
+  "environment": {
+    "steam_build": "26620374",
+    "plugin_version": "27.1",
+    "layout": "FM27_1",
+    "gate_allow_scan": true,
+    "access_denied": false
+  },
+  "probe": {
+    "passed": false,
+    "failed_check": "name_string",
+    "detail": "CA/PA/身高/生日 32/32 通过；姓名 3/32",
+    "conclusion": "数值字段偏移正确，姓名字段读不到"
+  },
+  "findings": [
+    {
+      "id": "F1",
+      "claim": "布局中的姓名偏移 0x50/0x58/0x60 本身正确",
+      "evidence": "以内存中的真实字符串为锚点回溯，person 侧对象在 0x50/0x58/0x60 解出 Hemminga / Gielstra / van der Leij，提前 4 字节为长度 8，符合 inner+4 规则"
+    },
+    {
+      "id": "F2",
+      "claim": "HeapObjectLocator 返回的是属性记录，不是带姓名的 person",
+      "evidence": "记录首字段为 game_plugin 模块内 vtable，步长 0x3C8；80 个样本在 0x50/0x58/0x60 全为 0，DOB/CA 正常"
+    },
+    {
+      "id": "F3",
+      "claim": "锚点对象实为姓名字符串池，而非单个 person",
+      "evidence": "该对象 0x000..0x140 每 8 字节均指向一个可读姓名（Mesud/Bouland/van Kammen/...），不是单一 person 结构"
+    },
+    {
+      "id": "F4",
+      "claim": "记录与姓名池之间没有直接或两级指针链路",
+      "evidence": "全内存搜索指向记录的指针为 0；记录内两级指针探测 0 命中；记录内 0..0x400 无任何可解姓名"
+    },
+    {
+      "id": "F5",
+      "claim": "姓名疑似通过索引/哈希表间接引用",
+      "evidence": "姓名包装对象携带 0x1009E00010941 与 0x5F0 一类非指针值；记录内存在 0x076C0001 等疑似索引的重复字段"
+    },
+    {
+      "id": "F6",
+      "claim": "把记录内整数直接当作名字池下标的假设不成立",
+      "evidence": "按 16/32 位取值逐一索引名字池，命中均为孤立且互相矛盾的随机匹配（同一字段相邻宽度解出不同人名），无一致字段映射"
+    }
+  ],
+  "route_a_result": "FAIL",
+  "route_a_reason": "person 优先定位无法落地：不存在从属性记录指向姓名对象的指针路径，姓名需按索引/哈希表解析",
+  "next_options": [
+    "路线 B：重建 UID/索引到姓名池的映射（需要新的全局表定位，工作量大）",
+    "维持 NOT_RUN：以现有 A/B 计数证据与 C/D/E 协议级证据交付，姓名级扫描标记为受 27.1 数据模型变更阻塞"
+  ],
+  "note": "全部探测为只读，未写入游戏内存，未写入用户真实后端库；只读诊断命令 calibrate/xref/dump 已加入 Diag 工具（本地未提交）。"
+}
