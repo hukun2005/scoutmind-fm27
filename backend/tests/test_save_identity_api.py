@@ -378,9 +378,18 @@ def test_capture_patch_checks_context(client, save, db):
     db.add(other)
     db.commit()
 
+    # V3.2.7.3：存档已有写入门，缺少会话不再降级为“仅身份”写入。
+    missing_session = client.patch(
+        f"/api/v1/captures/{capture_id}",
+        params={"save_identity_id": identity["identity_id"]},
+        json={"status": "completed"},
+    )
+    assert missing_session.status_code == 409
+    assert _code(missing_session) == "write_context_required"
+
     mismatch = client.patch(
         f"/api/v1/captures/{capture_id}",
-        params={"save_identity_id": other.id},
+        params={"save_identity_id": other.id, "save_session_id": session["session_id"]},
         json={"status": "completed"},
     )
     assert mismatch.status_code == 409

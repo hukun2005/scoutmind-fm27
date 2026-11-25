@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     max_upload_concurrency: int = 2
     # 兼容旧名字（上一版配置），保留以免已有部署配置失效。
     max_multipart_files: int = 1
+    # V3.2.7.3：旧客户端（不带 WriteContext）的写入开关。默认允许，但每次都会写审计事件；
+    # 设为 false 后，所有导入必须携带身份 + 会话 + 当前代次，否则返回 409。
+    write_safety_legacy_allowed: bool = True
 
     def model_post_init(self, __context: object) -> None:
         """启动即校验：限制必须是正数，请求上限不能小于导入上限，旧配置名要兼容。"""

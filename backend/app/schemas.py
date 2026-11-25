@@ -299,3 +299,11 @@ class SaveSessionInvalidateIn(BaseModel):
     """显式失效会话（存档切换 / 游戏关闭 / Agent 重启）。"""
 
     reason: str = Field(min_length=1, max_length=64)
+
+
+class SaveSessionSwitchIn(BaseModel):
+    """存档切换：推进代次并让旧会话与旧 Worker 立即失去写入资格（V3.2.7.3）。"""
+
+    reason: str = Field(default="save_switch", min_length=1, max_length=64)
+    next_session_id: int | None = Field(default=None, ge=1)
+    actor: str = Field(default="agent", max_length=64)

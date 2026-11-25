@@ -116,6 +116,7 @@ const sessionColumns: TableColumn<SaveSession>[] = [
     formatter: (row) => SESSION_LABELS[row.status] ?? row.status,
   },
   { prop: 'session_key', label: '会话键', minWidth: 220, showOverflowTooltip: true },
+  { prop: 'session_epoch', label: '代次', width: 80, align: 'right', formatter: (row) => displayText(row.session_epoch) },
   { prop: 'process_id', label: 'PID', width: 80, align: 'right', formatter: (row) => displayText(row.process_id) },
   { prop: 'game_build', label: '版本', width: 110, formatter: (row) => displayText(row.game_build) },
   { prop: 'agent_id', label: 'Agent', width: 130, formatter: (row) => displayText(row.agent_id) },
@@ -291,6 +292,11 @@ watch(
             <li v-for="blocker in gateBlockers" :key="blocker">{{ blocker }}</li>
           </ul>
         </div>
+        <p class="save-identity__generation">
+          写入代次：{{ displayText(detail.write_gate?.generation) }}；
+          当前可写会话：{{ displayText(detail.write_gate?.current_session_id) }}。
+          存档切换会推进代次，旧会话与在途任务随即失效。
+        </p>
 
         <dl class="save-identity__facts">
           <div><dt>状态</dt><dd>{{ STATUS_LABELS[detail.identity_status] ?? detail.identity_status }}</dd></div>
