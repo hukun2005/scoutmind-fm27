@@ -54,7 +54,7 @@
 ### 3.1 通信机制
 
 - Agent → 后端：`POST /api/v1/imports/scan`（携带 `save_id` / `save_identity_id` / `save_session_id` / `operation_id`）。
-- 断网识别：客户端把连接层异常归一为 `status=0, code=transport_error`，与业务 4xx/5xx 区分。
+- 断网识别：验收工具把连接层异常归一为 `status=0, code=transport_error`；真实 Agent 的 CLI 输出为 `无法连接后端 <url>：<原因>`（`BackendClient.cs`），并返回非 0 退出码。两者不要混用。
 - 恢复连接：`POST /save-sessions/{id}/heartbeat` 携带 `reconnected=true`，写 `network_reconnected` 审计。
 - 幂等键：`operation_id` 在存档内唯一；`scan_id + checksum` 防止同扫描不同内容重复写入。
 
@@ -188,7 +188,7 @@
 2. 启动 Agent 并完成一次 `scan --sync`，确认任务 `succeeded`；
 3. 记录当前任务 `job_id`、`operation_id`、`scan_id`；
 4. 断开本机网络（禁用网卡或防火墙阻断 `127.0.0.1` 以外/后端端口）；
-5. 再执行一次 `scan --sync`，确认 Agent 输出 `transport_error`；
+5. 再执行一次 `scan --sync`，确认 Agent 输出 `无法连接后端 ...` 且退出码非 0；
 6. 恢复网络，确认 Agent 心跳恢复且审计出现 `network_reconnected`；
 7. 用原 `operation_id` 重试同一报文，确认 `duplicate=true`、任务数不增加、球员/快照行数不变；
 8. 切换存档并 `--verify`，确认旧 Session 返回 `409`、代次 `generation` 增加。
