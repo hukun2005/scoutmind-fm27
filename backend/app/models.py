@@ -96,7 +96,11 @@ class ImportJob(TimestampMixin, Base):
     """
 
     __tablename__ = "import_jobs"
-    __table_args__ = (UniqueConstraint("fm_save_id", "scan_id", name="uq_import_jobs_save_scan"),)
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", "scan_id", name="uq_import_jobs_save_scan"),
+        # V3.2.7.3：同一存档内 operation_id 唯一。并发重放由数据库约束兜底，不能只靠先查后写。
+        UniqueConstraint("fm_save_id", "operation_id", name="uq_import_jobs_save_operation"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
@@ -118,6 +122,12 @@ class ImportJob(TimestampMixin, Base):
     # 归属校验由导入服务负责（与 fm_saves.user_club_id 的无外键设计一致）。
     save_identity_id: Mapped[int | None] = mapped_column(Integer, index=True)
     save_session_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    # V3.2.7.3：一次导入操作的身份。operation_id 在存档内唯一，用于幂等与拒绝追溯。
+    operation_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    # 任务创建时绑定的写入代次；与当前 save_write_gates.generation 不一致即视为旧任务。
+    save_generation: Mapped[int | None] = mapped_column(Integer)
+    # 写入被 fence 拒绝时的稳定原因码（write_fence_stale 等）；正常任务为 NULL。
+    rejected_reason: Mapped[str | None] = mapped_column(String(64))
 
     rows: Mapped[list[ImportRow]] = relationship(back_populates="job", cascade="all, delete-orphan")
 
@@ -1214,6 +1224,29 @@ class SaveSession(TimestampMixin, Base):
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_verified_at: Mapped[datetime | None] = mapped_column(DateTime)
     invalidated_reason: Mapped[str | None] = mapped_column(String(64))
+    # 会话创建时所属存档的写入代次；存档切换后该值落后于 gate.generation，旧会话不得再写。
+    session_epoch: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class SaveWriteGate(TimestampMixin, Base):
+    """每个存档唯一的写入代次门（V3.2.7.3）。
+
+    ``generation`` 只增不减：存档切换、会话轮换或显式失效都会推进它，使所有绑定旧代次的
+    Worker 在最终提交时被数据库条件更新拒绝。``current_session_id`` 是唯一获得写入资格的会话。
+    """
+
+    __tablename__ = "save_write_gates"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", name="uq_save_write_gate_save"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    current_session_id: Mapped[int | None] = mapped_column(Integer)
+    current_identity_id: Mapped[int | None] = mapped_column(Integer)
+    last_switch_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_switch_reason: Mapped[str | None] = mapped_column(String(64))
 
 
 class SaveIdentityConflict(TimestampMixin, Base):

@@ -15,7 +15,7 @@ from ..models import CaptureRun, FmSave, ImportJob
 from ..schemas import CaptureRunIn, CaptureRunUpdate
 from ..utils import iso
 from .deps import get_active_save
-from .save_context import resolve_save_context
+from ..services.write_safety import resolve_write_context
 
 router = APIRouter()
 
@@ -139,7 +139,9 @@ def register_capture(
 ) -> dict[str, Any]:
     if body.status not in STATUSES:
         raise HTTPException(status_code=422, detail={"code": "invalid_status", "message": "未知采集状态"})
-    context = resolve_save_context(db, save, save_identity_id, save_session_id)
+    context = resolve_write_context(
+        db, save, identity_id=save_identity_id, session_id=save_session_id
+    )
     if body.import_job_id is not None:
         job = db.get(ImportJob, body.import_job_id)
         if job is None or job.fm_save_id != save.id:
@@ -164,8 +166,9 @@ def register_capture(
     )
     row.game_build = body.game_build or row.game_build
     row.status = body.status
-    row.save_identity_id = context.identity_id or row.save_identity_id
-    row.save_session_id = context.session_id or row.save_session_id
+    if context is not None:
+        row.save_identity_id = context.identity_id or row.save_identity_id
+        row.save_session_id = context.session_id or row.save_session_id
     row.scan_id = body.scan_id or row.scan_id
     row.import_job_id = body.import_job_id or row.import_job_id
     row.error_code = body.error_code
@@ -207,15 +210,17 @@ def update_capture(
         raise HTTPException(status_code=404, detail={"code": "capture_not_found", "message": "采集记录不存在"})
     # V3.2.7.2：声明了身份/会话时，更新采集状态同样要做存档上下文校验，
     # 否则采集记录可在会话失效后被“补记”为完成。
-    context = resolve_save_context(db, save, save_identity_id, save_session_id)
-    if context.identity_id is not None:
+    context = resolve_write_context(
+        db, save, identity_id=save_identity_id, session_id=save_session_id
+    )
+    if context is not None and context.identity_id is not None:
         if row.save_identity_id is not None and row.save_identity_id != context.identity_id:
             raise HTTPException(
                 status_code=409,
                 detail={"code": "save_context_mismatch", "message": "采集记录归属于其他存档身份"},
             )
         row.save_identity_id = context.identity_id
-    if context.session_id is not None:
+    if context is not None and context.session_id is not None:
         if row.save_session_id is not None and row.save_session_id != context.session_id:
             raise HTTPException(
                 status_code=409,

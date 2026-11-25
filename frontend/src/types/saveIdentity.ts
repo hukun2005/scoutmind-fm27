@@ -37,6 +37,7 @@ export interface SaveSession {
   plugin_version: string | null
   agent_id: string | null
   status: SaveSessionStatus | string
+  session_epoch: number
   started_at: string | null
   last_heartbeat_at: string | null
   last_verified_at: string | null
@@ -73,12 +74,22 @@ export interface SaveIdentityListResponse {
   protocol_version: string
 }
 
+/** 写入代次门（V3.2.7.3）；generation 只增不减，切换后旧会话立即失去写入资格。 */
+export interface SaveWriteGate {
+  generation: number
+  current_session_id: number | null
+  current_identity_id: number | null
+  last_switch_at: string | null
+  last_switch_reason: string | null
+}
+
 /** `GET /save-identities/{id}`：摘要 + 证据 + 会话 + 采集闸门。 */
 export interface SaveIdentityDetail extends SaveIdentitySummary {
   evidence: SaveIdentityEvidence[]
   sessions: SaveSession[]
   capture_allowed: boolean
   blockers: string[]
+  write_gate: SaveWriteGate | null
 }
 
 /** `GET /save-identity-audit` 的一条事件。 */

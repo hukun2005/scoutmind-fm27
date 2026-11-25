@@ -26,6 +26,7 @@ from ..models import (
     SaveIdentityAuditEvent,
     SaveIdentityConflict,
     SaveSession,
+    SaveWriteGate,
 )
 from ..schemas import (
     SaveIdentityRegisterIn,
@@ -447,6 +448,13 @@ def verify_identity(
     return identity
 
 
+def _bind_session_epoch(db: Session, save: FmSave, session: SaveSession) -> None:
+    """把会话固定到当前写入代次（延迟导入避免与 write_safety 形成模块环）。"""
+    from .write_safety import bind_session_to_gate
+
+    bind_session_to_gate(db, save, session)
+
+
 def start_session(
     db: Session,
     save: FmSave,
@@ -474,6 +482,7 @@ def start_session(
         existing.last_heartbeat_at = now
         if existing.session_status == "verified":
             existing.last_verified_at = now
+        _bind_session_epoch(db, save, existing)
         return existing
 
     status = "verified" if identity.identity_status == "verified" else "created"
@@ -503,6 +512,7 @@ def start_session(
         evidence_summary={"session_key": payload.session_key, "agent_id": payload.agent_id},
         actor=actor,
     )
+    _bind_session_epoch(db, save, session)
     return session
 
 
@@ -515,6 +525,18 @@ def _invalidate_session(
     actor: str,
     event_type: str = "session_invalidated",
 ) -> None:
+    # V3.2.7.3：失效当前可写会话必须同时推进代次，否则在途 Worker 仍可凭旧 fence 提交。
+    from .write_safety import get_gate, rotate_generation
+
+    gate = get_gate(db, save.id)
+    if gate is not None and gate.current_session_id == session.id:
+        rotate_generation(db, save, reason=reason, actor=actor)
+        db.expire_all()
+        session = db.get(SaveSession, session.id)
+        if session is None:
+            db.commit()
+            return
+
     if session.session_status != "invalidated":
         old_status = session.session_status
         session.session_status = "invalidated"
@@ -578,6 +600,15 @@ def heartbeat(
     if session.session_status != "verified":
         _invalidate_session(db, save, session, reason="not_verified", actor=actor)
         raise protocol_error(409, "save_session_invalidated", "会话不具备写入资格")
+
+    # 代次落后说明存档已经切换或被新的写入会话取代；心跳不能把它"续回来"。
+    gate = db.scalar(select(SaveWriteGate).where(SaveWriteGate.fm_save_id == save.id))
+    if gate is not None and (
+        gate.generation != session.session_epoch
+        or (gate.current_session_id is not None and gate.current_session_id != session.id)
+    ):
+        _invalidate_session(db, save, session, reason="epoch_stale", actor=actor)
+        raise protocol_error(409, "write_session_epoch_stale", "会话代次已落后，已失效，请重新识别存档")
 
     session.last_heartbeat_at = current
     session.last_verified_at = current
@@ -726,6 +757,7 @@ def session_payload(session: SaveSession) -> dict[str, Any]:
         "last_verified_at": iso(session.last_verified_at),
         "ended_at": iso(session.session_ended_at),
         "invalidated_reason": session.invalidated_reason,
+        "session_epoch": session.session_epoch,
     }
 
 

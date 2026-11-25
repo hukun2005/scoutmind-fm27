@@ -41,6 +41,7 @@ from ..models import (
     TransferFeeComponent,
 )
 from ..utils import iso, payload_checksum, utcnow
+from ..services.write_safety import WriteFence, WriteRejected
 from .attributes import ATTRIBUTE_KEYS, ensure_attributes, position_group
 from .identity import resolve_player_instance
 from .unresolved import persist_unresolved_observation
@@ -143,6 +144,8 @@ class ScanImporter:
         identity_id: int | None = None,
         session_id: int | None = None,
         final_guard: Callable[[], None] | None = None,
+        fence: WriteFence | None = None,
+        operation_id: str | None = None,
     ) -> ImportOutcome:
         """Parse and import a raw payload (JSON or NDJSON)."""
         payload, structural_warnings = parse_payload(raw)
@@ -154,6 +157,8 @@ class ScanImporter:
             identity_id=identity_id,
             session_id=session_id,
             final_guard=final_guard,
+            fence=fence,
+            operation_id=operation_id,
         )
 
     def import_payload(
@@ -165,11 +170,14 @@ class ScanImporter:
         identity_id: int | None = None,
         session_id: int | None = None,
         final_guard: Callable[[], None] | None = None,
+        fence: WriteFence | None = None,
+        operation_id: str | None = None,
     ) -> ImportOutcome:
         """Import an already parsed payload; the caller owns the ``save_id`` existence check.
 
         ``identity_id`` / ``session_id`` 由路由层校验后传入，作为审计归属写入 ImportJob；
-        ``final_guard`` 在提交前最后执行一次身份校验（Phase 8），失败则回滚全部写入。
+        ``fence`` 在**同一事务内**做代次校验（V3.2.7.3），失败则回滚全部写入并标记 rejected；
+        ``final_guard`` 保留为旧版独立事务校验（无 fence 时的兼容路径）。
         """
         existing = self.session.scalar(
             select(ImportJob).where(
@@ -181,9 +189,29 @@ class ScanImporter:
             raise ImportInProgressError(existing)
         if existing is not None and existing.status in {"succeeded", "partial"}:
             return self._duplicate_outcome(existing)
+        if operation_id:
+            # 同一操作 ID 已成功/被拒绝：直接返回既有结果，绝不再写一次。
+            previous = self.session.scalar(
+                select(ImportJob).where(
+                    ImportJob.fm_save_id == save_id,
+                    ImportJob.operation_id == operation_id,
+                    ImportJob.status.in_(("succeeded", "partial", "rejected")),
+                )
+            )
+            if previous is not None:
+                return self._duplicate_outcome(previous)
 
         try:
-            job = self._begin_job(save_id, payload, existing, raw, identity_id=identity_id, session_id=session_id)
+            job = self._begin_job(
+                save_id,
+                payload,
+                existing,
+                raw,
+                identity_id=identity_id,
+                session_id=session_id,
+                operation_id=operation_id,
+                save_generation=fence.generation if fence is not None else None,
+            )
         except DuplicateScanError as duplicate:
             # 并发提交同一个 scan_id：另一个请求已经写入，返回它的结果而不是重复应用。
             return self._duplicate_outcome(duplicate.job)
@@ -193,6 +221,15 @@ class ScanImporter:
             self.session.rollback()
             self._mark_failed(job.id, str(exc))
             raise
+
+        if fence is not None:
+            try:
+                # 与 _apply 的写入同属一个事务：提交前代次变化则整体作废。
+                fence.assert_current(self.session)
+            except WriteRejected as rejection:
+                self.session.rollback()
+                self._mark_rejected(job.id, rejection.code, rejection.message)
+                raise
 
         if final_guard is not None:
             try:
@@ -217,6 +254,8 @@ class ScanImporter:
         *,
         identity_id: int | None = None,
         session_id: int | None = None,
+        operation_id: str | None = None,
+        save_generation: int | None = None,
     ) -> ImportJob:
         if existing is not None:
             self.session.execute(delete(ImportRow).where(ImportRow.import_job_id == existing.id))
@@ -226,6 +265,9 @@ class ScanImporter:
             job.fm_save_id = save_id
             job.save_identity_id = identity_id or job.save_identity_id
             job.save_session_id = session_id or job.save_session_id
+            job.operation_id = operation_id or job.operation_id
+            job.save_generation = save_generation if save_generation is not None else job.save_generation
+            job.rejected_reason = None
             job.warnings_json = "[]"
             job.coverage_json = "{}"
             job.player_count = 0
@@ -243,6 +285,8 @@ class ScanImporter:
                 received_at=utcnow(),
                 save_identity_id=identity_id,
                 save_session_id=session_id,
+                operation_id=operation_id,
+                save_generation=save_generation,
             )
             self.session.add(job)
         if raw is not None:
@@ -253,7 +297,7 @@ class ScanImporter:
         try:
             self.session.commit()
         except IntegrityError as exc:
-            # 同一存档并发提交同一个 scan_id：唯一约束兜底，回滚后交出已有的那份导入。
+            # 并发提交同一 scan_id 或同一 operation_id：唯一约束兜底，回滚后交出已有的那份导入。
             self.session.rollback()
             existing = self.session.scalar(
                 select(ImportJob).where(
@@ -261,8 +305,17 @@ class ScanImporter:
                     ImportJob.scan_id == payload.scan.scan_id,
                 )
             )
+            if existing is None and operation_id:
+                existing = self.session.scalar(
+                    select(ImportJob).where(
+                        ImportJob.fm_save_id == save_id,
+                        ImportJob.operation_id == operation_id,
+                    )
+                )
             if existing is None:
                 raise
+            if existing.status == "running":
+                raise ImportInProgressError(existing) from exc
             raise DuplicateScanError(existing) from exc
         return job
 
@@ -302,6 +355,21 @@ class ScanImporter:
         job.status = "failed"
         job.finished_at = utcnow()
         job.warnings_json = json.dumps([f"导入失败：{message}"], ensure_ascii=False)
+        self.session.commit()
+
+    def _mark_rejected(self, job_id: int, code: str, message: str) -> None:
+        """写入被 fence 拒绝：任务进入 rejected，不保留任何业务数据。
+
+        rejected 任务不能被自动重试继续使用旧上下文；客户端必须重新识别存档并生成新的
+        operation_id。
+        """
+        job = self.session.get(ImportJob, job_id)
+        if job is None:
+            return
+        job.status = "rejected"
+        job.rejected_reason = code
+        job.finished_at = utcnow()
+        job.warnings_json = json.dumps([f"写入被拒绝（{code}）：{message}"], ensure_ascii=False)
         self.session.commit()
 
     # -- main pass ----------------------------------------------------------------------------------------------
