@@ -37,6 +37,8 @@ internal static class Program
         MapperTests.Run(harness);
         MapperSentinelUidTests.Run(harness);
 UnresolvedObjectCollectorTests.Run(harness);
+DateDiscoveryTests.Run(harness);
+PointerAndLocatorTests.Run(harness);
         await EngineTests.RunAsync(harness).ConfigureAwait(false);
 
         return harness.Summary();
