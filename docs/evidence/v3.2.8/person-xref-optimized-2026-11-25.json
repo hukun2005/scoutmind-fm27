@@ -1,0 +1,17 @@
+{
+  "mode": "xref",
+  "game_version": "27.1",
+  "build": "26620374",
+  "layout_name": "FM27_1",
+  "located_total": 800,
+  "sampled": 60,
+  "attribute_link_unique": 59,
+  "attribute_link_success_rate": 0.9833,
+  "conflict_count": 1,
+  "link_status_counts": {
+    "SingleCandidate": 59,
+    "ConflictingIdentity": 1
+  },
+  "verified_count": 0,
+  "verified_note": "本命令不执行 Mark(Verified)，且进程内没有 Canonical Identity 持久化存储，因此 Verified 计数固定为 0。"
+}
