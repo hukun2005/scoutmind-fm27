@@ -1231,6 +1231,7 @@ internal static class Program
                     Console.WriteLine("  --summary                输出诊断摘要");
                     Console.WriteLine("  --xref                   输出属性记录关联统计");
                     Console.WriteLine("  --calibration            输出校准统计（不含逐样本明细）");
+                    Console.WriteLine("  --uid                    输出 UID 可行性审计（字段、唯一性、稳定性）");
                     Console.WriteLine("  --person <index>         转储一条球员记录（等同于旧版 dump <index>）");
                     Console.WriteLine("  --length <n>             旧版转储长度（默认 0x3C8）");
                     Console.WriteLine("  --located <n>            堆扫描最多定位数量（默认 800）");
@@ -1247,9 +1248,10 @@ internal static class Program
                 var summaryMode = args.Contains("--summary", StringComparer.Ordinal);
                 var xrefMode = args.Contains("--xref", StringComparer.Ordinal);
                 var calibrationMode = args.Contains("--calibration", StringComparer.Ordinal);
+                var uidMode = args.Contains("--uid", StringComparer.Ordinal);
                 var personMode = args.Contains("--person", StringComparer.Ordinal);
 
-                if (summaryMode || xrefMode || calibrationMode || (!legacyPositional && !personMode))
+                if (summaryMode || xrefMode || calibrationMode || uidMode || (!legacyPositional && !personMode))
                 {
                     if (layout is null)
                     {
@@ -1271,6 +1273,143 @@ internal static class Program
                         var locatedLimit = Math.Max(1, IntFlag(args, "--located", 800));
                         var sampleCount = Math.Max(1, IntFlag(args, "--samples", 60));
                         var located = locator.FindPlayers(layout, locatedLimit, TimeSpan.FromSeconds(45));
+
+                        if (uidMode)
+                        {
+                            // Phase 8：只做可行性调查，不建立 UID 索引，也不改生产路径。
+                            var uidOffset = (ulong)layout["OBJ_DUNI"];
+                            var factsReader = new PlayerRecordFactsReader(memory, layout);
+                            var facts = located.Select(factsReader.Read).ToList();
+                            var zero = 0;
+                            var sentinel = 0;
+                            var rawValid = 0;
+                            var unreadable = 0;
+                            var min = uint.MaxValue;
+                            var max = 0u;
+                            foreach (var record in located)
+                            {
+                                try
+                                {
+                                    var raw = memory.UInt32(record.Db + uidOffset);
+                                    if (raw == 0)
+                                    {
+                                        zero++;
+                                    }
+                                    else if (raw == 0xFFFF_FFFF)
+                                    {
+                                        sentinel++;
+                                    }
+                                    else
+                                    {
+                                        rawValid++;
+                                        min = Math.Min(min, raw);
+                                        max = Math.Max(max, raw);
+                                    }
+                                }
+                                catch (ScoutMind.FMReader.Probes.MemoryUnreadableException)
+                                {
+                                    unreadable++;
+                                }
+                            }
+
+                            var present = facts.Where(item => item.Uid is not null).ToList();
+                            var groups = present.GroupBy(item => item.Uid!.Value)
+                                .Where(group => group.Count() > 1)
+                                .ToList();
+                            var duplicateGroups = groups
+                                .OrderByDescending(group => group.Count())
+                                .Take(20)
+                                .Select(group => new
+                                {
+                                    uid = group.Key,
+                                    count = group.Count(),
+                                    records = group.Take(5).Select(item => new
+                                    {
+                                        name = BuildName(item),
+                                        date_of_birth = FormatDate(item.DateOfBirth),
+                                        club = item.ClubName,
+                                    }).ToArray(),
+                                })
+                                .ToArray();
+
+                            var sampleIndexes = PersonCalibrationEngine.SelectEvenly(
+                                Enumerable.Range(0, located.Count).ToList(),
+                                Math.Min(60, located.Count));
+                            var uidChanged = 0;
+                            var nameChanged = 0;
+                            foreach (var sampleIndex in sampleIndexes)
+                            {
+                                try
+                                {
+                                    var db = located[sampleIndex].Db;
+                                    var first = memory.UInt32(db + uidOffset);
+                                    var firstName = memory.NestedString(located[sampleIndex].Person + (ulong)layout["PERO_COMMON_NAME"]);
+                                    Thread.Sleep(30);
+                                    var second = memory.UInt32(db + uidOffset);
+                                    var secondName = memory.NestedString(located[sampleIndex].Person + (ulong)layout["PERO_COMMON_NAME"]);
+                                    if (first != second)
+                                    {
+                                        uidChanged++;
+                                    }
+
+                                    if (!string.Equals(firstName, secondName, StringComparison.Ordinal))
+                                    {
+                                        nameChanged++;
+                                    }
+                                }
+                                catch (ScoutMind.FMReader.Probes.MemoryUnreadableException)
+                                {
+                                    // 单条读取失败不计入稳定性样本。
+                                }
+                            }
+
+                            Console.WriteLine(ToJson(new
+                            {
+                                mode = "uid-audit",
+                                game_version = gameVersion,
+                                build = status.Build,
+                                layout_name = layout.Name,
+                                field = new
+                                {
+                                    name = "OBJ_DUNI",
+                                    offset = $"0x{uidOffset:X}",
+                                    read_type = "u32",
+                                    relative_to = "每条属性记录的 DB 块",
+                                },
+                                located_total = located.Count,
+                                raw = new
+                                {
+                                    valid = rawValid,
+                                    zero,
+                                    sentinel,
+                                    unreadable,
+                                    min = rawValid > 0 ? $"0x{min:X8}" : null,
+                                    max = rawValid > 0 ? $"0x{max:X8}" : null,
+                                },
+                                uid_present = present.Count,
+                                uid_missing = facts.Count(item => item.Uid is null),
+                                distinct_uid = present.Select(item => item.Uid!.Value).Distinct().Count(),
+                                duplicate_uid_groups = groups.Count,
+                                duplicate_records = groups.Sum(group => group.Count()),
+                                duplicate_groups = duplicateGroups,
+                                stability = new
+                                {
+                                    sampled = sampleIndexes.Count,
+                                    uid_changed = uidChanged,
+                                    name_sample_changed = nameChanged,
+                                    reads_per_record = 2,
+                                    delay_ms = 30,
+                                },
+                                cross_save = "unknown",
+                                lifecycle = "unknown",
+                                notes = new[]
+                                {
+                                    "UID 位于每条属性记录自身的 DB 块，无法在不扫描记录的情况下独立取得。",
+                                    "跨存档是否区分 UID、UID 是否随转会/退役变化，本阶段未取得证据。",
+                                },
+                            }));
+                            return 0;
+                        }
 
                         if (calibrationMode)
                         {
