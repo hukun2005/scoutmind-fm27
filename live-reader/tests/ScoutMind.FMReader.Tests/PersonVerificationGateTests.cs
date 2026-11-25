@@ -20,6 +20,8 @@ internal static class PersonVerificationGateTests
         harness.Run("验证门控：无属性记录匹配为 Rejected", NoAttributeMatch);
         harness.Run("验证门控：读取不稳定为 Unstable 且不可 Verified", UnstableReads);
         harness.Run("验证门控：构建不匹配为 UnsupportedBuild", UnsupportedBuild);
+        harness.Run("验证门控：重复人工确认结果一致且不改变状态", RepeatedConfirmationIsIdempotent);
+        harness.Run("验证门控：旧版本候选重新验证被拒绝", OldCandidateReverificationRejected);
         harness.Run("验证门控：姓名缺失为 Rejected", MissingName);
         harness.Run("验证门控：生日缺失为 Rejected，除非有批准策略", MissingBirthday);
         harness.Run("验证门控：没有属性记录关联最多到 StructurallyValid", MissingAttributeLink);
@@ -89,6 +91,31 @@ internal static class PersonVerificationGateTests
     {
         var decision = Evaluate(Request(humanConfirmed: true, observedBuild: "26620375"));
         TestHarness.Equal(PersonVerificationState.UnsupportedBuild, decision.State, "状态");
+        TestHarness.True(!decision.MarkVerified, "构建不匹配不得 Mark");
+    }
+
+    private static void RepeatedConfirmationIsIdempotent()
+    {
+        var first = Evaluate(Request(humanConfirmed: true));
+        var second = Evaluate(Request(humanConfirmed: true));
+
+        TestHarness.Equal(PersonVerificationState.Verified, first.State, "首次确认");
+        TestHarness.Equal(PersonVerificationState.Verified, second.State, "重复确认");
+        TestHarness.Equal(
+            first.Audit.ToJsonLine(),
+            second.Audit.ToJsonLine(),
+            "相同输入重复确认应产生一致的审计内容");
+    }
+
+    private static void OldCandidateReverificationRejected()
+    {
+        var decision = Evaluate(Request(
+            humanConfirmed: true,
+            observedBuild: "26620374",
+            expectedBuild: "26620375",
+            buildSupported: false));
+
+        TestHarness.Equal(PersonVerificationState.UnsupportedBuild, decision.State, "旧版本候选不得因重新确认而升级");
         TestHarness.True(!decision.MarkVerified, "构建不匹配不得 Mark");
     }
 

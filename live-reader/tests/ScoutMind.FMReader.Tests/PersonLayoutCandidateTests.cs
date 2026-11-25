@@ -1,4 +1,5 @@
 using ScoutMind.FMReader.Calibration;
+using ScoutMind.FMReader.Probes;
 
 namespace ScoutMind.FMReader.Tests;
 
@@ -19,6 +20,7 @@ internal static class PersonLayoutCandidateTests
         harness.Run("候选字段：四个候选偏移分别记录", SeparateOffsets);
         harness.Run("候选字段：同一对象重复读取稳定", StableRepeatedRead);
         harness.Run("候选字段：Person 为 0 时整体 Rejected", NullPerson);
+        harness.Run("候选字段：读取中断后不得 Verified", InterruptedReadIsNotVerified);
     }
 
     private static void CandidateDefaults()
@@ -166,6 +168,64 @@ internal static class PersonLayoutCandidateTests
             TestHarness.Equal(first.Fields[index].Offset, second.Fields[index].Offset, "偏移应稳定");
             TestHarness.Equal(first.Fields[index].IsValid, second.Fields[index].IsValid, "有效性应稳定");
         }
+    }
+
+    private static void InterruptedReadIsNotVerified()
+    {
+        var (memory, candidate, person) = BuildValid("Interrupted Player", 1999, 60);
+        var interrupted = new InterruptingMemory(memory, readsBeforeFailure: 2);
+
+        PersonCandidateSnapshot? snapshot = null;
+        var threw = false;
+        try
+        {
+            snapshot = new PersonCandidateProbe(interrupted).Observe(person, candidate);
+        }
+        catch (MemoryUnreadableException)
+        {
+            threw = true;
+        }
+
+        TestHarness.True(threw || snapshot is not null, "读取中断必须返回失败或异常，而不是成功快照");
+        if (snapshot is not null)
+        {
+            TestHarness.True(
+                snapshot.Status != CandidateVerificationStatus.Verified,
+                "读取中断不得产生 Verified");
+        }
+    }
+
+    /// <summary>在读取若干次后模拟失败的内存源。</summary>
+    private sealed class InterruptingMemory : IMemorySource
+    {
+        private readonly FakeMemory _inner;
+        private int _remaining;
+
+        public InterruptingMemory(FakeMemory inner, int readsBeforeFailure)
+        {
+            _inner = inner;
+            _remaining = readsBeforeFailure;
+        }
+
+        public IReadOnlyList<MemoryRegion> Regions => _inner.Regions;
+
+        public bool InModule(ulong address) => _inner.InModule(address);
+
+        public bool IsReadable(ulong address, int length) => Allow() && _inner.IsReadable(address, length);
+
+        public byte Byte(ulong address) => Allow() ? _inner.Byte(address) : throw new MemoryUnreadableException(address);
+
+        public ushort UInt16(ulong address) => Allow() ? _inner.UInt16(address) : throw new MemoryUnreadableException(address);
+
+        public uint UInt32(ulong address) => Allow() ? _inner.UInt32(address) : throw new MemoryUnreadableException(address);
+
+        public ulong Pointer(ulong address) => Allow() ? _inner.Pointer(address) : throw new MemoryUnreadableException(address);
+
+        public string? NestedString(ulong address) => Allow() ? _inner.NestedString(address) : null;
+
+        public string? IndirectString(ulong address) => Allow() ? _inner.IndirectString(address) : null;
+
+        private bool Allow() => _remaining-- > 0;
     }
 
     private static void NullPerson()
