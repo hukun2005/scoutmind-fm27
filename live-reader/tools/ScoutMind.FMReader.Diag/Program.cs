@@ -646,6 +646,238 @@ internal static class Program
                 }));
                 return 0;
 
+            case "calibrate":
+            {
+                // 只读校准：对已定位的球员对象，逐个候选偏移尝试嵌套字符串解码，按"像人名"的比例排序。
+                // 不写任何游戏内存；用于在布局漂移时重新发现姓名字段偏移。
+                var layout = new LayoutResolver().Resolve("26620374", "27.1");
+                if (layout is null)
+                {
+                    Console.Error.WriteLine("未登记的构建");
+                    return 3;
+                }
+
+                var count = args.Length > 1 && int.TryParse(args[1], out var parsedCount) ? parsedCount : 80;
+                var maxOffset = args.Length > 2 && int.TryParse(args[2], out var parsedMax) ? parsedMax : 0x400;
+                using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
+                var locator = new ScoutMind.FMReader.Engine.HeapObjectLocator(memory);
+                var players = locator.FindPlayers(layout, count, TimeSpan.FromSeconds(40));
+                var rows = new List<(int Off, int Readable, int NameLike, int Distinct, List<string> Samples)>();
+                for (var off = 0; off <= maxOffset; off += 8)
+                {
+                    var readable = 0;
+                    var nameLike = 0;
+                    var distinct = new HashSet<string>(StringComparer.Ordinal);
+                    var samples = new List<string>();
+                    foreach (var player in players)
+                    {
+                        string? value;
+                        try
+                        {
+                            value = memory.NestedString(player.Person + (ulong)off);
+                        }
+                        catch (ScoutMind.FMReader.Probes.MemoryUnreadableException)
+                        {
+                            continue;
+                        }
+
+                        if (string.IsNullOrWhiteSpace(value))
+                        {
+                            continue;
+                        }
+
+                        readable++;
+                        var plausible = value.Length is >= 2 and <= 40
+                                        && value.All(ch => char.IsLetter(ch) || ch is ' ' or '\'' or '-' or '.');
+                        if (plausible)
+                        {
+                            nameLike++;
+                            distinct.Add(value);
+                            if (samples.Count < 5)
+                            {
+                                samples.Add(value);
+                            }
+                        }
+                    }
+
+                    if (readable > 0)
+                    {
+                        rows.Add((off, readable, nameLike, distinct.Count, samples));
+                    }
+                }
+
+                Console.WriteLine(ToJson(new
+                {
+                    players = players.Count,
+                    current_offsets = new
+                    {
+                        PERO_FIRST_NAME = layout["PERO_FIRST_NAME"],
+                        PERO_SECOND_NAME = layout["PERO_SECOND_NAME"],
+                        PERO_COMMON_NAME = layout["PERO_COMMON_NAME"],
+                    },
+                    name_field_probe = players.Take(8).Select(player => new
+                    {
+                        person = $"0x{player.Person:X}",
+                        first_ptr = $"0x{memory.Pointer(player.Person + (ulong)layout["PERO_FIRST_NAME"]):X}",
+                        second_ptr = $"0x{memory.Pointer(player.Person + (ulong)layout["PERO_SECOND_NAME"]):X}",
+                        common_ptr = $"0x{memory.Pointer(player.Person + (ulong)layout["PERO_COMMON_NAME"]):X}",
+                        first = memory.NestedString(player.Person + (ulong)layout["PERO_FIRST_NAME"]),
+                        second = memory.NestedString(player.Person + (ulong)layout["PERO_SECOND_NAME"]),
+                        ca = memory.UInt16(player.Block + (ulong)layout["PLAO_CA"]),
+                    }),
+                    candidates = rows.OrderByDescending(row => row.NameLike)
+                        .ThenByDescending(row => row.Distinct)
+                        .Take(25)
+                        .Select(row => new
+                        {
+                            offset = $"0x{row.Off:X}",
+                            readable = row.Readable,
+                            name_like = row.NameLike,
+                            distinct = row.Distinct,
+                            samples = row.Samples,
+                        }),
+                }));
+                return 0;
+            }
+
+            case "xref":
+            {
+                // 在每条球员记录的范围内寻找"指向完整 person 对象"的指针：
+                // 对记录内每个 8 字节槽读指针 T，再用旧布局的姓名偏移尝试解码，命中即为可用的 person 基址。
+                var layout = new LayoutResolver().Resolve("26620374", "27.1");
+                if (layout is null)
+                {
+                    Console.Error.WriteLine("未登记的构建");
+                    return 3;
+                }
+
+                using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
+                var locator = new ScoutMind.FMReader.Engine.HeapObjectLocator(memory);
+                var players = locator.FindPlayers(layout, 10, TimeSpan.FromSeconds(40));
+                var hits = new List<object>();
+                foreach (var player in players.Take(5))
+                {
+                    for (var off = 0; off <= 0x3C0; off += 8)
+                    {
+                        var target = memory.Pointer(player.Person + (ulong)off);
+                        if (target == 0)
+                        {
+                            continue;
+                        }
+
+                        foreach (var nameOffset in new[] { 0x50, 0x58, 0x60 })
+                        {
+                            string? value;
+                            try
+                            {
+                                value = memory.NestedString(target + (ulong)nameOffset);
+                            }
+                            catch (ScoutMind.FMReader.Probes.MemoryUnreadableException)
+                            {
+                                continue;
+                            }
+
+                            if (string.IsNullOrWhiteSpace(value) || value.Length is < 2 or > 40)
+                            {
+                                continue;
+                            }
+
+                            if (!value.All(ch => char.IsLetter(ch) || ch is ' ' or '\'' or '-' or '.'))
+                            {
+                                continue;
+                            }
+
+                            hits.Add(new
+                            {
+                                record = $"0x{player.Person:X}",
+                                record_offset = $"0x{off:X}",
+                                target = $"0x{target:X}",
+                                name_offset = $"0x{nameOffset:X}",
+                                value,
+                            });
+                        }
+                    }
+                }
+
+                Console.WriteLine(ToJson(new { players = players.Count, hits }));
+                return 0;
+            }
+
+            case "dump":
+            {
+                // 只读转储一条球员记录（默认 0x3C8 字节）：非零指针与内联 ASCII 串，用于判断姓名是否内联或改址。
+                var layout = new LayoutResolver().Resolve("26620374", "27.1");
+                if (layout is null)
+                {
+                    Console.Error.WriteLine("未登记的构建");
+                    return 3;
+                }
+
+                var index = args.Length > 1 && int.TryParse(args[1], out var parsedIndex) ? parsedIndex : 0;
+                var length = args.Length > 2 && int.TryParse(args[2], out var parsedLength) ? parsedLength : 0x3C8;
+                using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
+                var locator = new ScoutMind.FMReader.Engine.HeapObjectLocator(memory);
+                var players = locator.FindPlayers(layout, index + 1, TimeSpan.FromSeconds(30));
+                var player = players.Skip(index).FirstOrDefault();
+                if (player is null || player.Person == 0)
+                {
+                    Console.Error.WriteLine("没有定位到该序号的球员");
+                    return 3;
+                }
+
+                var buffer = new byte[length];
+                var ok = memory.TryReadBlock(player.Person, buffer, length);
+                var pointers = new List<object>();
+                for (var i = 0; ok && i + 8 <= length; i += 8)
+                {
+                    var value = BitConverter.ToUInt64(buffer, i);
+                    if (value != 0)
+                    {
+                        pointers.Add(new { offset = $"0x{i:X}", value = $"0x{value:X}" });
+                    }
+                }
+
+                var strings = new List<object>();
+                var text = new System.Text.StringBuilder();
+                var start = 0;
+                for (var i = 0; ok && i <= length; i++)
+                {
+                    var b = i < length ? buffer[i] : (byte)0;
+                    if (b is >= 0x20 and <= 0x7E)
+                    {
+                        if (text.Length == 0)
+                        {
+                            start = i;
+                        }
+
+                        text.Append((char)b);
+                    }
+                    else
+                    {
+                        if (text.Length >= 3)
+                        {
+                            strings.Add(new { offset = $"0x{start:X}", text = text.ToString() });
+                        }
+
+                        text.Clear();
+                    }
+                }
+
+                Console.WriteLine(ToJson(new
+                {
+                    person = $"0x{player.Person:X}",
+                    block = $"0x{player.Block:X}",
+                    ca = memory.UInt16(player.Block + (ulong)layout["PLAO_CA"]),
+                    dob_year = FmDate.Decode(memory.UInt32(player.Person + (ulong)layout["PERO_DOB"])).Year,
+                    length,
+                    read_ok = ok,
+                    pointer_count = pointers.Count,
+                    pointers = pointers.Take(40),
+                    strings = strings.Take(20),
+                }));
+                return 0;
+            }
+
             default:
                 Console.Error.WriteLine("用法：ScoutMind.FMReader.Diag [status|probe|scan|foot]");
                 return 64;
