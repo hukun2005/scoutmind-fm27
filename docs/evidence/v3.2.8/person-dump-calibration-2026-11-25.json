@@ -1,0 +1,18 @@
+{
+  "mode": "calibration",
+  "game_version": "27.1",
+  "build": "26620374",
+  "layout_name": "FM27_1",
+  "located_total": 800,
+  "sampled": 24,
+  "name_valid": 19,
+  "date_valid": 24,
+  "structurally_valid": 19,
+  "unstable": 0,
+  "confidence": 0.4,
+  "verification_status": "Unverified",
+  "failure_reason_counts": {
+    "zero_pointer": 24
+  },
+  "mark_verified": false
+}
