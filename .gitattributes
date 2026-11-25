@@ -1,0 +1,3 @@
+# 真实样本按磁盘字节校验 SHA-256（见 backend/tests/fixture_integrity.py）。
+# 关闭换行符转换，避免 Windows 检出时把 \n 变成 \r\n 而触发哈希不匹配。
+backend/tests/fixtures/fmsuperscout/real_sample_*.json -text
