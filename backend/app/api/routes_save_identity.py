@@ -21,8 +21,10 @@ from ..schemas import (
     SaveSessionHeartbeatIn,
     SaveSessionInvalidateIn,
     SaveSessionStartIn,
+    SaveSessionSwitchIn,
 )
 from ..services import save_identity as service
+from ..services import write_safety
 from ..utils import iso
 from .deps import get_active_save
 
@@ -132,6 +134,7 @@ def get_identity(
     payload["sessions"] = [service.session_payload(row) for row in sessions]
     payload["capture_allowed"] = allowed
     payload["blockers"] = blockers
+    payload["write_gate"] = write_safety.diagnose(db, save)["gate"]
     return payload
 
 
@@ -183,6 +186,58 @@ def invalidate_session(
     db.commit()
     db.refresh(session)
     return service.session_payload(session)
+
+
+@router.post("/save-sessions/{session_id}/switch", summary="存档切换：推进代次并失效旧会话")
+def switch_session(
+    session_id: int,
+    body: SaveSessionSwitchIn,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    """在事务中原子推进代次：旧会话与旧 Worker 立即失去写入资格。
+
+    两个并发切换请求最多只有一个能拿到新的有效代次（条件更新 + 唯一约束）。
+    """
+    session = db.get(SaveSession, session_id)
+    if session is None or session.fm_save_id != save.id:
+        raise HTTPException(status_code=404, detail={"code": "save_session_not_found", "message": "会话不存在"})
+
+    next_session = None
+    next_identity_id = session.save_identity_id
+    if body.next_session_id is not None:
+        next_session = db.get(SaveSession, body.next_session_id)
+        if next_session is None or next_session.fm_save_id != save.id:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "save_context_mismatch", "message": "目标会话不属于当前存档"},
+            )
+        next_identity_id = next_session.save_identity_id
+
+    generation = write_safety.rotate_generation(
+        db,
+        save,
+        reason=body.reason,
+        actor=body.actor,
+        next_session_id=body.next_session_id,
+        next_identity_id=next_identity_id,
+    )
+    if next_session is not None:
+        next_session.session_epoch = generation
+    db.commit()
+    return {
+        "save_id": save.id,
+        "generation": generation,
+        "invalidated_session_id": session_id,
+        "next_session_id": body.next_session_id,
+        "protocol_version": write_safety.PROTOCOL_VERSION,
+    }
+
+
+@router.get("/save-write-gate", summary="当前存档的写入代次与会话诊断")
+def write_gate(db: Session = Depends(get_db), save: FmSave = Depends(get_active_save)) -> dict[str, Any]:
+    """真实后端代次视图；前端与 Agent 不得用本地缓存冒充该状态。"""
+    return write_safety.diagnose(db, save)
 
 
 @router.get("/save-identity-audit", summary="存档身份审计事件")

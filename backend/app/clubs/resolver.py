@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import Club, FmSave, PlayerInstance, PlayerSnapshot
@@ -238,8 +239,21 @@ class ClubResolver:
             source=source,
             confidence=confidence,
         )
-        self.session.add(club)
-        self.session.flush()
+        try:
+            # 并发导入可能同时创建同一 (save, uid)：唯一约束先到先得，后到者复读已有行。
+            with self.session.begin_nested():
+                self.session.add(club)
+                self.session.flush()
+        except IntegrityError:
+            existing = self.session.scalar(
+                select(Club).where(Club.fm_save_id == self.save_id, Club.uid == resolved_uid)
+            )
+            if existing is None:
+                raise
+            self._by_uid[resolved_uid] = existing
+            if existing.normalized_name:
+                self._by_name.setdefault(existing.normalized_name, existing)
+            return existing
         self._by_uid[resolved_uid] = club
         if normalized:
             self._by_name.setdefault(normalized, club)

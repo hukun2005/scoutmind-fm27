@@ -19,16 +19,79 @@ from ..ingestion.squad_csv import csv_template, import_squad_csv
 from ..ingestion.protocol import ProtocolError, ScanPayload
 from ..models import Club, DataSource, FmSave, ImportJob, ImportRow, PlayerInstance, PlayerSnapshot, PlayerStatistic, Transfer
 from ..schemas import SaveCreate
+from ..services.write_safety import (
+    WriteRejected,
+    acquire_write_fence,
+    record_legacy_write,
+    record_rejection,
+    resolve_write_context,
+)
 from ..utils import iso, payload_checksum, utcnow
 from .deps import get_active_save, get_current_user
 from .routes_adapters import maybe_adapt
-from .save_context import build_final_guard, resolve_save_context
 from .uploads import import_slot, read_request_payload, upload_slot
 
 # 导入写库限流统一由 uploads.import_slot() 提供（按事件循环惰性创建，避免跨循环复用）。
 
 
 router = APIRouter()
+
+
+def _require_write_fence(
+    db: Session,
+    save: FmSave,
+    *,
+    identity_id: int | None,
+    session_id: int | None,
+    operation_id: str | None = None,
+    endpoint: str = "import",
+):
+    """统一写入入口：返回 (上下文, 门票)。历史存档（无 gate 且未声明上下文）返回 (None, None)。"""
+    context = resolve_write_context(
+        db,
+        save,
+        identity_id=identity_id,
+        session_id=session_id,
+        operation_id=operation_id,
+    )
+    if context is None:
+        # 旧客户端兼容路径：显式写审计，便于后续收紧为强制上下文。
+        record_legacy_write(db, save_id=save.id, operation_id=operation_id, endpoint=endpoint)
+        return None, None
+    return context, acquire_write_fence(db, context)
+
+
+def _raise_write_rejected(
+    db: Session,
+    save: FmSave,
+    rejection: WriteRejected,
+    *,
+    operation_id: str | None,
+) -> None:
+    try:
+        record_rejection(
+            db,
+            save_id=save.id,
+            session_id=rejection.session_id,
+            identity_id=None,
+            capture_id=None,
+            code=rejection.code,
+            message=rejection.message,
+            generation=rejection.generation,
+            operation_id=operation_id,
+        )
+        db.commit()
+    except Exception:  # 审计失败不能掩盖真正的拒绝结果
+        db.rollback()
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": rejection.code,
+            "message": rejection.message,
+            "save_id": save.id,
+            "generation": rejection.generation,
+        },
+    ) from rejection
 
 
 @router.get("/meta/bootstrap")
@@ -135,6 +198,7 @@ async def import_transfers(
     save_id: int | None = Query(default=None),
     save_identity_id: int | None = Query(default=None),
     save_session_id: int | None = Query(default=None),
+    operation_id: str | None = Query(default=None, max_length=64),
     db: Session = Depends(get_db),
     save: FmSave = Depends(get_active_save),
     user=Depends(get_current_user),
@@ -149,7 +213,14 @@ async def import_transfers(
     target = db.get(FmSave, save_id) if save_id else save
     if target is None or target.user_id != user.id:
         raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
-    context = resolve_save_context(db, target, save_identity_id, save_session_id)
+    context, fence = _require_write_fence(
+        db,
+        target,
+        identity_id=save_identity_id,
+        session_id=save_session_id,
+        operation_id=operation_id,
+        endpoint="imports/transfers",
+    )
     try:
         document = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -167,14 +238,18 @@ async def import_transfers(
         validated = ScanPayload.model_validate(document)
     except ValueError as exc:
         raise ProtocolError(f"交易报文不符合协议：{exc}") from exc
-    outcome = ScanImporter(db).import_payload(
-        target.id,
-        validated,
-        raw,
-        identity_id=context.identity_id,
-        session_id=context.session_id,
-        final_guard=build_final_guard(db, target, save_identity_id, save_session_id),
-    )
+    try:
+        outcome = ScanImporter(db).import_payload(
+            target.id,
+            validated,
+            raw,
+            identity_id=context.identity_id if context else None,
+            session_id=context.session_id if context else None,
+            fence=fence,
+            operation_id=operation_id,
+        )
+    except WriteRejected as rejection:
+        _raise_write_rejected(db, target, rejection, operation_id=operation_id)
     return _outcome_payload(outcome)
 
 
@@ -184,6 +259,7 @@ async def import_squad_csv_route(
     save_id: int | None = Query(default=None),
     save_identity_id: int | None = Query(default=None),
     save_session_id: int | None = Query(default=None),
+    operation_id: str | None = Query(default=None, max_length=64),
     db: Session = Depends(get_db),
     save: FmSave = Depends(get_active_save),
     user=Depends(get_current_user),
@@ -197,9 +273,21 @@ async def import_squad_csv_route(
     target = db.get(FmSave, save_id) if save_id else save
     if target is None or target.user_id != user.id:
         raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
-    resolve_save_context(db, target, save_identity_id, save_session_id)
+    _context, fence = _require_write_fence(
+        db,
+        target,
+        identity_id=save_identity_id,
+        session_id=save_session_id,
+        operation_id=operation_id,
+        endpoint="imports/squad-csv",
+    )
     try:
         result = import_squad_csv(db, target.id, raw)
+        if fence is not None:
+            fence.assert_current(db)
+    except WriteRejected as rejection:
+        db.rollback()
+        _raise_write_rejected(db, target, rejection, operation_id=operation_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "invalid_squad_csv", "message": str(exc)}) from exc
     db.commit()
@@ -282,8 +370,7 @@ def get_import(
         "rejected_codes": [
             {"code": code, "entity": entity, "count": int(count)} for code, entity, count in rejected
         ],
-        "retryable": job.status in {"failed", "partial", "running"},
-    }
+        "retryable": job.status in {"failed", "partial", "running"},    }
 
 
 @router.post("/imports/scan", status_code=201)
@@ -292,6 +379,7 @@ async def import_scan(
     save_id: int | None = Query(default=None),
     save_identity_id: int | None = Query(default=None),
     save_session_id: int | None = Query(default=None),
+    operation_id: str | None = Query(default=None, max_length=64),
     db: Session = Depends(get_db),
     save: FmSave = Depends(get_active_save),
     user=Depends(get_current_user),
@@ -303,8 +391,16 @@ async def import_scan(
     target_save = db.get(FmSave, save_id) if save_id else save
     if target_save is None or target_save.user_id != user.id:
         raise HTTPException(status_code=404, detail={"code": "save_not_found", "message": "存档不存在"})
-    context = resolve_save_context(db, target_save, save_identity_id, save_session_id)
-    final_guard = build_final_guard(db, target_save, save_identity_id, save_session_id)
+    context, fence = _require_write_fence(
+        db,
+        target_save,
+        identity_id=save_identity_id,
+        session_id=save_session_id,
+        operation_id=operation_id,
+        endpoint="imports/scan",
+    )
+    imported_identity_id = context.identity_id if context else None
+    imported_session_id = context.session_id if context else None
     importer = ScanImporter(db)
     # A dropped FMSuperScout dump is converted by the adapter layer, then imported like any other scan.
     # Both steps are CPU/IO heavy for a 44k-player scan: run them off the event loop so /health and
@@ -323,9 +419,10 @@ async def import_scan(
                     target_save.id,
                     validated,
                     raw,
-                    identity_id=context.identity_id,
-                    session_id=context.session_id,
-                    final_guard=final_guard,
+                    identity_id=imported_identity_id,
+                    session_id=imported_session_id,
+                    fence=fence,
+                    operation_id=operation_id,
                 )
             except ImportInProgressError as busy:
                 raise HTTPException(
@@ -336,6 +433,8 @@ async def import_scan(
                         "job_id": busy.job.id,
                     },
                 ) from busy
+            except WriteRejected as rejection:
+                _raise_write_rejected(db, target_save, rejection, operation_id=operation_id)
         body = _outcome_payload(outcome)
         body["adapted_by"] = report
         return body
@@ -345,9 +444,10 @@ async def import_scan(
                 importer.import_bytes,
                 target_save.id,
                 raw,
-                identity_id=context.identity_id,
-                session_id=context.session_id,
-                final_guard=final_guard,
+                identity_id=imported_identity_id,
+                session_id=imported_session_id,
+                fence=fence,
+                operation_id=operation_id,
             )
         except ImportInProgressError as busy:
             raise HTTPException(
@@ -358,6 +458,8 @@ async def import_scan(
                     "job_id": busy.job.id,
                 },
             ) from busy
+        except WriteRejected as rejection:
+            _raise_write_rejected(db, target_save, rejection, operation_id=operation_id)
     return _outcome_payload(outcome)
 
 
@@ -413,6 +515,9 @@ def _job_payload(job: ImportJob | None) -> dict[str, Any] | None:
         "raw_payload_path": job.raw_payload_path,
         "save_identity_id": job.save_identity_id,
         "save_session_id": job.save_session_id,
+        "operation_id": job.operation_id,
+        "save_generation": job.save_generation,
+        "rejected_reason": job.rejected_reason,
     }
 
 

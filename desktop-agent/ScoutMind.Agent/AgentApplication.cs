@@ -725,7 +725,14 @@ public sealed class AgentApplication
         BackendSyncResult result;
         try
         {
-            result = await client.PostScanAsync(payload.Json, cancellationToken, context).ConfigureAwait(false);
+            // V3.2.7.3：每次上传带唯一操作 ID；同一文件重试沿用同一 ID，后端据此幂等。
+            var uploadContext = context is null
+                ? null
+                : new SaveContextQuery(
+                    context.IdentityId,
+                    context.SessionId,
+                    "op-" + manifest.PayloadSha256[..Math.Min(32, manifest.PayloadSha256.Length)]);
+            result = await client.PostScanAsync(payload.Json, cancellationToken, uploadContext).ConfigureAwait(false);
         }
         catch (ArgumentException ex)
         {
