@@ -1,0 +1,43 @@
+{
+  "mode": "verify",
+  "state": "Verified",
+  "mark_verified": true,
+  "reasons": [],
+  "warnings": [],
+  "target": {
+    "index": 50,
+    "name": "Erick Pulgar",
+    "date_of_birth": "1994-01-15",
+    "ca": 134,
+    "attribute_link_status": "SingleCandidate",
+    "attribute_link_reason": "single_candidate_requires_human_review",
+    "conflicts": 0
+  },
+  "audit": {
+    "timestamp": "2026-11-25T23:21:51.9095344+08:00",
+    "outcome": "Verified",
+    "mark_verified": true,
+    "candidate_id": "fm27.1.person.2026-11-25",
+    "layout_version": "27.1",
+    "game_build": "26620374",
+    "player_identity": {
+      "name": "Erick Pulgar",
+      "date_of_birth": "1994-01-15",
+      "club": "弗拉门戈竞赛会",
+      "uid": 75030706,
+      "ca": 134
+    },
+    "attribute_link_status": "SingleCandidate",
+    "confidence": 0.5,
+    "verified_fields": [
+      "name",
+      "date_of_birth",
+      "club",
+      "uid"
+    ],
+    "rejection_reasons": [],
+    "reviewer": "user",
+    "confirmation_source": "fm27-ui",
+    "evidence_reference": "docs/evidence/v3.2.8/HUMAN-VERIFICATION-SHEET.md"
+  }
+}

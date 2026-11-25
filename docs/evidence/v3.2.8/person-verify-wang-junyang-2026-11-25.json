@@ -1,0 +1,43 @@
+{
+  "mode": "verify",
+  "state": "Verified",
+  "mark_verified": true,
+  "reasons": [],
+  "warnings": [],
+  "target": {
+    "index": 170,
+    "name": "Wang Junyang",
+    "date_of_birth": "2007-10-02",
+    "ca": 50,
+    "attribute_link_status": "SingleCandidate",
+    "attribute_link_reason": "single_candidate_requires_human_review",
+    "conflicts": 0
+  },
+  "audit": {
+    "timestamp": "2026-11-25T23:21:57.3045359+08:00",
+    "outcome": "Verified",
+    "mark_verified": true,
+    "candidate_id": "fm27.1.person.2026-11-25",
+    "layout_version": "27.1",
+    "game_build": "26620374",
+    "player_identity": {
+      "name": "Wang Junyang",
+      "date_of_birth": "2007-10-02",
+      "club": "陕西联合",
+      "uid": 2000381482,
+      "ca": 50
+    },
+    "attribute_link_status": "SingleCandidate",
+    "confidence": 0.5,
+    "verified_fields": [
+      "name",
+      "date_of_birth",
+      "club",
+      "uid"
+    ],
+    "rejection_reasons": [],
+    "reviewer": "user",
+    "confirmation_source": "fm27-ui",
+    "evidence_reference": "docs/evidence/v3.2.8/HUMAN-VERIFICATION-SHEET.md"
+  }
+}
