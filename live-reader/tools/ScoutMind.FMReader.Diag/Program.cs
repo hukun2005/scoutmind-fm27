@@ -833,6 +833,8 @@ internal static class Program
                     Console.WriteLine("  --source <text>            确认来源（如 fm27-ui）");
                     Console.WriteLine("  --evidence <path>          证据文档引用");
                     Console.WriteLine("  --alternative-strategy <s> 经批准的替代生日验证策略");
+                    Console.WriteLine("  --name <text>              按姓名精确选人（与 --dob 组合，必须唯一）");
+                    Console.WriteLine("  --dob <yyyy-MM-dd>         按出生日期筛选目标");
                     Console.WriteLine("  --output <path>            写入 JSON 结果");
                     Console.WriteLine("  --audit <path>             追加一行审计 JSON（Verified/Rejected 都必须记录）");
                     return 0;
@@ -847,6 +849,19 @@ internal static class Program
                 var confirmationSource = FlagValue(args, "--source");
                 var evidenceReference = FlagValue(args, "--evidence");
                 var alternativeStrategy = FlagValue(args, "--alternative-strategy");
+                var nameFilter = FlagValue(args, "--name");
+                var dobFilterText = FlagValue(args, "--dob");
+                DateOnly? dobFilter = null;
+                if (!string.IsNullOrWhiteSpace(dobFilterText))
+                {
+                    if (!DateOnly.TryParseExact(dobFilterText, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDob))
+                    {
+                        Console.Error.WriteLine($"--dob 格式应为 yyyy-MM-dd：{dobFilterText}");
+                        return 64;
+                    }
+
+                    dobFilter = parsedDob;
+                }
                 var outputPath = FlagValue(args, "--output");
                 var auditPath = FlagValue(args, "--audit");
 
@@ -926,14 +941,37 @@ internal static class Program
                         return 3;
                     }
 
-                    if (targetIndex < 0 || targetIndex >= located.Count)
+                    var factsReader = new PlayerRecordFactsReader(memory, layout);
+                    var facts = located.Select(factsReader.Read).ToList();
+
+                    // 定位序号在两次扫描之间可能漂移；人工确认必须按姓名/生日精确选人，且要求唯一。
+                    if (!string.IsNullOrWhiteSpace(nameFilter) || dobFilter is not null)
                     {
-                        Console.Error.WriteLine($"记录序号超出范围：{targetIndex}（共 {located.Count} 条）");
+                        var matches = Enumerable.Range(0, facts.Count)
+                            .Where(index => (string.IsNullOrWhiteSpace(nameFilter) || NameMatches(facts[index], nameFilter!))
+                                            && (dobFilter is null || facts[index].DateOfBirth == dobFilter))
+                            .ToList();
+                        if (matches.Count == 0)
+                        {
+                            Console.Error.WriteLine("没有找到与姓名/生日匹配的球员，拒绝继续");
+                            return 3;
+                        }
+
+                        if (matches.Count > 1)
+                        {
+                            Console.Error.WriteLine($"姓名/生日匹配到 {matches.Count} 条记录，拒绝自动选择");
+                            return 3;
+                        }
+
+                        targetIndex = matches[0];
+                    }
+
+                    if (targetIndex < 0 || targetIndex >= facts.Count)
+                    {
+                        Console.Error.WriteLine($"记录序号超出范围：{targetIndex}（共 {facts.Count} 条）");
                         return 3;
                     }
 
-                    var factsReader = new PlayerRecordFactsReader(memory, layout);
-                    var facts = located.Select(factsReader.Read).ToList();
                     var target = facts[targetIndex];
                     displayName = BuildName(target);
                     dateOfBirth = target.DateOfBirth;
@@ -1444,6 +1482,31 @@ internal static class Program
 
         var joined = string.Join(" ", new[] { first, second }.Where(part => !string.IsNullOrWhiteSpace(part)));
         return string.IsNullOrWhiteSpace(joined) ? null : joined;
+    }
+
+    private static bool NameMatches(PlayerRecordFacts facts, string filter)
+    {
+        var target = AttributeRecordLinker.NormalizeName(filter);
+        if (target.Length == 0)
+        {
+            return false;
+        }
+
+        var values = new[]
+        {
+            facts.CommonName,
+            facts.FirstName,
+            facts.SecondName,
+            Combine(facts.FirstName, facts.SecondName),
+            Combine(facts.SecondName, facts.FirstName),
+        };
+        return values.Any(value => value is not null
+                                   && AttributeRecordLinker.NormalizeName(value) == target);
+
+        static string? Combine(string? first, string? second) =>
+            string.IsNullOrWhiteSpace(first) || string.IsNullOrWhiteSpace(second)
+                ? null
+                : $"{first} {second}";
     }
 
     private static object IdentityJson(PersonIdentityFields identity) => new

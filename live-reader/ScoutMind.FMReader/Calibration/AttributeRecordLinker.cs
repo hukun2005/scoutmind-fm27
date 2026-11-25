@@ -391,6 +391,11 @@ public sealed class AttributeRecordLinker
         }
     }
 
+    /// <summary>归一化姓名（供调用方按姓名精确选择目标；忽略大小写、重音与多余空白）。</summary>
+    /// <param name="value">原始姓名。</param>
+    /// <returns>归一化姓名。</returns>
+    public static string NormalizeName(string value) => Normalize(value);
+
     /// <summary>归一化：去首尾空白、折叠空白、忽略重音与大小写。</summary>
     private static string Normalize(string value)
     {
