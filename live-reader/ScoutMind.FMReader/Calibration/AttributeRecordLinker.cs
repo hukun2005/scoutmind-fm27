@@ -120,8 +120,22 @@ public sealed class AttributeRecordLinker
         IReadOnlyList<PlayerRecordFacts> records,
         bool humanConfirmed = false)
     {
-        ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(records);
+        return Link(target, AttributeRecordIndex.Build(records), humanConfirmed);
+    }
+
+    /// <summary>使用预构建索引执行关联（索引只读，生命周期仅限本次调用）。</summary>
+    /// <param name="target">目标身份。</param>
+    /// <param name="index">属性记录索引。</param>
+    /// <param name="humanConfirmed">是否已人工确认唯一候选。</param>
+    /// <returns>关联结果。</returns>
+    public AttributeLinkResult Link(
+        PersonIdentityFields target,
+        AttributeRecordIndex index,
+        bool humanConfirmed = false)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(index);
 
         var targetKeys = NameKeys(target.FirstName, target.SecondName, target.CommonName);
         var targetMissing = TargetMissingFields(target, targetKeys);
@@ -137,12 +151,13 @@ public sealed class AttributeRecordLinker
                 "target_identity_insufficient");
         }
 
+        var targetClub = string.IsNullOrWhiteSpace(target.ClubName) ? null : Normalize(target.ClubName);
         var compatible = new List<AttributeLinkCandidate>();
         var rejected = new List<AttributeLinkCandidate>();
         var conflicts = new List<AttributeLinkCandidate>();
-        foreach (var record in records)
+        foreach (var record in index.Entries)
         {
-            var candidate = Compare(target, targetKeys, record);
+            var candidate = Compare(target, targetKeys, targetClub, record);
             var mismatched = candidate.Comparisons.Any(item => item.Applicable && !item.Matched);
             // 只有姓名或 UID 能构成强匹配；生日单独命中不足以建立关联。
             var strongMatch = candidate.Comparisons.Any(item =>
@@ -222,12 +237,14 @@ public sealed class AttributeRecordLinker
     private static AttributeLinkCandidate Compare(
         PersonIdentityFields target,
         IReadOnlySet<string> targetKeys,
-        PlayerRecordFacts record)
+        string? targetNormalizedClub,
+        AttributeRecordIndex.Entry entry)
     {
+        var record = entry.Facts;
         var comparisons = new List<LinkFieldComparison>(4);
         var reasons = new List<string>();
 
-        var candidateKeys = NameKeys(record.FirstName, record.SecondName, record.CommonName);
+        var candidateKeys = entry.NameKeys;
         var nameApplicable = targetKeys.Count > 0 && candidateKeys.Count > 0;
         var nameMatched = nameApplicable && targetKeys.Overlaps(candidateKeys);
         comparisons.Add(new LinkFieldComparison(
@@ -262,12 +279,11 @@ public sealed class AttributeRecordLinker
             reasons.Add("date_of_birth_mismatch");
         }
 
-        var clubApplicable = !string.IsNullOrWhiteSpace(target.ClubName)
-                             && !string.IsNullOrWhiteSpace(record.ClubName);
+        var clubApplicable = targetNormalizedClub is not null && entry.NormalizedClub is not null;
         var clubMatched = clubApplicable
                           && string.Equals(
-                              Normalize(target.ClubName!),
-                              Normalize(record.ClubName!),
+                              targetNormalizedClub,
+                              entry.NormalizedClub,
                               StringComparison.Ordinal);
         comparisons.Add(new LinkFieldComparison(
             "club",
@@ -356,7 +372,7 @@ public sealed class AttributeRecordLinker
     private static string? FormatDate(DateOnly? value) =>
         value?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
-    private static IReadOnlySet<string> NameKeys(string? first, string? second, string? common)
+    internal static IReadOnlySet<string> NameKeys(string? first, string? second, string? common)
     {
         var keys = new HashSet<string>(StringComparer.Ordinal);
         Add(common);
@@ -397,7 +413,7 @@ public sealed class AttributeRecordLinker
     public static string NormalizeName(string value) => Normalize(value);
 
     /// <summary>归一化：去首尾空白、折叠空白、忽略重音与大小写。</summary>
-    private static string Normalize(string value)
+    internal static string Normalize(string value)
     {
         var decomposed = value.Trim().Normalize(NormalizationForm.FormD);
         var builder = new StringBuilder(decomposed.Length);

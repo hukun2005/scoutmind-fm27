@@ -92,6 +92,7 @@ public sealed class PersonDiagnosticsCollector
             Enumerable.Range(0, located.Count).ToList(),
             Math.Max(1, sampleCount));
         var linker = new AttributeRecordLinker();
+        var recordIndex = AttributeRecordIndex.Build(facts);
         var statusCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         var valid = 0;
         var invalid = 0;
@@ -123,7 +124,7 @@ public sealed class PersonDiagnosticsCollector
                 dobRead++;
             }
 
-            var link = linker.Link(PersonIdentityFields.FromFacts(facts[index]), facts);
+            var link = linker.Link(PersonIdentityFields.FromFacts(facts[index]), recordIndex);
             var key = link.Status.ToString();
             statusCounts[key] = statusCounts.GetValueOrDefault(key) + 1;
             if (link.Status is AttributeLinkStatus.SingleCandidate or AttributeLinkStatus.VerifiedMatch)

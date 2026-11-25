@@ -1089,6 +1089,7 @@ internal static class Program
                     var facts = located.Select(factsReader.Read).ToList();
                     var indexOf = BuildIndexMap(located);
                     var linker = new AttributeRecordLinker();
+                    var recordIndex = AttributeRecordIndex.Build(facts);
 
                     if (args.Contains("--link-all", StringComparer.Ordinal))
                     {
@@ -1100,7 +1101,7 @@ internal static class Program
                         var rows = new List<object>();
                         foreach (var index in indexes)
                         {
-                            var result = linker.Link(PersonIdentityFields.FromFacts(facts[index]), facts);
+                            var result = linker.Link(PersonIdentityFields.FromFacts(facts[index]), recordIndex);
                             var key = result.Status.ToString();
                             counts[key] = counts.GetValueOrDefault(key) + 1;
                             rows.Add(new
