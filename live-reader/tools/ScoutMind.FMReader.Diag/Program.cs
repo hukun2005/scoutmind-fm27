@@ -818,6 +818,209 @@ internal static class Program
                 }
             }
 
+            case "verify":
+            {
+                // 只读验证 + Mark(Verified) 安全门控：默认只到 HumanReviewPending，
+                // 只有显式 --human-confirmed 且提供 reviewer/source/evidence 时才可能 Verified。
+                if (args.Contains("--help", StringComparer.Ordinal))
+                {
+                    Console.WriteLine("用法：ScoutMind.FMReader.Diag verify <记录序号> [选项]");
+                    Console.WriteLine();
+                    Console.WriteLine("  --located <n>              堆扫描最多定位数量（默认 400）");
+                    Console.WriteLine("  --reads <n>                重复读取次数（默认 3，至少 2）");
+                    Console.WriteLine("  --human-confirmed          用户已在 FM27 界面人工核对");
+                    Console.WriteLine("  --reviewer <id>            确认人");
+                    Console.WriteLine("  --source <text>            确认来源（如 fm27-ui）");
+                    Console.WriteLine("  --evidence <path>          证据文档引用");
+                    Console.WriteLine("  --alternative-strategy <s> 经批准的替代生日验证策略");
+                    Console.WriteLine("  --output <path>            写入 JSON 结果");
+                    Console.WriteLine("  --audit <path>             追加一行审计 JSON（Verified/Rejected 都必须记录）");
+                    return 0;
+                }
+
+                var candidate = PersonLayoutCandidate.Fm27_1_20261125;
+                var targetIndex = args.Length > 1 && int.TryParse(args[1], out var parsedIndex) ? parsedIndex : 0;
+                var locatedLimit = Math.Max(1, IntFlag(args, "--located", 400));
+                var readCount = Math.Max(2, IntFlag(args, "--reads", 3));
+                var humanConfirmed = args.Contains("--human-confirmed", StringComparer.Ordinal);
+                var reviewer = FlagValue(args, "--reviewer");
+                var confirmationSource = FlagValue(args, "--source");
+                var evidenceReference = FlagValue(args, "--evidence");
+                var alternativeStrategy = FlagValue(args, "--alternative-strategy");
+                var outputPath = FlagValue(args, "--output");
+                var auditPath = FlagValue(args, "--audit");
+
+                var status = await engine.GetStatusAsync(cancellation.Token).ConfigureAwait(false);
+                var gameVersion = status.Gate?.Layout is { Length: > 0 } gateLayout
+                    ? gateLayout.Replace("FM", string.Empty, StringComparison.Ordinal).Replace('_', '.')
+                    : status.PluginVersion;
+                var buildSupported = status.Gate?.AllowScan == true;
+                var environment = new CalibrationEnvironment(
+                    status.ProcessId,
+                    string.IsNullOrWhiteSpace(status.ProcessPath) ? null : Path.GetFileNameWithoutExtension(status.ProcessPath),
+                    gameVersion,
+                    status.Build,
+                    status.PluginVersion,
+                    status.Gate?.Status.ToString(),
+                    buildSupported,
+                    status.AccessDenied);
+
+                string? displayName = null;
+                DateOnly? dateOfBirth = null;
+                int? ca = null;
+                AttributeLinkResult? link = null;
+                var pointerValid = false;
+                var structureValid = false;
+                var readsStable = false;
+                var stableReadCount = 0;
+                double confidence = 0;
+                var layout = new LayoutResolver().Resolve(status.Build, gameVersion);
+                var layoutMatches = layout is not null
+                                    && string.Equals(gameVersion, candidate.GameVersion, StringComparison.Ordinal);
+
+                if (layout is null || !buildSupported)
+                {
+                    var blocked = new PersonVerificationRequest(
+                        candidate.CandidateId,
+                        candidate.GameVersion,
+                        status.Build ?? "unknown",
+                        candidate.BuildNumber,
+                        buildSupported,
+                        layoutMatches,
+                        false,
+                        false,
+                        null,
+                        null,
+                        alternativeStrategy,
+                        null,
+                        null,
+                        false,
+                        0,
+                        0,
+                        humanConfirmed,
+                        reviewer,
+                        confirmationSource,
+                        evidenceReference,
+                        DateTimeOffset.Now);
+                    var blockedDecision = new PersonVerificationGate().Evaluate(blocked);
+                    Console.WriteLine(ToJson(new
+                    {
+                        mode = "verify",
+                        state = blockedDecision.State.ToString(),
+                        mark_verified = blockedDecision.MarkVerified,
+                        reasons = blockedDecision.Reasons,
+                        warnings = blockedDecision.Warnings,
+                        audit = JsonDocument.Parse(blockedDecision.Audit.ToJsonLine()).RootElement.Clone(),
+                    }));
+                    return 3;
+                }
+
+                try
+                {
+                    using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
+                    var locator = new ScoutMind.FMReader.Engine.HeapObjectLocator(memory);
+                    var located = locator.FindPlayers(layout, locatedLimit, TimeSpan.FromSeconds(45));
+                    if (located.Count == 0)
+                    {
+                        Console.Error.WriteLine("没有定位到球员记录");
+                        return 3;
+                    }
+
+                    if (targetIndex < 0 || targetIndex >= located.Count)
+                    {
+                        Console.Error.WriteLine($"记录序号超出范围：{targetIndex}（共 {located.Count} 条）");
+                        return 3;
+                    }
+
+                    var factsReader = new PlayerRecordFactsReader(memory, layout);
+                    var facts = located.Select(factsReader.Read).ToList();
+                    var target = facts[targetIndex];
+                    displayName = BuildName(target);
+                    dateOfBirth = target.DateOfBirth;
+                    ca = target.Ca;
+                    link = new AttributeRecordLinker().Link(PersonIdentityFields.FromFacts(target), facts);
+
+                    var calibration = new PersonCalibrationEngine(memory).Run(
+                        candidate,
+                        new[] { target.PersonPointer },
+                        environment,
+                        new PersonCalibrationOptions(readCount, 1, 1, 0, false, false));
+                    var sample = calibration.Samples.Count > 0 ? calibration.Samples[0] : null;
+                    pointerValid = sample is not null
+                                   && sample.First.PersonPointer != 0
+                                   && sample.First.Status != CandidateVerificationStatus.Rejected;
+                    structureValid = sample?.First.Status == CandidateVerificationStatus.StructurallyValid;
+                    readsStable = sample?.Stable == true;
+                    stableReadCount = calibration.ReadCount;
+                    confidence = calibration.Confidence;
+
+                    var request = new PersonVerificationRequest(
+                        candidate.CandidateId,
+                        candidate.GameVersion,
+                        status.Build ?? "unknown",
+                        candidate.BuildNumber,
+                        buildSupported,
+                        layoutMatches,
+                        pointerValid,
+                        structureValid,
+                        displayName,
+                        dateOfBirth,
+                        alternativeStrategy,
+                        ca,
+                        link,
+                        readsStable,
+                        stableReadCount,
+                        confidence,
+                        humanConfirmed,
+                        reviewer,
+                        confirmationSource,
+                        evidenceReference,
+                        DateTimeOffset.Now);
+                    var decision = new PersonVerificationGate().Evaluate(request);
+                    var json = ToJson(new
+                    {
+                        mode = "verify",
+                        state = decision.State.ToString(),
+                        mark_verified = decision.MarkVerified,
+                        reasons = decision.Reasons,
+                        warnings = decision.Warnings,
+                        target = new
+                        {
+                            index = targetIndex,
+                            name = displayName,
+                            date_of_birth = FormatDate(dateOfBirth),
+                            ca,
+                            attribute_link_status = link.Status.ToString(),
+                            attribute_link_reason = link.Reason,
+                            conflicts = link.Conflicts.Count,
+                        },
+                        audit = JsonDocument.Parse(decision.Audit.ToJsonLine()).RootElement.Clone(),
+                    });
+                    Console.WriteLine(json);
+                    if (!string.IsNullOrWhiteSpace(outputPath))
+                    {
+                        File.WriteAllText(outputPath, json);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(auditPath))
+                    {
+                        File.AppendAllText(auditPath, decision.Audit.ToJsonLine() + Environment.NewLine);
+                    }
+
+                    return decision.State switch
+                    {
+                        PersonVerificationState.Verified => 0,
+                        PersonVerificationState.HumanReviewPending => 2,
+                        _ => 3,
+                    };
+                }
+                catch (ScoutMind.FMReader.Probes.MemoryUnreadableException)
+                {
+                    Console.Error.WriteLine("无法读取进程内存");
+                    return 3;
+                }
+            }
+
             case "xref":
             {
                 // 旧行为（默认）：在每条球员记录范围内寻找"指向完整 person 对象"的指针。
