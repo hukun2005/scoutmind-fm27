@@ -1,0 +1,927 @@
+{
+  "mode": "link-all",
+  "located_total": 800,
+  "sampled": 60,
+  "counts": {
+    "SingleCandidate": 60
+  },
+  "rows": [
+    {
+      "target_index": 6,
+      "name": null,
+      "date_of_birth": "2002-01-22",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club",
+        "name"
+      ]
+    },
+    {
+      "target_index": 19,
+      "name": null,
+      "date_of_birth": "2007-07-11",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club",
+        "name"
+      ]
+    },
+    {
+      "target_index": 33,
+      "name": null,
+      "date_of_birth": "2006-11-08",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club",
+        "name"
+      ]
+    },
+    {
+      "target_index": 46,
+      "name": null,
+      "date_of_birth": "2006-06-03",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club",
+        "name"
+      ]
+    },
+    {
+      "target_index": 59,
+      "name": null,
+      "date_of_birth": "2008-11-19",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club",
+        "name"
+      ]
+    },
+    {
+      "target_index": 73,
+      "name": null,
+      "date_of_birth": "2006-05-03",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club",
+        "name"
+      ]
+    },
+    {
+      "target_index": 86,
+      "name": null,
+      "date_of_birth": "2009-09-10",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club",
+        "name"
+      ]
+    },
+    {
+      "target_index": 99,
+      "name": null,
+      "date_of_birth": "2008-11-20",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club",
+        "name"
+      ]
+    },
+    {
+      "target_index": 113,
+      "name": null,
+      "date_of_birth": "2008-05-25",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club",
+        "name"
+      ]
+    },
+    {
+      "target_index": 126,
+      "name": null,
+      "date_of_birth": "2009-09-26",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club",
+        "name"
+      ]
+    },
+    {
+      "target_index": 139,
+      "name": null,
+      "date_of_birth": "2009-01-25",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club",
+        "name"
+      ]
+    },
+    {
+      "target_index": 153,
+      "name": null,
+      "date_of_birth": "1995-09-02",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club",
+        "name"
+      ]
+    },
+    {
+      "target_index": 166,
+      "name": "Mahmoud Al-Mardi",
+      "date_of_birth": "1993-10-06",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 179,
+      "name": "Zayed Ahmed",
+      "date_of_birth": "1996-02-23",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 193,
+      "name": "Abdul Sallam Mohameed",
+      "date_of_birth": "1992-06-19",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 206,
+      "name": "Bilal Yousif",
+      "date_of_birth": "1995-05-25",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 219,
+      "name": "Abdullah Al-Attar",
+      "date_of_birth": "1992-10-04",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 233,
+      "name": "Hu Ruibao",
+      "date_of_birth": "1996-10-27",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 246,
+      "name": "Cheng Jin",
+      "date_of_birth": "1995-02-18",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 259,
+      "name": "Saeed Al-Muwallad",
+      "date_of_birth": "1991-03-09",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club"
+      ]
+    },
+    {
+      "target_index": 273,
+      "name": "Eid Al-Farsi",
+      "date_of_birth": "1990-11-08",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 286,
+      "name": "Mohammad Mustafa",
+      "date_of_birth": "1989-10-29",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 299,
+      "name": "Alhasan Saleh",
+      "date_of_birth": "1991-06-25",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 313,
+      "name": "Abdullah Al-Harbi",
+      "date_of_birth": "1989-01-28",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 326,
+      "name": "Khalid Butti",
+      "date_of_birth": "1991-08-29",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club"
+      ]
+    },
+    {
+      "target_index": 339,
+      "name": "Saoud Saeed",
+      "date_of_birth": "1990-06-28",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 353,
+      "name": "Ahmed Sayyar",
+      "date_of_birth": "1993-10-06",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 366,
+      "name": "Ahmad Al-Khalidi",
+      "date_of_birth": "1989-03-29",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 379,
+      "name": "Zhong Haoran",
+      "date_of_birth": "1994-07-15",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 393,
+      "name": "Hojat Sadeghi",
+      "date_of_birth": "1993-02-07",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 406,
+      "name": "Hamed Lak",
+      "date_of_birth": "1990-11-24",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 419,
+      "name": "Iman Sadeghi",
+      "date_of_birth": "1992-01-09",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 433,
+      "name": "Murad Naji",
+      "date_of_birth": "1991-06-12",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 446,
+      "name": "Theerathon Bunmathan",
+      "date_of_birth": "1990-02-06",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 459,
+      "name": "Hamad Al-Dossary",
+      "date_of_birth": "1989-07-24",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 473,
+      "name": "Saman Nariman Jahan",
+      "date_of_birth": "1991-04-18",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 486,
+      "name": "Saad Al-Sheeb",
+      "date_of_birth": "1990-02-19",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 499,
+      "name": "Jalalaldin Alimohammadi",
+      "date_of_birth": "1990-06-15",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 513,
+      "name": "Yan Junling",
+      "date_of_birth": "1991-01-28",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 526,
+      "name": "Martin Minchev",
+      "date_of_birth": "2001-04-22",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 539,
+      "name": "Stênio Júnior",
+      "date_of_birth": "1991-06-10",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 553,
+      "name": "Haris Hajdarević",
+      "date_of_birth": "1998-10-07",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 566,
+      "name": "Advan Kadušić",
+      "date_of_birth": "1997-10-14",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 579,
+      "name": "Chrisnovic N'sa",
+      "date_of_birth": "1999-01-28",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 593,
+      "name": "Jermaine Fordah",
+      "date_of_birth": "1993-04-17",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 606,
+      "name": "Sam Gleadle",
+      "date_of_birth": "1996-03-20",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 619,
+      "name": "Vincent Bezecourt",
+      "date_of_birth": "1993-06-10",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 633,
+      "name": "Jordan Hamilton",
+      "date_of_birth": "1996-03-17",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club"
+      ]
+    },
+    {
+      "target_index": 646,
+      "name": "Vanderson",
+      "date_of_birth": "2001-06-21",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 659,
+      "name": "Alisson Santos",
+      "date_of_birth": "2002-09-27",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 673,
+      "name": "Marcelinho",
+      "date_of_birth": "2002-12-11",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 686,
+      "name": "Lucas Gonçalves",
+      "date_of_birth": "1996-10-04",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club"
+      ]
+    },
+    {
+      "target_index": 699,
+      "name": "Gabriel Tigrão",
+      "date_of_birth": "2001-10-13",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 713,
+      "name": "Mateus Moraes",
+      "date_of_birth": "2001-03-06",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 726,
+      "name": "André",
+      "date_of_birth": "2001-07-16",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 739,
+      "name": "Gabriel Honório",
+      "date_of_birth": "1996-07-16",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 753,
+      "name": "Welington",
+      "date_of_birth": "2001-02-19",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 766,
+      "name": "Moisés Lucas",
+      "date_of_birth": "1992-10-07",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "uid"
+      ],
+      "missing_fields": [
+        "club"
+      ]
+    },
+    {
+      "target_index": 779,
+      "name": "Mendonça",
+      "date_of_birth": "1995-08-15",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    },
+    {
+      "target_index": 793,
+      "name": "Tailson",
+      "date_of_birth": "1999-03-05",
+      "status": "SingleCandidate",
+      "reason": "single_candidate_requires_human_review",
+      "compatible": 1,
+      "matched_fields": [
+        "name",
+        "date_of_birth",
+        "club",
+        "uid"
+      ],
+      "missing_fields": []
+    }
+  ]
+}
