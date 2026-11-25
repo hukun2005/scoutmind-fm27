@@ -23,6 +23,45 @@ STATUSES = {
     "completed", "retry_pending", "failed", "cancelled", "paused",
 }
 
+DATE_SOURCES = {"game_memory", "reader_date_probe", "upstream_dump", "manual", "unknown"}
+DATE_CONFIDENCES = {"verified", "inferred", "unverified", "unknown"}
+DATE_READ_STATUSES = {"detected", "unavailable", "unsupported_build", "layout_unverified", "regressed", "unknown"}
+
+
+def _provenance(body: CaptureRunIn, latest_date) -> tuple[str, str, str]:
+    """Resolve date provenance without ever promoting an unverified date.
+
+    A verified date must name its source; a date earlier than the newest recorded one is kept but
+    marked ``regressed`` so a save switch or a misread field cannot silently move the timeline back.
+    """
+    for value, allowed, code in (
+        (body.date_source, DATE_SOURCES, "invalid_date_source"),
+        (body.date_confidence, DATE_CONFIDENCES, "invalid_date_confidence"),
+        (body.date_read_status, DATE_READ_STATUSES, "invalid_date_read_status"),
+    ):
+        if value is not None and value not in allowed:
+            raise HTTPException(status_code=422, detail={"code": code, "message": f"不允许的取值：{value}"})
+
+    if body.game_date is None:
+        return (
+            body.date_source or "unknown",
+            body.date_confidence or "unknown",
+            body.date_read_status or "unavailable",
+        )
+
+    source = body.date_source or "unknown"
+    confidence = body.date_confidence or "unverified"
+    read_status = body.date_read_status or "detected"
+    if confidence == "verified" and source == "unknown":
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "verified_date_without_source", "message": "verified 日期必须说明来源"},
+        )
+    if latest_date is not None and body.game_date < latest_date:
+        read_status = "regressed"
+        confidence = "unverified" if confidence in {"verified", "inferred"} else confidence
+    return source, confidence, read_status
+
 
 def _payload(row: CaptureRun) -> dict[str, Any]:
     return {
@@ -45,6 +84,9 @@ def _payload(row: CaptureRun) -> dict[str, Any]:
         "finished_at": iso(row.finished_at),
         "error_code": row.error_code,
         "error_message": row.error_message,
+        "date_source": row.date_source,
+        "date_confidence": row.date_confidence,
+        "date_read_status": row.date_read_status,
         "metadata": json.loads(row.metadata_json or "{}"),
         "created_at": iso(row.created_at),
         "updated_at": iso(row.updated_at),
@@ -120,6 +162,17 @@ def register_capture(
     row.import_job_id = body.import_job_id or row.import_job_id
     row.error_code = body.error_code
     row.error_message = body.error_message
+    latest_date = db.scalar(
+        select(CaptureRun.game_date)
+        .where(
+            CaptureRun.fm_save_id == save.id,
+            CaptureRun.game_date.is_not(None),
+            CaptureRun.id != (existing.id if existing is not None else 0),
+        )
+        .order_by(CaptureRun.game_date.desc())
+        .limit(1)
+    )
+    row.date_source, row.date_confidence, row.date_read_status = _provenance(body, latest_date)
     row.metadata_json = json.dumps(body.metadata or {}, ensure_ascii=False)
     if body.status == "scanning" and row.started_at is None:
         row.started_at = datetime.now(timezone.utc).replace(tzinfo=None)

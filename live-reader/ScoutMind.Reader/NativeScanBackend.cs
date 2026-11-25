@@ -1,6 +1,7 @@
 using System.Globalization;
 using ScoutMind.Contracts;
 using ScoutMind.FMReader.Engine;
+using ScoutMind.FMReader.Probes;
 
 namespace ScoutMind.Reader;
 
@@ -11,6 +12,9 @@ public interface IScanBackend
 {
     /// <summary>后端名称，写入诊断。</summary>
     string Name { get; }
+
+    /// <summary>最近一次 probe 的结构化诊断报告；外部扫描器后端没有该数据时为 <c>null</c>。</summary>
+    DiagnosticReport? LastReport { get; }
 
     /// <summary>执行 probe。</summary>
     /// <param name="state">当前状态，必须是 <see cref="ReaderState.Compatible"/>。</param>
@@ -47,6 +51,9 @@ public sealed class ExternalScanBackend : IScanBackend
     public string Name => "external-scanner";
 
     /// <inheritdoc />
+    public DiagnosticReport? LastReport => null;
+
+    /// <inheritdoc />
     public Task<ProbeResult> ProbeAsync(ReaderState state, CancellationToken cancellationToken) =>
         _adapter.ProbeAsync(state, cancellationToken);
 
@@ -78,6 +85,9 @@ public sealed class NativeScanBackend : IScanBackend
     /// <inheritdoc />
     public string Name => $"native-fmreader/{_engine.Version}";
 
+    /// <inheritdoc />
+    public DiagnosticReport? LastReport { get; private set; }
+
     /// <summary>引擎累积的诊断。</summary>
     public IReadOnlyList<string> Diagnostics => _diagnostics;
 
@@ -87,6 +97,7 @@ public sealed class NativeScanBackend : IScanBackend
         ScannerAdapter.EnsureProbeAllowed(state);
         var probe = await _engine.ProbeAsync(cancellationToken).ConfigureAwait(false);
         _diagnostics.AddRange(probe.Status.Diagnostics);
+        LastReport = probe.Report;
         return new ProbeResult(
             Passed: probe.Passed,
             ExitCode: probe.Passed ? 0 : 3,

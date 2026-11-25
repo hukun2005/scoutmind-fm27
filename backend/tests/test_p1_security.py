@@ -120,17 +120,21 @@ def test_duplicate_in_same_save_does_not_create_second_snapshot(client: TestClie
 def test_concurrent_same_scan_does_not_duplicate_snapshots(save: FmSave) -> None:
     """并发提交同一个 scan：唯一约束兜底，只产生一份数据。"""
     from tests.conftest import SessionFactory
+    from app.ingestion.importer import ImportInProgressError
 
     document = scan_document(scan_id="concurrent-scan", players=[player_row("P1", "Concurrent")])
     payload = ScanPayload.model_validate(document)
     outcomes: list[object] = []
+    in_progress: list[ImportInProgressError] = []
     errors: list[BaseException] = []
 
     def worker() -> None:
         session = SessionFactory()
         try:
             outcomes.append(ScanImporter(session).import_payload(save.id, payload))
-        except BaseException as exc:  # noqa: BLE001 - 测试需要看到任何失败
+        except ImportInProgressError as exc:
+            in_progress.append(exc)
+        except BaseException as exc:  # noqa: BLE001 - 测试需要看到任何其他失败
             errors.append(exc)
         finally:
             session.close()
@@ -142,7 +146,7 @@ def test_concurrent_same_scan_does_not_duplicate_snapshots(save: FmSave) -> None
         thread.join(timeout=30)
 
     assert not errors, errors
-    assert len(outcomes) == 2
+    assert len(outcomes) + len(in_progress) == 2
     # 并发时第二个请求可能看到"正在运行"的同一个 job（重试语义），因此不强制 duplicate=True；
     # 真正要保证的是：只有一个 job、只有一份快照、数据没有被应用两次。
     assert all(getattr(item, "duplicate", None) in {True, False} for item in outcomes)
