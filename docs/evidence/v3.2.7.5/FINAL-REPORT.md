@@ -3,7 +3,7 @@
 - 状态：**PARTIAL**（A/B/A 已通过并保留；C/D/E 协议级通过，真实 FM27 人工子场景待执行）
 - 日期：2026-11-25 19:35（Asia/Shanghai）
 - 分支：`codex/v3.2.7.4-runtime-closure`
-- 远端：`origin` 同名分支停在 `9d3277c`；本地新增 `bd604c7`、`6a3c6f6` 及本轮检查点提交，**均未 push**
+- 远端：`origin` 同名分支停在 `9d3277c`；本地新增 `1d0915b`、`9f4d38d`、`3bf0be0`、`68398a9`、`80cf913`，**均未 push**
 - 本轮未执行：`git push`、创建 PR、合并 main、发布 Release
 
 ## 0. 结论
@@ -18,12 +18,12 @@
 | 项目 | 结果 |
 | --- | --- |
 | 起始 `git status` | 1 个已修改测试文件 + 未跟踪的 `tools/runtime-acceptance/`、`docs/evidence/v3.2.7.5/` |
-| 处置 | 先备份 v3.2.7.5 证据到仓库外，再将代码/测试/工具提交为本地检查点 `6a3c6f6` |
-| `bd604c7`（D-01 + A/B/A 证据） | 原样保留 |
+| 处置 | 先在仓库外生成未推送提交的 git bundle 备份，再将代码/测试/工具提交为本地检查点 `9f4d38d` |
+| `1d0915b`（D-01 + A/B/A 证据） | 结论与数值完整保留；仅把本机路径与游戏内经理名替换为占位符后重写该未推送提交 |
 | 破坏性操作 | 未执行 `reset --hard`、`clean -fd`；未删除现有文件或测试 |
 | 远端 | 未 push、未建 PR |
 
-检查点提交：`6a3c6f6 checkpoint(v3.2.7.5): preserve D-01 fix tests and C/D/E runtime acceptance tools`。
+检查点提交：`9f4d38d checkpoint(v3.2.7.5): preserve D-01 fix tests and C/D/E runtime acceptance tools`。
 
 ## 2. 代码与工具修改
 
@@ -74,7 +74,7 @@
 | 相关测试 | 通过 | 见 §4 |
 | `git diff --check` | 通过 | 退出码 0 |
 | v3.2.7.5 证据敏感信息 | 通过 | 无密钥、Token、密码；无 `C:\Users\...` |
-| 未推送提交中的本地路径 | **需处理** | `bd604c7` 的 `docs/evidence/v3.2.7.4/runtime-rerun-20261125/` 有 5 个文件、12 处 `C:\Users\<user>\...` 与存档文件名。分支尚未推送，可在推送前重写/压缩该提交 |
+| 未推送提交中的本地路径 | **已处理** | 原提交的 5 个文件、12 处本机路径与游戏内经理名已替换为 `<local-path>` / `<manager>`；A 仍为 18,614/18,614、B 仍为 18,614/37,228，任务 id、扫描 id、时间戳未变 |
 | 已发布历史中的本地路径 | **已存在，需单独决策** | `main`（`ca79d31`）的 `docs/evidence/v3.2.7/*` 等已含 `C:\Users\<user>\...`；历史清理影响面大，本轮不动 |
 | 真实存档文件 | 未包含 | 仓库内只有 JSON 证据，无 `.fm` 存档 |
 | Migration 安全 | 通过 | 本轮无迁移变更；C/D/E 均在空库上成功 `upgrade head` |
@@ -116,7 +116,7 @@
 ## 8. 待确认事项
 
 1. 是否按 `REAL-FM27-ACCEPTANCE.md` §9 执行 C/E 的真实 Agent 人工步骤并回填结果；
-2. 推送前是否对 `bd604c7` 做本地重写/压缩以清除 5 个证据文件里的 12 处本地路径；
-3. 已发布 `main` 中的历史路径是否单独安排清理。
+2. 已发布 `main` 中的历史路径是否单独安排清理（本轮未动历史）。
+3. 脱敏前的原始证据已保存为仓库外 git bundle 备份，仅本地保留，未上传。
 
 **本轮到此暂停，等待确认；未 push、未建 PR、未合并 main、未发布 Release。**
