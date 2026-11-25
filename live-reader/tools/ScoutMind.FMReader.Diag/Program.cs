@@ -1183,19 +1183,161 @@ internal static class Program
 
             case "dump":
             {
-                // 只读转储一条球员记录（默认 0x3C8 字节）：非零指针与内联 ASCII 串，用于判断姓名是否内联或改址。
-                var layout = new LayoutResolver().Resolve("26620374", "27.1");
+                // 只读诊断。默认输出摘要；原有 dump <index> [length] 行为保留。
+                // 新增：--summary / --xref / --calibration / --person <index> / --length <n>。
+                if (args.Contains("--help", StringComparer.Ordinal))
+                {
+                    Console.WriteLine("用法：ScoutMind.FMReader.Diag dump [index] [length] [选项]");
+                    Console.WriteLine();
+                    Console.WriteLine("  默认（无位置参数）       输出诊断摘要（不转储进程内存）");
+                    Console.WriteLine("  --summary                输出诊断摘要");
+                    Console.WriteLine("  --xref                   输出属性记录关联统计");
+                    Console.WriteLine("  --calibration            输出校准统计（不含逐样本明细）");
+                    Console.WriteLine("  --person <index>         转储一条球员记录（等同于旧版 dump <index>）");
+                    Console.WriteLine("  --length <n>             旧版转储长度（默认 0x3C8）");
+                    Console.WriteLine("  --located <n>            堆扫描最多定位数量（默认 800）");
+                    Console.WriteLine("  --samples <n>            抽样数量（默认 60）");
+                    Console.WriteLine("  --reads <n>              校准重复读取次数（默认 3）");
+                    return 0;
+                }
+
+                var status = await engine.GetStatusAsync(cancellation.Token).ConfigureAwait(false);
+                var gameVersion = GameVersionOf(status);
+                var environment = EnvironmentOf(status);
+                var layout = new LayoutResolver().Resolve(status.Build, gameVersion);
+                var legacyPositional = args.Length > 1 && int.TryParse(args[1], out _);
+                var summaryMode = args.Contains("--summary", StringComparer.Ordinal);
+                var xrefMode = args.Contains("--xref", StringComparer.Ordinal);
+                var calibrationMode = args.Contains("--calibration", StringComparer.Ordinal);
+                var personMode = args.Contains("--person", StringComparer.Ordinal);
+
+                if (summaryMode || xrefMode || calibrationMode || (!legacyPositional && !personMode))
+                {
+                    if (layout is null)
+                    {
+                        Console.WriteLine(ToJson(new
+                        {
+                            mode = "summary",
+                            error = "layout_not_found",
+                            game_version = gameVersion,
+                            build = status.Build,
+                            process_metadata = ProcessMetadataJson(environment),
+                        }));
+                        return 3;
+                    }
+
+                    try
+                    {
+                        using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
+                        var locator = new ScoutMind.FMReader.Engine.HeapObjectLocator(memory);
+                        var locatedLimit = Math.Max(1, IntFlag(args, "--located", 800));
+                        var sampleCount = Math.Max(1, IntFlag(args, "--samples", 60));
+                        var located = locator.FindPlayers(layout, locatedLimit, TimeSpan.FromSeconds(45));
+
+                        if (calibrationMode)
+                        {
+                            var readCount = Math.Max(2, IntFlag(args, "--reads", 3));
+                            var report = new PersonCalibrationEngine(memory).Run(
+                                PersonLayoutCandidate.Fm27_1_20261125,
+                                located.Select(player => player.Person).ToList(),
+                                environment,
+                                new PersonCalibrationOptions(readCount, sampleCount, locatedLimit, 0, false, false));
+                            Console.WriteLine(ToJson(new
+                            {
+                                mode = "calibration",
+                                game_version = gameVersion,
+                                build = status.Build,
+                                layout_name = layout.Name,
+                                located_total = report.LocatedTotal,
+                                sampled = report.Sampled,
+                                name_valid = report.NameValidCount,
+                                date_valid = report.DateValidCount,
+                                structurally_valid = report.StructurallyValidCount,
+                                unstable = report.UnstableCount,
+                                confidence = report.Confidence,
+                                verification_status = report.VerificationStatus.ToString(),
+                                failure_reason_counts = report.FailureReasonCounts,
+                                mark_verified = false,
+                            }));
+                            return report.VerificationStatus == CandidateVerificationStatus.Unstable ? 3 : 0;
+                        }
+
+                        var summary = new PersonDiagnosticsCollector(memory, layout).Collect(
+                            located,
+                            PersonLayoutCandidate.Fm27_1_20261125,
+                            environment,
+                            sampleCount);
+
+                        if (xrefMode)
+                        {
+                            Console.WriteLine(ToJson(new
+                            {
+                                mode = "xref",
+                                game_version = gameVersion,
+                                build = status.Build,
+                                layout_name = layout.Name,
+                                located_total = summary.LocatedCount,
+                                sampled = summary.SampledCount,
+                                attribute_link_unique = summary.AttributeLinkUniqueCount,
+                                attribute_link_success_rate = summary.AttributeLinkSuccessRate,
+                                conflict_count = summary.ConflictCount,
+                                link_status_counts = summary.LinkStatusCounts,
+                                verified_count = summary.VerifiedCount,
+                                verified_note = summary.VerifiedNote,
+                            }));
+                            return 0;
+                        }
+
+                        Console.WriteLine(ToJson(new
+                        {
+                            mode = "summary",
+                            observed_at = summary.ObservedAt.ToString("O"),
+                            game_version = gameVersion,
+                            build = status.Build,
+                            plugin_version = status.PluginVersion,
+                            layout_name = summary.LayoutName,
+                            process_metadata = ProcessMetadataJson(environment),
+                            located_count = summary.LocatedCount,
+                            sampled = summary.SampledCount,
+                            valid_object_count = summary.ValidObjectCount,
+                            invalid_pointer_count = summary.InvalidPointerCount,
+                            name_read_count = summary.NameReadCount,
+                            name_read_success_rate = summary.NameReadSuccessRate,
+                            date_of_birth_read_count = summary.DateOfBirthReadCount,
+                            date_of_birth_read_success_rate = summary.DateOfBirthReadSuccessRate,
+                            attribute_link_unique = summary.AttributeLinkUniqueCount,
+                            attribute_link_success_rate = summary.AttributeLinkSuccessRate,
+                            conflict_count = summary.ConflictCount,
+                            verified_count = summary.VerifiedCount,
+                            verified_note = summary.VerifiedNote,
+                            link_status_counts = summary.LinkStatusCounts,
+                            full_memory_dump = false,
+                            mark_verified = false,
+                        }));
+                        return 0;
+                    }
+                    catch (ScoutMind.FMReader.Probes.MemoryUnreadableException)
+                    {
+                        Console.Error.WriteLine("无法读取进程内存");
+                        return 3;
+                    }
+                }
+
+                // 旧版行为：转储一条球员记录（非零指针与内联 ASCII 串）。
                 if (layout is null)
                 {
                     Console.Error.WriteLine("未登记的构建");
                     return 3;
                 }
 
-                var index = args.Length > 1 && int.TryParse(args[1], out var parsedIndex) ? parsedIndex : 0;
-                var length = args.Length > 2 && int.TryParse(args[2], out var parsedLength) ? parsedLength : 0x3C8;
-                using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
-                var locator = new ScoutMind.FMReader.Engine.HeapObjectLocator(memory);
-                var players = locator.FindPlayers(layout, index + 1, TimeSpan.FromSeconds(30));
+                var index = personMode
+                    ? IntFlag(args, "--person", 0)
+                    : args.Length > 1 && int.TryParse(args[1], out var parsedIndex) ? parsedIndex : 0;
+                var length = IntFlag(args, "--length",
+                    args.Length > 2 && int.TryParse(args[2], out var parsedLength) ? parsedLength : 0x3C8);
+                using var legacyMemory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
+                var legacyLocator = new ScoutMind.FMReader.Engine.HeapObjectLocator(legacyMemory);
+                var players = legacyLocator.FindPlayers(layout, index + 1, TimeSpan.FromSeconds(30));
                 var player = players.Skip(index).FirstOrDefault();
                 if (player is null || player.Person == 0)
                 {
@@ -1204,7 +1346,7 @@ internal static class Program
                 }
 
                 var buffer = new byte[length];
-                var ok = memory.TryReadBlock(player.Person, buffer, length);
+                var ok = legacyMemory.TryReadBlock(player.Person, buffer, length);
                 var pointers = new List<object>();
                 for (var i = 0; ok && i + 8 <= length; i += 8)
                 {
@@ -1245,8 +1387,8 @@ internal static class Program
                 {
                     person = $"0x{player.Person:X}",
                     block = $"0x{player.Block:X}",
-                    ca = memory.UInt16(player.Block + (ulong)layout["PLAO_CA"]),
-                    dob_year = FmDate.Decode(memory.UInt32(player.Person + (ulong)layout["PERO_DOB"])).Year,
+                    ca = legacyMemory.UInt16(player.Block + (ulong)layout["PLAO_CA"]),
+                    dob_year = FmDate.Decode(legacyMemory.UInt32(player.Person + (ulong)layout["PERO_DOB"])).Year,
                     length,
                     read_ok = ok,
                     pointer_count = pointers.Count,
@@ -1344,6 +1486,32 @@ internal static class Program
             applicable = item.Applicable,
             matched = item.Matched,
         }).ToArray(),
+    };
+
+    private static string? GameVersionOf(ScoutMind.FMReader.Engine.FmEngineStatus status) =>
+        status.Gate?.Layout is { Length: > 0 } gateLayout
+            ? gateLayout.Replace("FM", string.Empty, StringComparison.Ordinal).Replace('_', '.')
+            : status.PluginVersion;
+
+    private static CalibrationEnvironment EnvironmentOf(ScoutMind.FMReader.Engine.FmEngineStatus status) =>
+        new(
+            status.ProcessId,
+            string.IsNullOrWhiteSpace(status.ProcessPath) ? null : Path.GetFileNameWithoutExtension(status.ProcessPath),
+            GameVersionOf(status),
+            status.Build,
+            status.PluginVersion,
+            status.Gate?.Status.ToString(),
+            status.Gate?.AllowScan == true,
+            status.AccessDenied);
+
+    private static object ProcessMetadataJson(CalibrationEnvironment environment) => new
+    {
+        process_id = environment.ProcessId,
+        process_name = environment.ProcessName,
+        plugin_version = environment.PluginVersion,
+        gate_status = environment.GateStatus,
+        allow_scan = environment.AllowScan,
+        access_denied = environment.AccessDenied,
     };
 
     private static string? ReadNationName(ScoutMind.FMReader.Probes.IMemorySource memory, ScoutMind.FMReader.Layouts.ILayout layout, ulong person)
