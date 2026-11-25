@@ -29,6 +29,15 @@ public enum CliCommand
     /// <summary>按结构签名定位世界日期（不依赖绝对地址）。</summary>
     DateLocate,
 
+    /// <summary>打印上游扫描器解析的模块边界与扫描区域数量。</summary>
+    ModuleInfo,
+
+    /// <summary>从模块边界出发做静态根日期扫描。</summary>
+    StaticDateScan,
+
+    /// <summary>按模块 RVA + 偏移链直接读取日期。</summary>
+    DateRead,
+
     /// <summary>列出兼容清单条目。</summary>
     CompatibilityList,
 }
@@ -46,6 +55,9 @@ public enum CliCommand
 /// <param name="MaxScanMb">候选发现/指针扫描的最大扫描 MiB。</param>
 /// <param name="TargetAddress">指针扫描的目标地址（仅 pointer-scan）。</param>
 /// <param name="WindowBytes">目标区间长度（仅 pointer-scan）。</param>
+/// <param name="MaxDepth">静态根扫描的最大跳数（仅 static-date-scan）。</param>
+/// <param name="Rva">模块内静态指针槽位的 RVA（仅 date-read）。</param>
+/// <param name="FieldOffset">日期字段相对目标对象的偏移（仅 date-read）。</param>
 public sealed record CliOptions(
     CliCommand Command,
     bool Json,
@@ -56,7 +68,10 @@ public sealed record CliOptions(
     DateOnly? ExpectedDate = null,
     int? MaxScanMb = null,
     ulong? TargetAddress = null,
-    int? WindowBytes = null);
+    int? WindowBytes = null,
+    int? MaxDepth = null,
+    ulong? Rva = null,
+    int? FieldOffset = null);
 
 /// <summary>
 /// 命令行解析结果。失败时 <see cref="Error"/> 为面向用户的中文说明，调用方应以退出码 64 结束。
@@ -100,6 +115,9 @@ public static class CliCommandParser
         int? maxScanMb = null;
         ulong? targetAddress = null;
         int? windowBytes = null;
+        int? maxDepth = null;
+        ulong? rva = null;
+        int? fieldOffset = null;
         var index = 0;
 
         while (index < args.Count)
@@ -152,6 +170,18 @@ public static class CliCommandParser
                         break;
                     case "date-locate":
                         command = CliCommand.DateLocate;
+                        index++;
+                        break;
+                    case "module-info":
+                        command = CliCommand.ModuleInfo;
+                        index++;
+                        break;
+                    case "static-date-scan":
+                        command = CliCommand.StaticDateScan;
+                        index++;
+                        break;
+                    case "date-read":
+                        command = CliCommand.DateRead;
                         index++;
                         break;
                     case "compatibility":
@@ -217,7 +247,7 @@ public static class CliCommandParser
                 continue;
             }
 
-            if (command == CliCommand.DateDiscovery && argument == "--expect")
+            if (command is CliCommand.DateDiscovery or CliCommand.StaticDateScan && argument == "--expect")
             {
                 if (expectedDate is not null)
                 {
@@ -245,7 +275,7 @@ public static class CliCommandParser
                 continue;
             }
 
-            if (command is CliCommand.DateDiscovery or CliCommand.PointerScan or CliCommand.DateLocate && argument == "--max-mb")
+            if (command is CliCommand.DateDiscovery or CliCommand.PointerScan or CliCommand.DateLocate or CliCommand.StaticDateScan && argument == "--max-mb")
             {
                 if (maxScanMb is not null)
                 {
@@ -324,6 +354,76 @@ public static class CliCommandParser
                 continue;
             }
 
+            if (command == CliCommand.StaticDateScan && argument == "--depth")
+            {
+                if (maxDepth is not null)
+                {
+                    return CliParseResult.Failure("选项 --depth 重复指定。");
+                }
+
+                if (index + 1 >= args.Count)
+                {
+                    return CliParseResult.Failure("选项 --depth 需要一个 1 或 2 的跳数。");
+                }
+
+                if (!int.TryParse(args[index + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var depth)
+                    || depth is < 1 or > 2)
+                {
+                    return CliParseResult.Failure($"选项 --depth 需要 1 或 2，实际为：{args[index + 1]}。");
+                }
+
+                maxDepth = depth;
+                index += 2;
+                continue;
+            }
+
+            if (command == CliCommand.DateRead && argument == "--rva")
+            {
+                if (rva is not null)
+                {
+                    return CliParseResult.Failure("选项 --rva 重复指定。");
+                }
+
+                if (index + 1 >= args.Count)
+                {
+                    return CliParseResult.Failure("选项 --rva 需要一个十六进制 RVA（例如 0x5CE040）。");
+                }
+
+                var text = args[index + 1].Trim();
+                if (!text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                    || !ulong.TryParse(text.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var parsedRva))
+                {
+                    return CliParseResult.Failure($"选项 --rva 需要 0x 开头的十六进制值，实际为：{args[index + 1]}。");
+                }
+
+                rva = parsedRva;
+                index += 2;
+                continue;
+            }
+
+            if (command == CliCommand.DateRead && argument == "--field")
+            {
+                if (fieldOffset is not null)
+                {
+                    return CliParseResult.Failure("选项 --field 重复指定。");
+                }
+
+                if (index + 1 >= args.Count)
+                {
+                    return CliParseResult.Failure("选项 --field 需要十六进制偏移（例如 0x1E4）。");
+                }
+
+                var fieldText = args[index + 1].Trim();
+                if (!fieldText.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                    || !int.TryParse(fieldText.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var parsedField))
+                {
+                    return CliParseResult.Failure($"选项 --field 需要 0x 开头的十六进制值，实际为：{args[index + 1]}。");
+                }
+
+                fieldOffset = parsedField;
+                index += 2;
+                continue;
+            }
             if (command == CliCommand.Scan)
             {
                 switch (argument)
@@ -389,14 +489,19 @@ public static class CliCommandParser
             return CliParseResult.Failure("pointer-scan 需要 --target <0x地址>。");
         }
 
-        if (command == CliCommand.DateDiscovery && expectedDate is null)
+        if (command == CliCommand.DateRead && (rva is null || fieldOffset is null))
+        {
+            return CliParseResult.Failure("date-read 需要 --rva <0x偏移> 与 --field <0x字段偏移>。");
+        }
+
+        if (command is CliCommand.DateDiscovery or CliCommand.StaticDateScan && expectedDate is null)
         {
             return CliParseResult.Failure(
                 "date-discovery 需要 --expect <yyyy-MM-dd>：以游戏内显示的日期作为比对基准，不能猜测。");
         }
 
         return CliParseResult.Success(
-            new CliOptions(command.Value, json, outputDirectory, timeoutSeconds, engine, reportPath, expectedDate, maxScanMb, targetAddress, windowBytes));
+            new CliOptions(command.Value, json, outputDirectory, timeoutSeconds, engine, reportPath, expectedDate, maxScanMb, targetAddress, windowBytes, maxDepth, rva, fieldOffset));
     }
 
     private static string ToDisplayName(CliCommand command) => command switch
@@ -408,10 +513,17 @@ public static class CliCommandParser
         CliCommand.DateDiscovery => "date-discovery",
         CliCommand.PointerScan => "pointer-scan",
         CliCommand.DateLocate => "date-locate",
+        CliCommand.ModuleInfo => "module-info",
+        CliCommand.StaticDateScan => "static-date-scan",
+        CliCommand.DateRead => "date-read",
         CliCommand.CompatibilityList => "compatibility list",
         _ => "help",
     };
 }
+
+
+
+
 
 
 

@@ -5,6 +5,21 @@ namespace ScoutMind.FMReader.Probes;
 /// <param name="Size">字节数。</param>
 public sealed record MemoryRegion(ulong Start, ulong Size);
 
+/// <summary>上游扫描器解析出的模块边界。</summary>
+/// <param name="GpBase">game_plugin.dll 基址（0 表示未解析）。</param>
+/// <param name="GpEnd">game_plugin.dll 结束地址。</param>
+/// <param name="GaBase">GameAssembly.dll 基址。</param>
+/// <param name="GaEnd">GameAssembly.dll 结束地址。</param>
+/// <param name="ScanRegionCount">上游扫描区域数量。</param>
+/// <param name="PluginPath">game_plugin.dll 路径。</param>
+public sealed record ModuleBounds(
+    ulong GpBase,
+    ulong GpEnd,
+    ulong GaBase,
+    ulong GaEnd,
+    int ScanRegionCount,
+    string? PluginPath);
+
 /// <summary>只读内存访问。真实实现包住上游 <c>MemScan</c>，测试用假实现。</summary>
 public interface IMemorySource
 {
@@ -87,3 +102,4 @@ public sealed class MemoryUnreadableException : Exception
     /// <summary>不可读地址。</summary>
     public ulong Address { get; }
 }
+

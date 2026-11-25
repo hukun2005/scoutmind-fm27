@@ -61,6 +61,15 @@ public sealed class WinMemorySource : IMemorySource, IDisposable
     public IReadOnlyList<MemoryRegion> Regions =>
         _scan.ScanRegions.Select(static item => new MemoryRegion(item.start, item.size)).ToArray();
 
+    /// <summary>上游扫描器解析出的模块边界（0 表示未解析）。</summary>
+    public ModuleBounds Bounds => new(
+        GpBase: _scan.GpBase,
+        GpEnd: _scan.GpEnd,
+        GaBase: _scan.GaBase,
+        GaEnd: _scan.GaEnd,
+        ScanRegionCount: _scan.ScanRegions.Count,
+        PluginPath: _scan.GpPath);
+
     /// <inheritdoc />
     public bool TryReadBlock(ulong address, byte[] buffer, int length) =>
         length > 0 && length <= buffer.Length && _scan.ReadBlock(address, buffer, length);
