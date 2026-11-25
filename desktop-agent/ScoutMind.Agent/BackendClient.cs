@@ -22,10 +22,12 @@ public sealed record BackendSyncResult(
     int Attempts);
 
 /// <summary>写接口必须显式携带的存档上下文；缺失时后端按历史行为放行。</summary>
-public sealed record SaveContextQuery(int IdentityId, int SessionId)
+public sealed record SaveContextQuery(int IdentityId, int SessionId, string? OperationId = null)
 {
     /// <summary>追加到写接口的查询串。</summary>
-    public string Query => $"?save_identity_id={IdentityId}&save_session_id={SessionId}";
+    public string Query => OperationId is null
+        ? $"?save_identity_id={IdentityId}&save_session_id={SessionId}"
+        : $"?save_identity_id={IdentityId}&save_session_id={SessionId}&operation_id={Uri.EscapeDataString(OperationId)}";
 }
 
 /// <summary>一次 JSON 请求的结果（身份注册/会话生命周期使用）。</summary>

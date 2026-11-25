@@ -7,6 +7,7 @@ warning instead of being stored as invented attributes.
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import PlayerAttribute
@@ -190,8 +191,17 @@ def ensure_attributes(session: Session) -> dict[str, int]:
             category=category,
             sort_order=sort_order,
         )
-        session.add(row)
-        session.flush()
+        try:
+            # 并发导入可能同时补种同一属性；唯一约束先到先得，后到者复读已有行。
+            with session.begin_nested():
+                session.add(row)
+                session.flush()
+        except IntegrityError:
+            stored = session.scalar(select(PlayerAttribute).where(PlayerAttribute.key == key))
+            if stored is None:
+                raise
+            existing[key] = stored.id
+            continue
         existing[key] = row.id
         created += 1
     if created:
