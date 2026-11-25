@@ -631,10 +631,42 @@ public sealed class FMSuperScoutMemoryEngine : IFmScanEngine
             allWarnings.AddRange(mapped.Warnings);
             allWarnings.AddRange(warnings);
 
-            var payloadJson = InjectWarnings(mapped.Payload, allWarnings);
+            // 上游 dump 只导出"有身份"的球员；无 UID 对象由读取器自己枚举补齐，作为 unresolved 观察输出。
+            var unresolvedRows = new List<UnresolvedObjectRow>();
+            try
+            {
+                var memory = _probeEnvironment.Open();
+                var locator = _probeEnvironment.CreateLocator(memory);
+                var rows = UnresolvedObjectCollector.Collect(
+                    locator,
+                    memory,
+                    layout,
+                    UnresolvedObjectCollector.DefaultMaxObjects,
+                    TimeSpan.FromSeconds(45),
+                    out var readableObjects,
+                    out var enumerationNote);
+                unresolvedRows.AddRange(rows);
+                if (enumerationNote is not null)
+                {
+                    allWarnings.Add(enumerationNote);
+                }
+
+                if (rows.Count > 0)
+                {
+                    allWarnings.Add(
+                        $"对象枚举：{readableObjects} 个球员对象中 {rows.Count} 个没有可用 UID，已作为 unresolved 观察输出。");
+                }
+            }
+            catch (MemoryUnreadableException)
+            {
+                allWarnings.Add("对象枚举失败（内存不可读）：本次扫描没有补齐上游未导出的无 UID 对象。");
+            }
+
+            var payloadWithUnresolved = UnresolvedObjectCollector.Merge(mapped.Payload, unresolvedRows, Version);
+            var payloadJson = InjectWarnings(payloadWithUnresolved, allWarnings);
             return new FmScanResult(
                 PayloadJson: payloadJson,
-                Players: mapped.Players,
+                Players: mapped.Players + unresolvedRows.Count,
                 Clubs: mapped.Clubs,
                 Transfers: 0,
                 Coverage: mapped.Coverage,
