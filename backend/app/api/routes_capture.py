@@ -15,9 +15,28 @@ from ..models import CaptureRun, FmSave, ImportJob
 from ..schemas import CaptureRunIn, CaptureRunUpdate
 from ..utils import iso
 from .deps import get_active_save
-from ..services.write_safety import resolve_write_context
+from ..services.write_safety import WriteRejected, acquire_write_fence, resolve_write_context
 
 router = APIRouter()
+
+
+def _assert_capture_fence(db: Session, fence) -> None:
+    """采集元数据同样受代次保护：切换已提交时拒绝写入，避免切换后补记旧采集。"""
+    if fence is None:
+        return
+    try:
+        fence.assert_current(db)
+    except WriteRejected as rejection:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": rejection.code,
+                "message": rejection.message,
+                "save_id": rejection.save_id,
+                "generation": rejection.generation,
+            },
+        ) from rejection
 
 STATUSES = {
     "idle", "monitoring", "date_detected", "scan_queued", "scanning", "importing",
@@ -142,6 +161,7 @@ def register_capture(
     context = resolve_write_context(
         db, save, identity_id=save_identity_id, session_id=save_session_id
     )
+    fence = acquire_write_fence(db, context) if context is not None else None
     if body.import_job_id is not None:
         job = db.get(ImportJob, body.import_job_id)
         if job is None or job.fm_save_id != save.id:
@@ -191,6 +211,7 @@ def register_capture(
         row.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
     if existing is None:
         db.add(row)
+    _assert_capture_fence(db, fence)
     db.commit()
     db.refresh(row)
     return _payload(row)
@@ -213,6 +234,7 @@ def update_capture(
     context = resolve_write_context(
         db, save, identity_id=save_identity_id, session_id=save_session_id
     )
+    fence = acquire_write_fence(db, context) if context is not None else None
     if context is not None and context.identity_id is not None:
         if row.save_identity_id is not None and row.save_identity_id != context.identity_id:
             raise HTTPException(
@@ -248,6 +270,7 @@ def update_capture(
         row.import_job_id = body.import_job_id
     row.error_code = body.error_code
     row.error_message = body.error_message
+    _assert_capture_fence(db, fence)
     db.commit()
     db.refresh(row)
     return _payload(row)

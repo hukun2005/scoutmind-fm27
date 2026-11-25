@@ -16,6 +16,16 @@ export interface ImportJob {
   warnings: string[]
   coverage: CoverageMap | null
   raw_payload_path: string | null
+  /** V3.2.7.4：已尝试次数（含重放与冲突）。 */
+  attempt_count?: number
+  /** 取消请求时间；null 表示未请求取消。 */
+  cancel_requested_at?: string | null
+  /** 最终取消时间；取消是状态转换，不删除任务。 */
+  cancelled_at?: string | null
+  /** 服务端判定当前是否仍可取消。 */
+  cancellable?: boolean
+  /** 拒绝原因（如 write_session_epoch_stale）。 */
+  rejected_reason?: string | null
 }
 
 /** `GET /imports` payload. */

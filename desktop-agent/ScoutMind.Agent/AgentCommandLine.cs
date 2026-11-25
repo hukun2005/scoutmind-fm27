@@ -25,6 +25,15 @@ public enum AgentCommand
 
     /// <summary>打印生效配置。</summary>
     ConfigShow,
+
+    /// <summary>运行态诊断：队列、上下文、后端可达性、最近导入任务。</summary>
+    Diagnostics,
+
+    /// <summary>查询后端最近导入任务（jobs list / jobs inspect &lt;scan_id&gt;）。</summary>
+    Jobs,
+
+    /// <summary>探测后端可达性（network status）。</summary>
+    Network,
 }
 
 /// <summary>
@@ -35,14 +44,16 @@ public enum AgentCommand
 /// <param name="Sync">scan 后是否立即同步。</param>
 /// <param name="IntervalMinutes">watch 的间隔分钟数。</param>
 /// <param name="FilePath">sync 指定的单个文件。</param>
-/// <param name="AutoControl">auto 的控制动作：pause / resume / status。</param>
+/// <param name="AutoControl">auto 的控制动作（pause/resume/status）或 jobs/network 的子动作。</param>
+/// <param name="ScanId">jobs inspect 的目标 scan_id。</param>
 public sealed record AgentOptions(
     AgentCommand Command,
     bool Json,
     bool Sync,
     int? IntervalMinutes,
     string? FilePath,
-    string? AutoControl = null);
+    string? AutoControl = null,
+    string? ScanId = null);
 
 /// <summary>
 /// 代理命令行解析结果；失败时 <see cref="Error"/> 为中文说明。
@@ -80,6 +91,7 @@ public static class AgentCommandLine
         int? intervalMinutes = null;
         string? filePath = null;
         string? autoControl = null;
+        string? scanId = null;
         AgentCommand? command = null;
         var index = 0;
 
@@ -136,9 +148,53 @@ public static class AgentCommandLine
                         command = AgentCommand.ConfigShow;
                         index += 2;
                         break;
+                    case "diagnostics":
+                        command = AgentCommand.Diagnostics;
+                        index++;
+                        break;
+                    case "network":
+                        if (index + 1 >= args.Count || args[index + 1] != "status")
+                        {
+                            return AgentParseResult.Failure("network 只支持子命令 status（示例：network status）。");
+                        }
+
+                        command = AgentCommand.Network;
+                        autoControl = "status";
+                        index += 2;
+                        break;
+                    case "jobs":
+                        if (index + 1 >= args.Count)
+                        {
+                            return AgentParseResult.Failure("jobs 需要子命令：jobs list 或 jobs inspect <scan_id>。");
+                        }
+
+                        if (args[index + 1] == "list")
+                        {
+                            command = AgentCommand.Jobs;
+                            autoControl = "list";
+                            index += 2;
+                        }
+                        else if (args[index + 1] == "inspect")
+                        {
+                            if (index + 2 >= args.Count || string.IsNullOrWhiteSpace(args[index + 2]))
+                            {
+                                return AgentParseResult.Failure("jobs inspect 需要 scan_id。");
+                            }
+
+                            command = AgentCommand.Jobs;
+                            autoControl = "inspect";
+                            scanId = args[index + 2];
+                            index += 3;
+                        }
+                        else
+                        {
+                            return AgentParseResult.Failure("jobs 只支持 list 或 inspect <scan_id>。");
+                        }
+
+                        break;
                     default:
                         return AgentParseResult.Failure(
-                            $"未知子命令：{argument}。可用子命令：status、scan、watch、auto、sync、config show。");
+                            $"未知子命令：{argument}。可用子命令：status、scan、watch、auto、sync、config show、diagnostics、jobs、network。");
                 }
 
                 continue;
@@ -167,7 +223,7 @@ public static class AgentCommandLine
 
         if (command is null)
         {
-            return AgentParseResult.Failure("缺少子命令。可用子命令：status、scan、watch、sync、config show。");
+            return AgentParseResult.Failure("缺少子命令。可用子命令：status、scan、watch、sync、config show、diagnostics、jobs、network。");
         }
 
         if (command == AgentCommand.Watch && intervalMinutes is null)
@@ -179,7 +235,7 @@ public static class AgentCommandLine
             return AgentParseResult.Failure("auto 需要 --interval-minutes <分钟>，或 --pause/--resume/--status。");
         }
 
-        return AgentParseResult.Success(new AgentOptions(command.Value, json, sync, intervalMinutes, filePath, autoControl));
+        return AgentParseResult.Success(new AgentOptions(command.Value, json, sync, intervalMinutes, filePath, autoControl, scanId));
     }
 
     private static int TryConsumeOption(
@@ -271,6 +327,9 @@ public static class AgentCommandLine
     AgentCommand.Auto => "auto",
         AgentCommand.Sync => "sync",
         AgentCommand.ConfigShow => "config show",
+        AgentCommand.Diagnostics => "diagnostics",
+        AgentCommand.Jobs => "jobs",
+        AgentCommand.Network => "network",
         _ => "help",
     };
 }

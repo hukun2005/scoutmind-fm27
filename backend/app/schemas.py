@@ -293,6 +293,8 @@ class SaveSessionHeartbeatIn(BaseModel):
     fingerprint: str | None = Field(default=None, max_length=128)
     game_build: str | None = Field(default=None, max_length=64)
     agent_version: str | None = Field(default=None, max_length=32)
+    # V3.2.7.4：Agent 从断网/后端不可达恢复后的首个心跳置 true，用于审计 network_reconnected。
+    reconnected: bool = False
 
 
 class SaveSessionInvalidateIn(BaseModel):

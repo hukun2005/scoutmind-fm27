@@ -196,7 +196,7 @@ public sealed class AgentCoreTests : IDisposable
     [Fact]
     public async Task BackendJobLookupReportsRunningAndFailure()
     {
-        var running = new StubHandler("{\"items\":[{\"id\":2,\"status\":\"running\"}],\"total\":1}");
+        var running = new StubHandler("{\"items\":[{\"id\":2,\"scan_id\":\"scan-1\",\"status\":\"running\"}],\"total\":1}");
         using var runningClient = new BackendClient("http://127.0.0.1:8000/api/v1", null, TimeSpan.FromSeconds(5), running);
         var job = await runningClient.GetJobAsync("scan-1", CancellationToken.None);
         Assert.NotNull(job);

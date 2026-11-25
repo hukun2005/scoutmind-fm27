@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable
 from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -41,7 +41,9 @@ from ..models import (
     TransferFeeComponent,
 )
 from ..utils import iso, payload_checksum, utcnow
+from ..services.save_identity import record_audit
 from ..services.write_safety import WriteFence, WriteRejected
+from . import cancellation
 from .attributes import ATTRIBUTE_KEYS, ensure_attributes, position_group
 from .identity import resolve_player_instance
 from .unresolved import persist_unresolved_observation
@@ -126,6 +128,42 @@ class ImportInProgressError(Exception):
         self.job = job
 
 
+class ImportCancelled(Exception):
+    """任务在提交前被取消；所有业务写入已回滚，任务进入 ``cancelled``。"""
+
+    def __init__(self, job: ImportJob) -> None:
+        super().__init__(f"导入任务 {job.id} 已取消")
+        self.job = job
+
+
+class OperationConflict(Exception):
+    """同一幂等键承载了不同内容：绝不写入，返回冲突。
+
+    ``code`` 为 ``operation_conflict``（operation_id 相同、payload 不同）或
+    ``scan_payload_mismatch``（scan_id 相同、payload 不同）。
+    """
+
+    def __init__(self, job: ImportJob, code: str, message: str) -> None:
+        super().__init__(message)
+        self.job = job
+        self.code = code
+        self.message = message
+
+
+class OperationRejected(Exception):
+    """该 operation_id 的写入曾被 fence 拒绝；重放必须重新识别并生成新 operation_id。"""
+
+    def __init__(self, job: ImportJob) -> None:
+        super().__init__("该操作曾被写入安全策略拒绝，不能自动重放")
+        self.job = job
+
+
+#: 已成功落盘的任务状态；重放时返回原结果而不是再次写入。
+_COMPLETED_STATUSES = {"succeeded", "partial"}
+#: 每处理多少行检查一次取消信号；过小会拖慢大存档导入，过大则取消响应变慢。
+_CANCEL_CHECKPOINT_ROWS = 200
+
+
 class ScanImporter:
     """Applies a validated scan payload for one save."""
 
@@ -185,12 +223,15 @@ class ScanImporter:
                 ImportJob.scan_id == payload.scan.scan_id,
             )
         )
-        if existing is not None and existing.status == "running":
+        if existing is not None and existing.status in {"queued", "running", "cancel_requested"}:
+            # queued 也可能是另一个请求刚创建、尚未认领的任务；此时重放会与它争抢同一行。
             raise ImportInProgressError(existing)
-        if existing is not None and existing.status in {"succeeded", "partial"}:
-            return self._duplicate_outcome(existing)
+        if existing is not None and existing.status in _COMPLETED_STATUSES:
+            # scan_id 与 operation_id 同时命中时，以更强的 operation 语义报冲突。
+            matched_by = "operation" if operation_id and existing.operation_id == operation_id else "scan"
+            return self._replay(existing, raw, operation_id, matched_by=matched_by)
         if operation_id:
-            # 同一操作 ID 已成功/被拒绝：直接返回既有结果，绝不再写一次。
+            # 同一操作 ID 已成功/被拒绝：返回既有结果或明确拒绝，绝不再写一次。
             previous = self.session.scalar(
                 select(ImportJob).where(
                     ImportJob.fm_save_id == save_id,
@@ -199,7 +240,7 @@ class ScanImporter:
                 )
             )
             if previous is not None:
-                return self._duplicate_outcome(previous)
+                return self._replay(previous, raw, operation_id, matched_by="operation")
 
         try:
             job = self._begin_job(
@@ -214,13 +255,26 @@ class ScanImporter:
             )
         except DuplicateScanError as duplicate:
             # 并发提交同一个 scan_id：另一个请求已经写入，返回它的结果而不是重复应用。
-            return self._duplicate_outcome(duplicate.job)
+            return self._replay(duplicate.job, raw, operation_id, matched_by="scan")
+        # 认领排队任务：queued → running 的条件更新保证同一任务只有一个 Worker 真正执行。
+        job = self._claim_job(job)
         try:
             outcome = self._apply(job, payload)
+        except ImportCancelled:
+            self.session.rollback()
+            self._mark_cancelled(job.id, "cancel_requested")
+            raise
         except Exception as exc:  # keep the failure visible and leave no partial rows behind
             self.session.rollback()
             self._mark_failed(job.id, str(exc))
             raise
+
+        if cancellation.is_requested(job.id):
+            # 提交前最后一次取消检查：与 commit 之间只剩 fence 校验；取消在此之后到达则
+            # 提交已经生效，取消 API 会返回 409，而不是伪造“已取消”。
+            self.session.rollback()
+            self._mark_cancelled(job.id, "cancel_requested")
+            raise ImportCancelled(job)
 
         if fence is not None:
             try:
@@ -240,8 +294,86 @@ class ScanImporter:
                 self._mark_failed(job.id, f"提交前身份校验失败：{exc}")
                 raise
 
+        # 成功写入与审计同一事务提交：要么数据+“已接受”一起可见，要么都不可见。
+        self._audit(
+            job,
+            "write_accepted",
+            {
+                "job_id": job.id,
+                "scan_id": job.scan_id,
+                "operation_id": job.operation_id,
+                "player_count": job.player_count,
+                "transfer_count": job.transfer_count,
+                "attempt_count": job.attempt_count,
+            },
+        )
         self.session.commit()
+        cancellation.clear(job.id)
         return outcome
+
+    # -- 幂等重放 ------------------------------------------------------------------------------------------------
+
+    def _replay(
+        self,
+        job: ImportJob,
+        raw: bytes | None,
+        operation_id: str | None,
+        *,
+        matched_by: str,
+    ) -> ImportOutcome:
+        """处理幂等重放：内容一致才返回原结果，内容不一致必须冲突，被拒绝的任务必须显式失败。"""
+        if job.status in {"queued", "running", "cancel_requested"}:
+            raise ImportInProgressError(job)
+        if job.status == "rejected":
+            self._record_replay(job, event_type="operation_replay_rejected", raw=raw)
+            raise OperationRejected(job)
+        incoming = payload_checksum(raw) if raw is not None else None
+        if incoming and job.checksum and incoming != job.checksum:
+            code = "operation_conflict" if matched_by == "operation" else "scan_payload_mismatch"
+            message = (
+                "同一 operation_id 提交了不同内容，已拒绝；请为新内容生成新的 operation_id"
+                if operation_id
+                else "同一 scan_id 提交了不同内容，已拒绝；请为新内容生成新的 scan_id"
+            )
+            self._record_replay(job, event_type="operation_conflict", raw=raw, conflict_code=code)
+            raise OperationConflict(job, code, message)
+        self._record_replay(job, event_type="operation_replayed", raw=raw)
+        return self._duplicate_outcome(job)
+
+    def _record_replay(
+        self,
+        job: ImportJob,
+        *,
+        event_type: str,
+        raw: bytes | None,
+        conflict_code: str | None = None,
+    ) -> None:
+        """重放/冲突也要留下审计与尝试次数；不写任何业务数据。"""
+        self.session.execute(
+            update(ImportJob)
+            .where(ImportJob.id == job.id)
+            .values(attempt_count=ImportJob.attempt_count + 1)
+            .execution_options(synchronize_session=False)
+        )
+        record_audit(
+            self.session,
+            save_id=job.fm_save_id,
+            identity_id=job.save_identity_id,
+            session_id=job.save_session_id,
+            event_type=event_type,
+            new_status=job.status,
+            evidence_summary={
+                "job_id": job.id,
+                "scan_id": job.scan_id,
+                "operation_id": job.operation_id,
+                "generation": job.save_generation,
+                "checksum": job.checksum,
+                "incoming_checksum": payload_checksum(raw) if raw is not None else None,
+                "conflict_code": conflict_code,
+            },
+            actor="backend",
+        )
+        self.session.commit()
 
     # -- job lifecycle ------------------------------------------------------------------------------------------
 
@@ -260,8 +392,10 @@ class ScanImporter:
         if existing is not None:
             self.session.execute(delete(ImportRow).where(ImportRow.import_job_id == existing.id))
             job = existing
-            job.status = "running"
+            job.status = "queued"
             job.finished_at = None
+            job.cancel_requested_at = None
+            job.cancelled_at = None
             job.fm_save_id = save_id
             job.save_identity_id = identity_id or job.save_identity_id
             job.save_session_id = session_id or job.save_session_id
@@ -281,7 +415,7 @@ class ScanImporter:
                 schema_version=payload.schema_version,
                 reader_version=payload.reader_version,
                 game_build=payload.game.build,
-                status="running",
+                status="queued",
                 received_at=utcnow(),
                 save_identity_id=identity_id,
                 save_session_id=session_id,
@@ -348,6 +482,85 @@ class ScanImporter:
             raise ValueError(f"拒绝写入 {target}：不在存档 raw 目录 {root} 内")
         return target
 
+    # -- worker lifecycle ---------------------------------------------------------------------------------------
+
+    def _claim_job(self, job: ImportJob) -> ImportJob:
+        """用条件更新认领排队任务；同一任务只会有一个 Worker 从 queued 进入 running。
+
+        另一个请求在同一时刻认领失败时：
+        * 已被取消 → 落 cancelled 并抛 :class:`ImportCancelled`；
+        * 已被其他 Worker 认领 → 抛 :class:`ImportInProgressError`。
+        """
+        result = self.session.execute(
+            update(ImportJob)
+            .where(ImportJob.id == job.id, ImportJob.status == "queued")
+            .values(
+                status="running",
+                attempt_count=ImportJob.attempt_count + 1,
+                received_at=utcnow(),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        self.session.commit()
+        self.session.expire_all()
+        claimed = self.session.get(ImportJob, job.id)
+        if claimed is None:
+            raise ImportInProgressError(job)
+        if result.rowcount == 1:
+            self._audit(claimed, "worker_started", {"job_id": claimed.id, "status": "running"})
+            self.session.commit()
+            return claimed
+        if claimed.status in {"cancel_requested", "cancelled"}:
+            self._mark_cancelled(claimed.id, "cancel_requested_before_start")
+            raise ImportCancelled(claimed)
+        raise ImportInProgressError(claimed)
+
+    def _mark_cancelled(self, job_id: int, reason: str) -> None:
+        """取消落库：状态、时间与审计一次提交；业务写入由调用方先行回滚。"""
+        job = self.session.get(ImportJob, job_id)
+        if job is None:
+            return
+        job.status = "cancelled"
+        job.cancelled_at = utcnow()
+        job.finished_at = utcnow()
+        job.warnings_json = json.dumps([f"导入被取消：{reason}"], ensure_ascii=False)
+        record_audit(
+            self.session,
+            save_id=job.fm_save_id,
+            identity_id=job.save_identity_id,
+            session_id=job.save_session_id,
+            event_type="worker_cancelled",
+            new_status="cancelled",
+            evidence_summary={
+                "job_id": job.id,
+                "scan_id": job.scan_id,
+                "operation_id": job.operation_id,
+                "generation": job.save_generation,
+                "reason": reason,
+            },
+            reason=reason,
+            actor="backend",
+        )
+        self.session.commit()
+        cancellation.clear(job_id)
+
+    def _audit(self, job: ImportJob, event_type: str, summary: dict[str, object]) -> None:
+        record_audit(
+            self.session,
+            save_id=job.fm_save_id,
+            identity_id=job.save_identity_id,
+            session_id=job.save_session_id,
+            event_type=event_type,
+            new_status=job.status,
+            evidence_summary=summary,
+            actor="backend",
+        )
+
+    def _check_cancel(self, job: ImportJob, processed: int) -> None:
+        """每 N 行检查一次取消信号；只在安全检查点响应，保证不会留下半行数据。"""
+        if processed % _CANCEL_CHECKPOINT_ROWS == 0 and cancellation.is_requested(job.id):
+            raise ImportCancelled(job)
+
     def _mark_failed(self, job_id: int, message: str) -> None:
         job = self.session.get(ImportJob, job_id)
         if job is None:
@@ -356,6 +569,7 @@ class ScanImporter:
         job.finished_at = utcnow()
         job.warnings_json = json.dumps([f"导入失败：{message}"], ensure_ascii=False)
         self.session.commit()
+        cancellation.clear(job_id)
 
     def _mark_rejected(self, job_id: int, code: str, message: str) -> None:
         """写入被 fence 拒绝：任务进入 rejected，不保留任何业务数据。
@@ -371,6 +585,7 @@ class ScanImporter:
         job.finished_at = utcnow()
         job.warnings_json = json.dumps([f"写入被拒绝（{code}）：{message}"], ensure_ascii=False)
         self.session.commit()
+        cancellation.clear(job_id)
 
     # -- main pass ----------------------------------------------------------------------------------------------
 
@@ -494,6 +709,7 @@ class ScanImporter:
         instance_by_record: dict[str, int] = {}
         observed_at = payload.scan.observed_at
         for index, raw in enumerate(payload.players, start=1):
+            self._check_cancel(job, index)
             try:
                 record = validate_player_row(raw)
             except RowValidationError as exc:
@@ -925,6 +1141,7 @@ class ScanImporter:
         outcome: ImportOutcome,
     ) -> None:
         for index, raw in enumerate(payload.transfers, start=1):
+            self._check_cancel(job, index)
             try:
                 record = validate_transfer_row(raw)
             except RowValidationError as exc:
@@ -1131,30 +1348,72 @@ def describe_payload(payload: ScanPayload) -> str:
 
 
 def recover_interrupted_imports(session_factory: Callable[[], Session]) -> int:
-    """Fail jobs a previous process left in ``running`` so they can be retried.
+    """收尾上一个进程遗留的未完成任务，并写入恢复审计。
 
-    ``_begin_job`` commits the job before applying rows, so a crash keeps a visible but stuck job.
-    Marking it failed with an ``interrupted`` import row makes the next upload of the same ``scan_id``
-    retry instead of looking like an import that is still in progress.
+    * ``running``：后端在导入完成前退出 → ``failed``（可用同一 scan_id 重试）。
+    * ``queued``：请求已创建任务但从未开始 → ``failed``（重试会重新认领）。
+    * ``cancel_requested``：取消请求已记录但 Worker 未响应就退出 → ``cancelled``（取消意图必须生效）。
+
+    每条恢复都写 ``worker_recovered``，并额外写一条 ``backend_restarted`` 汇总事件。
     """
     session = session_factory()
     try:
-        jobs = list(session.scalars(select(ImportJob).where(ImportJob.status == "running")))
+        jobs = list(
+            session.scalars(
+                select(ImportJob).where(ImportJob.status.in_(("running", "queued", "cancel_requested")))
+            )
+        )
         if not jobs:
             return 0
         now = utcnow()
+        counts = {"running": 0, "queued": 0, "cancel_requested": 0}
         for job in jobs:
-            job.status = "failed"
+            old_status = job.status
+            counts[old_status] = counts.get(old_status, 0) + 1
+            if old_status == "cancel_requested":
+                job.status = "cancelled"
+                job.cancelled_at = now
+                code = "cancelled"
+                message = "后端在取消完成前退出：任务已按取消处理，未提交任何业务数据"
+            else:
+                job.status = "failed"
+                code = "interrupted"
+                message = "后端在导入完成前退出：任务已标记失败，重新上传同一 scan_id 即可重试"
             job.finished_at = now
             session.add(
                 ImportRow(
                     import_job_id=job.id,
                     row_index=0,
                     entity="scan",
-                    code="interrupted",
-                    message="后端在导入完成前退出：任务已标记失败，重新上传同一 scan_id 即可重试",
+                    code=code,
+                    message=message,
                 )
             )
+            record_audit(
+                session,
+                save_id=job.fm_save_id,
+                identity_id=job.save_identity_id,
+                session_id=job.save_session_id,
+                event_type="worker_recovered",
+                old_status=old_status,
+                new_status=job.status,
+                evidence_summary={
+                    "job_id": job.id,
+                    "scan_id": job.scan_id,
+                    "operation_id": job.operation_id,
+                    "generation": job.save_generation,
+                    "attempt_count": job.attempt_count,
+                },
+                reason="backend_restarted",
+                actor="backend",
+            )
+        record_audit(
+            session,
+            save_id=None,
+            event_type="backend_restarted",
+            evidence_summary={"recovered_jobs": len(jobs), **counts},
+            actor="backend",
+        )
         session.commit()
         return len(jobs)
     finally:

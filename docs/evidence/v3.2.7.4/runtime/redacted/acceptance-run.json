@@ -1,0 +1,58 @@
+{
+  "tool": "run_acceptance",
+  "version": "v3.2.7.4",
+  "started_at": "2026-11-25T05:14:48.4856255Z",
+  "api": "http://127.0.0.1:8123/api/v1",
+  "database": "<temp-sqlite>",
+  "steps": [
+    {
+      "name": "inspect_environment",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "alembic_upgrade",
+      "status": "PASS",
+      "detail": "临时 SQLite"
+    },
+    {
+      "name": "backend_start",
+      "status": "PASS",
+      "detail": "pid=123876"
+    },
+    {
+      "name": "verify_save_isolation",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "verify_worker_fencing",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "verify_operation_idempotency",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "simulate_network_failure",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "real_fm27",
+      "status": "NOT_RUN",
+      "detail": "检测到名为 fm 的进程，但版本未验证；按 REAL_FM27_ACCEPTANCE_PENDING 处理"
+    },
+    {
+      "name": "backend_stop",
+      "status": "PASS",
+      "detail": ""
+    }
+  ],
+  "real_fm27": "REAL_FM27_ACCEPTANCE_PENDING",
+  "status": "PASS",
+  "finished_at": "2026-11-25T05:15:06.3537373Z"
+}
+
