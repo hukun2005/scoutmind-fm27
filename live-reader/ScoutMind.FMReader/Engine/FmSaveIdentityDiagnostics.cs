@@ -6,7 +6,7 @@ namespace ScoutMind.FMReader.Engine;
 /// <param name="Resolution">身份解析结果。</param>
 /// <param name="StatePath">状态文件路径。</param>
 /// <param name="Diagnostics">诊断信息。</param>
-/// <param name="AutomaticSnapshotEnabled">自动快照开关（本版本恒 <c>false</c>）。</param>
+/// <param name="AutomaticSnapshotEnabled">自动快照开关（由 <c>SCOUTMIND_AUTOMATIC_SNAPSHOT</c> 决定）。</param>
 /// <param name="VerifyRequested">是否请求了 <c>--verify</c>。</param>
 /// <param name="VerifyApplied">本次是否真的完成了用户确认。</param>
 public sealed record SaveIdentityReport(
@@ -113,12 +113,19 @@ public sealed class FmSaveIdentityDiagnostics
 
         if (verify)
         {
-            if (resolution.Status == SaveIdentityStatus.Candidate
+            // 显式 --verify 表示用户确认「就是这份存档」：candidate 与 conflict 都允许确认，
+            // 后者等价于用户主动切换确认到新存档（旧存档不再被视为当前存档）。
+            if (resolution.Status is SaveIdentityStatus.Candidate or SaveIdentityStatus.Conflict
                 && resolution.Kind == SaveIdentityKind.SaveFile)
             {
+                var previousStatus = resolution.Status;
                 confirmed = resolution.Fingerprint;
                 resolution = SaveIdentityResolver.Resolve(new SaveIdentityInput(process, files, null, confirmed));
                 verifyApplied = resolution.Status == SaveIdentityStatus.Verified;
+                if (verifyApplied && previousStatus == SaveIdentityStatus.Conflict)
+                {
+                    diagnostics.Add("用户确认了与上次不同的存档文件，已将确认切换至当前存档。");
+                }
             }
 
             if (!verifyApplied && resolution.Status != SaveIdentityStatus.Verified)

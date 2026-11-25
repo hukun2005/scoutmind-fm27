@@ -56,9 +56,11 @@ public sealed class SaveIdentitySyncTests
     }
 
     [Fact]
-    public async Task Ensure_RegistersStartsAndHeartbeats()
+    public async Task Ensure_ResolvesSaveRegistersStartsAndHeartbeats()
     {
+        // V3.2.7.5 D-01：EnsureAsync 第一步是 /saves/resolve，之后全部调用携带 save_id。
         var handler = new StubHandler()
+            .Enqueue(HttpStatusCode.OK, """{"save_id": 1, "created": true}""")
             .Enqueue(HttpStatusCode.OK, """{"identity_id": 3, "identity_status": "verified"}""")
             .Enqueue(HttpStatusCode.OK, """{"session_id": 7, "status": "verified"}""")
             .Enqueue(HttpStatusCode.OK, """{"session_id": 7, "status": "verified"}""");
@@ -68,28 +70,33 @@ public sealed class SaveIdentitySyncTests
         Assert.True(first.Ok);
         Assert.Equal(3, first.IdentityId);
         Assert.Equal(7, first.SessionId);
-        Assert.Equal(new SaveContextQuery(3, 7), sync.Context);
+        Assert.Equal(1, first.SaveId);
+        Assert.Equal(new SaveContextQuery(3, 7, SaveId: 1), sync.Context);
+        Assert.Contains("save_id=1", handler.Requests[1].Url);
+        Assert.Contains("save_id=1", handler.Requests[2].Url);
 
         var second = await sync.EnsureAsync(Gate(), CancellationToken.None);
         Assert.True(second.Ok);
-        Assert.Equal(3, handler.Requests.Count);
-        Assert.Contains("/save-identities/register", handler.Requests[0].Url);
-        Assert.Contains("/save-sessions/start", handler.Requests[1].Url);
-        Assert.Contains("/save-sessions/7/heartbeat", handler.Requests[2].Url);
+        Assert.Equal(4, handler.Requests.Count);
+        Assert.Contains("/saves/resolve", handler.Requests[0].Url);
+        Assert.Contains("/save-identities/register", handler.Requests[1].Url);
+        Assert.Contains("/save-sessions/start", handler.Requests[2].Url);
+        Assert.Contains("/save-sessions/7/heartbeat", handler.Requests[3].Url);
     }
 
     [Fact]
     public async Task Ensure_BackendRejectsRegistration_DoesNotWrite()
     {
-        var handler = new StubHandler().Enqueue(
-            HttpStatusCode.Conflict,
-            """{"error": {"code": "save_context_mismatch", "message": "存档身份不属于当前存档"}}""");
+        var handler = new StubHandler()
+            .Enqueue(HttpStatusCode.OK, """{"save_id": 1, "created": true}""")
+            .Enqueue(HttpStatusCode.Conflict, """{"error": {"code": "save_context_mismatch", "message": "存档身份不属于当前存档"}}""");
         var sync = Sync(handler);
 
         var result = await sync.EnsureAsync(Gate(), CancellationToken.None);
 
         Assert.False(result.Ok);
         Assert.Null(sync.Context);
+        Assert.Equal(1, result.SaveId);
         Assert.Contains("409", result.Error);
     }
 
@@ -97,6 +104,7 @@ public sealed class SaveIdentitySyncTests
     public async Task Ensure_UnverifiedSession_Blocks()
     {
         var handler = new StubHandler()
+            .Enqueue(HttpStatusCode.OK, """{"save_id": 1, "created": true}""")
             .Enqueue(HttpStatusCode.OK, """{"identity_id": 3, "identity_status": "candidate"}""")
             .Enqueue(HttpStatusCode.OK, """{"session_id": 7, "status": "created"}""")
             .Enqueue(HttpStatusCode.OK, """{"session_id": 7, "status": "invalidated"}""");
@@ -113,6 +121,7 @@ public sealed class SaveIdentitySyncTests
     public async Task Ensure_HeartbeatFailure_RestartsSession()
     {
         var handler = new StubHandler()
+            .Enqueue(HttpStatusCode.OK, """{"save_id": 1, "created": true}""")
             .Enqueue(HttpStatusCode.OK, """{"identity_id": 3}""")
             .Enqueue(HttpStatusCode.OK, """{"session_id": 7, "status": "verified"}""")
             .Enqueue(HttpStatusCode.Conflict, """{"error": {"code": "save_session_invalidated"}}""")
@@ -127,8 +136,8 @@ public sealed class SaveIdentitySyncTests
         var restarted = await sync.EnsureAsync(Gate(), CancellationToken.None);
         Assert.True(restarted.Ok);
         Assert.Equal(8, restarted.SessionId);
-        Assert.Equal(4, handler.Requests.Count);
-        Assert.Contains("/save-sessions/start", handler.Requests[3].Url);
+        Assert.Equal(5, handler.Requests.Count);
+        Assert.Contains("/save-sessions/start", handler.Requests[4].Url);
     }
 
     [Fact]
@@ -136,9 +145,11 @@ public sealed class SaveIdentitySyncTests
     {
         var changed = VerifiedJson.Replace("si:v1:file:abc123", "si:v1:file:def456");
         var handler = new StubHandler()
+            .Enqueue(HttpStatusCode.OK, """{"save_id": 1, "created": true}""")
             .Enqueue(HttpStatusCode.OK, """{"identity_id": 3}""")
             .Enqueue(HttpStatusCode.OK, """{"session_id": 7, "status": "verified"}""")
             .Enqueue(HttpStatusCode.OK, """{"session_id": 7, "status": "invalidated"}""")
+            .Enqueue(HttpStatusCode.OK, """{"save_id": 2, "created": true}""")
             .Enqueue(HttpStatusCode.OK, """{"identity_id": 4}""")
             .Enqueue(HttpStatusCode.OK, """{"session_id": 9, "status": "verified"}""");
         var sync = Sync(handler);
@@ -149,15 +160,18 @@ public sealed class SaveIdentitySyncTests
         Assert.True(switched.Ok);
         Assert.Equal(4, switched.IdentityId);
         Assert.Equal(9, switched.SessionId);
-        Assert.Contains("/save-sessions/7/invalidate", handler.Requests[2].Url);
-        Assert.Contains("\"save_switched\"", handler.Requests[2].Body);
-        Assert.Equal(new SaveContextQuery(4, 9), sync.Context);
+        Assert.Equal(2, switched.SaveId);
+        Assert.Contains("/save-sessions/7/invalidate", handler.Requests[3].Url);
+        Assert.Contains("\"save_switched\"", handler.Requests[3].Body);
+        Assert.Contains("/saves/resolve", handler.Requests[4].Url);
+        Assert.Equal(new SaveContextQuery(4, 9, SaveId: 2), sync.Context);
     }
 
     [Fact]
     public async Task Invalidate_ClosesSessionAndClearsContext()
     {
         var handler = new StubHandler()
+            .Enqueue(HttpStatusCode.OK, """{"save_id": 1, "created": true}""")
             .Enqueue(HttpStatusCode.OK, """{"identity_id": 3}""")
             .Enqueue(HttpStatusCode.OK, """{"session_id": 7, "status": "verified"}""")
             .Enqueue(HttpStatusCode.OK, """{"session_id": 7, "status": "invalidated"}""");
@@ -167,7 +181,7 @@ public sealed class SaveIdentitySyncTests
         await sync.InvalidateAsync("agent_stopped", CancellationToken.None);
 
         Assert.Null(sync.Context);
-        Assert.Contains("/save-sessions/7/invalidate", handler.Requests[2].Url);
+        Assert.Contains("/save-sessions/7/invalidate", handler.Requests[3].Url);
     }
 
     private sealed class StubHandler : HttpMessageHandler

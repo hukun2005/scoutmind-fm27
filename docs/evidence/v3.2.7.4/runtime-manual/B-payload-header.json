@@ -1,0 +1,40 @@
+{
+  "top_level_keys": [
+    "schemaVersion",
+    "source",
+    "readerVersion",
+    "game",
+    "scan",
+    "coverage",
+    "warnings",
+    "clubs",
+    "players",
+    "transfers"
+  ],
+  "scan": {
+    "scanId": "fmreader-52cc722adfa79a6c",
+    "observedAt": "2026-11-25T14:05:08",
+    "gameDate": "2026-02-03",
+    "userClubUid": null
+  },
+  "game": {
+    "version": "27.1",
+    "build": "26620374",
+    "appId": "4530370"
+  },
+  "coverage": {
+    "players": true,
+    "clubs": true,
+    "identity": true,
+    "unresolved_identity": true,
+    "contracts": true,
+    "teams": false,
+    "team_tiers": false,
+    "loans": false,
+    "ownership": false,
+    "agreed_transfers": false,
+    "transfers": false,
+    "statistics": false
+  },
+  "has_save_section": false
+}

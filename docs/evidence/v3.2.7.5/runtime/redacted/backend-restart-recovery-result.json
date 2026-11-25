@@ -1,0 +1,155 @@
+{
+  "tool": "verify_backend_restart_recovery",
+  "synthetic_identity": true,
+  "real_fm27": false,
+  "checks": [
+    {
+      "label": "baseline_import_succeeded",
+      "ok": true,
+      "expect": "201",
+      "observed": {
+        "status": 201
+      }
+    },
+    {
+      "label": "backend_killed_mid_import",
+      "ok": true,
+      "expect": "在 running 状态硬杀后端",
+      "observed": {
+        "killed_while_running": true,
+        "submitter_status": 0
+      }
+    },
+    {
+      "label": "submitter_saw_transport_failure",
+      "ok": true,
+      "expect": "0（客户端感知连接中断）",
+      "observed": {
+        "status": 0
+      }
+    },
+    {
+      "label": "crash_left_running_job_without_rows",
+      "ok": true,
+      "expect": "status=running 且 player_count=0（事务未提交）",
+      "observed": {
+        "row": [
+          "running",
+          0
+        ]
+      }
+    },
+    {
+      "label": "startup_recovered_running_to_failed",
+      "ok": true,
+      "expect": "running → failed（可重试）",
+      "observed": {
+        "crash_job_status": "failed"
+      }
+    },
+    {
+      "label": "job_state_persisted",
+      "ok": true,
+      "expect": "崩溃前的 succeeded 保持不变",
+      "observed": {
+        "baseline_job_status": "succeeded"
+      }
+    },
+    {
+      "label": "audit_worker_recovered",
+      "ok": true,
+      "expect": "含 worker_recovered",
+      "observed": [
+        "backend_restarted",
+        "identity_verified",
+        "registered",
+        "session_created",
+        "worker_recovered",
+        "worker_started",
+        "write_accepted"
+      ]
+    },
+    {
+      "label": "audit_backend_restarted",
+      "ok": true,
+      "expect": "含 backend_restarted",
+      "observed": [
+        "backend_restarted",
+        "identity_verified",
+        "registered",
+        "session_created",
+        "worker_recovered",
+        "worker_started",
+        "write_accepted"
+      ]
+    },
+    {
+      "label": "no_zombie_write_from_killed_worker",
+      "ok": true,
+      "expect": "崩溃的导入没有留下任何业务行",
+      "observed": {
+        "players": 10,
+        "baseline": 10
+      }
+    },
+    {
+      "label": "retry_after_crash_writes_once",
+      "ok": true,
+      "expect": "201（重试被允许）",
+      "observed": {
+        "status": 201,
+        "duplicate": false
+      }
+    },
+    {
+      "label": "no_duplicate_write_after_restart",
+      "ok": true,
+      "expect": "恰好 +10（无重复）",
+      "observed": {
+        "players": 20,
+        "expected": 20
+      }
+    },
+    {
+      "label": "succeeded_scan_replays_duplicate",
+      "ok": true,
+      "expect": "duplicate=true（已完成任务不重写）",
+      "observed": {
+        "status": 201,
+        "duplicate": true
+      }
+    },
+    {
+      "label": "switch_rotates_generation",
+      "ok": true,
+      "expect": "generation ≥ 1",
+      "observed": {
+        "save_id": 1,
+        "generation": 1,
+        "invalidated_session_id": 1,
+        "next_session_id": null,
+        "protocol_version": "write-safety/v1"
+      }
+    },
+    {
+      "label": "old_epoch_rejected_after_restart",
+      "ok": true,
+      "expect": "409（重启不会复活旧代次会话）",
+      "observed": {
+        "status": 409,
+        "code": "save_session_invalidated"
+      }
+    }
+  ],
+  "failures": [],
+  "partials": [],
+  "ok": true,
+  "status": "PASS",
+  "run_id": "144df52e",
+  "players": 12000,
+  "backend_starts": [
+    1,
+    1
+  ],
+  "workdir": "<local-path>"
+}

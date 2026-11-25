@@ -25,8 +25,8 @@ from ..ingestion.importer import (
 )
 from ..ingestion.squad_csv import csv_template, import_squad_csv
 from ..ingestion.protocol import ProtocolError, ScanPayload
-from ..models import Club, DataSource, FmSave, ImportJob, ImportRow, PlayerInstance, PlayerSnapshot, PlayerStatistic, Transfer
-from ..schemas import SaveCreate
+from ..models import Club, DataSource, FmSave, ImportJob, ImportRow, PlayerInstance, PlayerSnapshot, PlayerStatistic, SaveIdentity, Transfer
+from ..schemas import SaveCreate, SaveResolveIn
 from ..services.save_identity import record_audit
 from ..services.write_safety import (
     WriteRejected,
@@ -173,6 +173,58 @@ def create_save(body: SaveCreate, db: Session = Depends(get_db), user=Depends(ge
     db.add(save)
     db.commit()
     return _save_payload(save, db)
+
+
+@router.post("/saves/resolve")
+def resolve_save(body: SaveResolveIn, db: Session = Depends(get_db), user=Depends(get_current_user)) -> dict[str, Any]:
+    """Find the save that owns ``fingerprint``; create and activate one when it is unseen.
+
+    Agent 用它把「读取器识别出的存档文件指纹」映射到后端存档，避免切换存档时把两个存档的数据
+    混进同一个 ``fm_save``（V3.2.7.5 D-01）。
+    """
+    fingerprint = body.fingerprint.strip()
+    if not fingerprint.startswith("si:v1:"):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_fingerprint", "message": "存档指纹必须以 si:v1: 开头"},
+        )
+    identity = db.scalar(
+        select(SaveIdentity)
+        .where(
+            SaveIdentity.identity_fingerprint == fingerprint,
+            SaveIdentity.fm_save_id.is_not(None),
+        )
+        .order_by(SaveIdentity.last_seen_at.desc())
+        .limit(1)
+    )
+    save = db.get(FmSave, identity.fm_save_id) if identity is not None else None
+    created = False
+    if save is None or save.user_id != user.id:
+        suffix = fingerprint.rsplit(":", 1)[-1][:8] or "unknown"
+        for existing in db.scalars(select(FmSave).where(FmSave.user_id == user.id)):
+            existing.is_active = False
+        save = FmSave(user_id=user.id, name=body.name or f"FM27 存档 {suffix}", is_active=True)
+        db.add(save)
+        db.flush()
+        # 先登记一条 unknown 身份，保证同一指纹再次解析时能找回这个存档；
+        # Agent 随后注册正式身份会更新同一行，而不是新建。
+        db.add(
+            SaveIdentity(
+                fm_save_id=save.id,
+                identity_fingerprint=fingerprint,
+                identity_status="unknown",
+                identity_confidence="none",
+                identity_kind="save_file",
+            )
+        )
+        db.commit()
+        created = True
+    elif not save.is_active:
+        for existing in db.scalars(select(FmSave).where(FmSave.user_id == user.id, FmSave.id != save.id)):
+            existing.is_active = False
+        save.is_active = True
+        db.commit()
+    return {"save": _save_payload(save, db), "created": created, "save_id": save.id}
 
 
 @router.get("/saves/{save_id}/summary")

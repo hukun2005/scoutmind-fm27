@@ -1,0 +1,180 @@
+{
+  "items": [
+    {
+      "event_id": 8,
+      "save_id": 1,
+      "identity_id": null,
+      "session_id": null,
+      "capture_id": null,
+      "event_type": "write_accepted",
+      "old_status": null,
+      "new_status": "succeeded",
+      "old_fingerprint": null,
+      "new_fingerprint": null,
+      "evidence_summary": {
+        "job_id": 2,
+        "scan_id": "fmreader-52cc722adfa79a6c",
+        "operation_id": null,
+        "player_count": 18614,
+        "transfer_count": 0,
+        "attempt_count": 1
+      },
+      "actor": "backend",
+      "reason": null,
+      "occurred_at": "2026-11-25T06:06:14Z",
+      "correlation_id": null
+    },
+    {
+      "event_id": 7,
+      "save_id": 1,
+      "identity_id": null,
+      "session_id": null,
+      "capture_id": null,
+      "event_type": "worker_started",
+      "old_status": null,
+      "new_status": "running",
+      "old_fingerprint": null,
+      "new_fingerprint": null,
+      "evidence_summary": {
+        "job_id": 2,
+        "status": "running"
+      },
+      "actor": "backend",
+      "reason": null,
+      "occurred_at": "2026-11-25T06:05:14Z",
+      "correlation_id": null
+    },
+    {
+      "event_id": 6,
+      "save_id": 1,
+      "identity_id": null,
+      "session_id": null,
+      "capture_id": null,
+      "event_type": "legacy_write_allowed",
+      "old_status": null,
+      "new_status": "allowed",
+      "old_fingerprint": null,
+      "new_fingerprint": null,
+      "evidence_summary": {
+        "operation_id": null,
+        "endpoint": "imports/scan"
+      },
+      "actor": "legacy-client",
+      "reason": "write_safety_legacy_allowed",
+      "occurred_at": "2026-11-25T06:05:13Z",
+      "correlation_id": null
+    },
+    {
+      "event_id": 5,
+      "save_id": 1,
+      "identity_id": null,
+      "session_id": null,
+      "capture_id": null,
+      "event_type": "operation_replayed",
+      "old_status": null,
+      "new_status": "succeeded",
+      "old_fingerprint": null,
+      "new_fingerprint": null,
+      "evidence_summary": {
+        "job_id": 1,
+        "scan_id": "fmreader-8ccd8dcd4b63f95c",
+        "operation_id": null,
+        "generation": null,
+        "checksum": "7c3d30be6e5373b0acd12e670fd04c4fe5cfc0dd0613588e35fe0c7b0f148d94",
+        "incoming_checksum": "7c3d30be6e5373b0acd12e670fd04c4fe5cfc0dd0613588e35fe0c7b0f148d94",
+        "conflict_code": null
+      },
+      "actor": "backend",
+      "reason": null,
+      "occurred_at": "2026-11-25T06:02:38Z",
+      "correlation_id": null
+    },
+    {
+      "event_id": 4,
+      "save_id": 1,
+      "identity_id": null,
+      "session_id": null,
+      "capture_id": null,
+      "event_type": "legacy_write_allowed",
+      "old_status": null,
+      "new_status": "allowed",
+      "old_fingerprint": null,
+      "new_fingerprint": null,
+      "evidence_summary": {
+        "operation_id": null,
+        "endpoint": "imports/scan"
+      },
+      "actor": "legacy-client",
+      "reason": "write_safety_legacy_allowed",
+      "occurred_at": "2026-11-25T06:02:38Z",
+      "correlation_id": null
+    },
+    {
+      "event_id": 3,
+      "save_id": 1,
+      "identity_id": null,
+      "session_id": null,
+      "capture_id": null,
+      "event_type": "write_accepted",
+      "old_status": null,
+      "new_status": "succeeded",
+      "old_fingerprint": null,
+      "new_fingerprint": null,
+      "evidence_summary": {
+        "job_id": 1,
+        "scan_id": "fmreader-8ccd8dcd4b63f95c",
+        "operation_id": null,
+        "player_count": 18614,
+        "transfer_count": 0,
+        "attempt_count": 1
+      },
+      "actor": "backend",
+      "reason": null,
+      "occurred_at": "2026-11-25T06:02:21Z",
+      "correlation_id": null
+    },
+    {
+      "event_id": 2,
+      "save_id": 1,
+      "identity_id": null,
+      "session_id": null,
+      "capture_id": null,
+      "event_type": "worker_started",
+      "old_status": null,
+      "new_status": "running",
+      "old_fingerprint": null,
+      "new_fingerprint": null,
+      "evidence_summary": {
+        "job_id": 1,
+        "status": "running"
+      },
+      "actor": "backend",
+      "reason": null,
+      "occurred_at": "2026-11-25T06:00:44Z",
+      "correlation_id": null
+    },
+    {
+      "event_id": 1,
+      "save_id": 1,
+      "identity_id": null,
+      "session_id": null,
+      "capture_id": null,
+      "event_type": "legacy_write_allowed",
+      "old_status": null,
+      "new_status": "allowed",
+      "old_fingerprint": null,
+      "new_fingerprint": null,
+      "evidence_summary": {
+        "operation_id": null,
+        "endpoint": "imports/scan"
+      },
+      "actor": "legacy-client",
+      "reason": "write_safety_legacy_allowed",
+      "occurred_at": "2026-11-25T06:00:43Z",
+      "correlation_id": null
+    }
+  ],
+  "total": 8,
+  "limit": 50,
+  "offset": 0
+}

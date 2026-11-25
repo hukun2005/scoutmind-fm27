@@ -31,7 +31,7 @@
 | RT-022 | PostgreSQL 16 migration | CI `postgres-migrations` job | **PASS（CI）** | 本地 BLOCKED_BY_ENVIRONMENT |
 | RT-023 | 审计完整性 | `verify_save_isolation.py::audit_*`、`verify_worker_fencing.py::audit_*`、`verify_operation_idempotency.py::audit_*` | **PASS** | 见 FINAL-REPORT §4 事件表 |
 | RT-024 | 前端诊断页面 | `npm run build`（vue-tsc + vite） | **PARTIAL** | 类型与构建 PASS；未在浏览器中做交互截图（本机无 Playwright 浏览器） |
-| RT-025 | 真实 FM27 A/B 切换 | 人工 | **NOT_RUN** | **REAL_FM27_ACCEPTANCE_PENDING** |
+| RT-025 | 真实 FM27 A/B 切换 | 人工两轮（2026-11-25） | **PARTIAL** | 第 1 轮 B 跨存档污染（D-01）；修复后第 2 轮 A→B→A 均 PASS（独立 `save_id` + 身份/会话/审计）；C/D/E 仍 NOT_RUN，见 [REAL-FM27-ACCEPTANCE.md](./REAL-FM27-ACCEPTANCE.md) |
 
 ## 执行记录位置
 

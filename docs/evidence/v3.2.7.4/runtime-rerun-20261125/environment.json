@@ -1,0 +1,63 @@
+{
+  "executed_at": "2026-11-25T14:20:00+08:00",
+  "operator": "用户（游戏内切换存档）+ 自动化（Reader / Agent / 后端）",
+  "repo_branch": "codex/v3.2.7.4-runtime-closure",
+  "base_commit": "9d3277c",
+  "note": "D-01 修复后的第二轮真实 A/B 验收；构建来自未提交工作区（基于 main ca79d31）",
+  "game": {
+    "process": "fm.exe",
+    "pid": 66972,
+    "build": "26620374",
+    "plugin_version": "27.1",
+    "layout": "FM27_1",
+    "session_key": "66972:2026-11-24T15:57:31.1218361Z:26620374"
+  },
+  "backend": {
+    "url": "http://127.0.0.1:8010/api/v1",
+    "database": "backend/data/acceptance-v3274-r3.db",
+    "migration_head": "b5d9c2e7f4a1",
+    "api_token": null,
+    "note": "未触碰用户 8000 端口旧后端"
+  },
+  "saves": {
+    "A": {
+      "file": "<local-path>",
+      "fingerprint": "si:v1:file:ab0bd79502eec32b392f86847344014073486a0c218362b0faccef58e8672665",
+      "backend_save_id": 2,
+      "identity_id": 2,
+      "session_id": 2,
+      "import_job_id": 2,
+      "scan_id": "fmreader-a429b40997f51a56",
+      "player_count": 18614,
+      "snapshot_count": 18614,
+      "in_game_date": "2026-08-21"
+    },
+    "B": {
+      "file": "<local-path>",
+      "fingerprint": "si:v1:file:b887415ab528890d6364a3bb2e5a36e485b8e9a823229ba553863a8c67418083",
+      "backend_save_id": 1,
+      "identity_id": 1,
+      "session_ids": [
+        1,
+        3
+      ],
+      "import_job_ids": [
+        1,
+        3
+      ],
+      "scan_ids": [
+        "fmreader-1a417b4d64eed4dc",
+        "fmreader-f682f8bac915e481"
+      ],
+      "player_count": 18614,
+      "snapshot_count": 37228,
+      "snapshot_note": "同一存档内两次采集导致快照 18,614 → 37,228，属于快照按次追加的设计行为，不是跨存档污染；player_count 未累加",
+      "in_game_date": "2026-02-03"
+    }
+  },
+  "commands": [
+    "ScoutMind.LiveReader.exe save-identity --verify --save-file <A|B> --diagnostics --json",
+    "ScoutMind.LiveReader.exe save-identity --diagnostics --json",
+    "$env:SCOUTMIND_BACKEND_URL='http://127.0.0.1:8010/api/v1'; ScoutMind.Agent.exe scan --sync"
+  ]
+}

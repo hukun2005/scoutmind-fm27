@@ -18,7 +18,7 @@ from typing import Callable
 from uuid import uuid4
 
 from sqlalchemy import delete, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from ..analytics.fees import compute_effective_fee
@@ -294,6 +294,21 @@ class ScanImporter:
                 self._mark_failed(job.id, f"提交前身份校验失败：{exc}")
                 raise
 
+        # 跨进程取消保护：终态必须绑定 ``status='running'`` 守卫再写入。
+        # 另一个后端进程可能已把任务改为 cancel_requested，此时 rowcount=0 表示取消获胜，
+        # 业务写入整体回滚，不能把取消覆盖成 succeeded。
+        guarded = self.session.execute(
+            update(ImportJob)
+            .where(ImportJob.id == job.id, ImportJob.status == "running")
+            .values(status=outcome.status)
+            .execution_options(synchronize_session=False)
+        )
+        if guarded.rowcount != 1:
+            self.session.rollback()
+            self._mark_cancelled(job.id, "cancel_requested_cross_process")
+            raise ImportCancelled(job)
+        job.status = outcome.status
+
         # 成功写入与审计同一事务提交：要么数据+“已接受”一起可见，要么都不可见。
         self._audit(
             job,
@@ -557,9 +572,31 @@ class ScanImporter:
         )
 
     def _check_cancel(self, job: ImportJob, processed: int) -> None:
-        """每 N 行检查一次取消信号；只在安全检查点响应，保证不会留下半行数据。"""
-        if processed % _CANCEL_CHECKPOINT_ROWS == 0 and cancellation.is_requested(job.id):
+        """每 N 行检查一次取消信号；只在安全检查点响应，保证不会留下半行数据。
+
+        先查进程内事件（同进程取消立即生效），再查数据库状态（覆盖跨进程取消：
+        另一个后端进程只能把任务改成 ``cancel_requested``，无法置位本进程的事件）。
+        """
+        if processed % _CANCEL_CHECKPOINT_ROWS != 0:
+            return
+        if cancellation.is_requested(job.id) or self._cancel_requested_in_db(job.id):
             raise ImportCancelled(job)
+
+    def _cancel_requested_in_db(self, job_id: int) -> bool:
+        """读取**已提交**的任务状态，用于跨进程取消。
+
+        使用独立连接而不是当前会话：导入事务尚未提交，当前会话看不到其他进程在事务开始后
+        写入的 ``cancel_requested``。SQLite 单写者模型下读取可能短暂返回 busy，此时按“未取消”
+        处理，由提交前的 ``status='running'`` 守卫兜底。
+        """
+        try:
+            with self.session.get_bind().connect() as conn:
+                status = conn.execute(
+                    select(ImportJob.status).where(ImportJob.id == job_id)
+                ).scalar_one_or_none()
+        except OperationalError:
+            return False
+        return status in {"cancel_requested", "cancelled"}
 
     def _mark_failed(self, job_id: int, message: str) -> None:
         job = self.session.get(ImportJob, job_id)
@@ -613,7 +650,6 @@ class ScanImporter:
             else ("partial" if outcome.rows_rejected else "succeeded")
         )
         self._touch_source(job, payload, outcome)
-        job.status = outcome.status
         job.finished_at = utcnow()
         job.player_count = outcome.snapshots_created
         job.transfer_count = outcome.transfers_created
@@ -1354,7 +1390,8 @@ def recover_interrupted_imports(session_factory: Callable[[], Session]) -> int:
     * ``queued``：请求已创建任务但从未开始 → ``failed``（重试会重新认领）。
     * ``cancel_requested``：取消请求已记录但 Worker 未响应就退出 → ``cancelled``（取消意图必须生效）。
 
-    每条恢复都写 ``worker_recovered``，并额外写一条 ``backend_restarted`` 汇总事件。
+    每条恢复都写 ``worker_recovered``；每个受影响存档再写一条 ``backend_restarted`` 汇总事件，
+    使事件能通过按存档过滤的审计 API 观察到。
     """
     session = session_factory()
     try:
@@ -1366,10 +1403,11 @@ def recover_interrupted_imports(session_factory: Callable[[], Session]) -> int:
         if not jobs:
             return 0
         now = utcnow()
-        counts = {"running": 0, "queued": 0, "cancel_requested": 0}
+        per_save: dict[int, dict[str, int]] = {}
         for job in jobs:
             old_status = job.status
-            counts[old_status] = counts.get(old_status, 0) + 1
+            save_counts = per_save.setdefault(job.fm_save_id, {"running": 0, "queued": 0, "cancel_requested": 0})
+            save_counts[old_status] = save_counts.get(old_status, 0) + 1
             if old_status == "cancel_requested":
                 job.status = "cancelled"
                 job.cancelled_at = now
@@ -1407,13 +1445,14 @@ def recover_interrupted_imports(session_factory: Callable[[], Session]) -> int:
                 reason="backend_restarted",
                 actor="backend",
             )
-        record_audit(
-            session,
-            save_id=None,
-            event_type="backend_restarted",
-            evidence_summary={"recovered_jobs": len(jobs), **counts},
-            actor="backend",
-        )
+        for save_id, save_counts in per_save.items():
+            record_audit(
+                session,
+                save_id=save_id,
+                event_type="backend_restarted",
+                evidence_summary={"recovered_jobs": sum(save_counts.values()), **save_counts},
+                actor="backend",
+            )
         session.commit()
         return len(jobs)
     finally:

@@ -30,6 +30,12 @@ public sealed class ReaderRunner
     private readonly string _readerPath;
     private readonly TimeSpan _timeout;
 
+    /// <summary>
+    /// 是否允许自动快照。只有 <c>auto</c> 路径会置为 <c>true</c>，并通过环境变量
+    /// <c>SCOUTMIND_AUTOMATIC_SNAPSHOT=1</c> 传给读取器；读取器仍只对 <c>verified</c> 身份放行。
+    /// </summary>
+    public bool AutomaticSnapshot { get; set; }
+
     /// <summary>创建运行器。</summary>
     /// <param name="readerPath">读取器可执行文件或 .dll 的绝对路径。</param>
     /// <param name="timeout">单次调用的超时。</param>
@@ -67,6 +73,11 @@ public sealed class ReaderRunner
         foreach (var argument in prefixArguments)
         {
             startInfo.ArgumentList.Add(argument);
+        }
+
+        if (AutomaticSnapshot)
+        {
+            startInfo.Environment["SCOUTMIND_AUTOMATIC_SNAPSHOT"] = "1";
         }
 
         foreach (var argument in arguments)

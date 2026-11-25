@@ -19,6 +19,13 @@ class SaveCreate(BaseModel):
     game_build: str | None = None
 
 
+class SaveResolveIn(BaseModel):
+    """Resolve the save that owns a stable identity fingerprint (create it when unseen)."""
+
+    fingerprint: str = Field(min_length=8, max_length=160)
+    name: str | None = Field(default=None, max_length=128)
+
+
 class WatchItemCreate(BaseModel):
     """Add one player to the watchlist."""
 

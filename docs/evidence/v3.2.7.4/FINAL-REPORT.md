@@ -3,7 +3,7 @@
 - 分支：`codex/v3.2.7.4-runtime-closure`
 - 基线：`main` @ `9a6145f`
 - 日期：2026-11-25
-- 总体状态：**工程闭环 PASS / 真实 FM27 验收 REAL_FM27_ACCEPTANCE_PENDING**
+- 总体状态：**工程闭环 PASS / 真实 FM27 验收 PARTIAL**（第 1 轮发现 D-01 跨存档污染；修复后 A→B→A 真实复验 PASS，C/D/E 未执行，见 [REAL-FM27-ACCEPTANCE.md](./REAL-FM27-ACCEPTANCE.md)）
 
 ## 0. 偏差声明（必须如实记录）
 
@@ -29,7 +29,7 @@
 | 6 | 一键验收工具 | PASS（33 项真实 HTTP 检查） | `tools/runtime-acceptance/` |
 | 7 | 前端诊断增强 | PASS（构建） | `SaveIdentityView.vue` |
 | 8 | 审计事件完整性 | PASS | 本文 §4 |
-| 9 | RT-001~025 | 21 PASS / 3 PARTIAL / 1 NOT_RUN | [TEST-MATRIX.md](./TEST-MATRIX.md) |
+| 9 | RT-001~025 | 20 PASS / 5 PARTIAL | [TEST-MATRIX.md](./TEST-MATRIX.md) |
 | 10 | 文档 | PASS | 本目录 |
 | 11 | 提交与 PR | 已创建 PR #9（**未合并、未发布、未删分支、未开自动快照**） | https://github.com/hukun2005/scoutmind-fm27/pull/9 |
 
@@ -57,6 +57,21 @@
 缺失或损坏 → 隔离；指纹不一致 → 隔离；一致 → 以新会话、原 operation_id 恢复。
 `SyncOneAsync` 不再以 `context=null` 上传。
 
+### D-01（High）真实切换存档污染同一 `fm_save`
+
+第 1 轮真实 A/B 发现：`scan --sync` 不带 `save_id` / 身份 / 会话，后端回落 `get_active_save`，
+B 的数据写入 A 的 `save_id=1`（`player_count` 18,614→18,616、`snapshot_count` 18,614→37,228）。
+
+修复（完整链路）：
+
+- 读取器：`SnapshotEligible` 只对 `verified` 为真；自动快照改由 `SCOUTMIND_AUTOMATIC_SNAPSHOT` 控制；
+  多存档歧义时用用户已确认指纹唯一定位；`--verify` 允许显式切换确认；
+- 后端：新增 `POST /saves/resolve`，按指纹 find-or-create `fm_save` 并激活；
+- Agent：`scan --sync` 也登记身份/会话，解析 `save_id` 后随上传携带 `save_id` + `operation_id`。
+
+复验：真实 A→B→A 中 A 落 `save_id=2`、B 落 `save_id=1`，两个存档的 `player_count` 均为 18,614，
+互不合并；身份/会话/写入审计齐全。
+
 ### 其他
 
 - 排队任务取消改为原子直达 `cancelled`（不再依赖 Worker 领取）；
@@ -77,7 +92,7 @@
 - `backend/app/services/write_safety.py`、`save_identity.py`
 - `backend/app/schemas.py`
 - 测试：`tests/test_worker_cancellation.py`、`test_operation_conflicts.py`、`test_identity_switch_regression.py`、
-  `test_unified_import_identity.py`、`test_save_identity_api.py`
+  `test_unified_import_identity.py`、`test_save_identity_api.py`、`test_saves_resolve.py`
 
 Desktop Agent：
 
@@ -127,6 +142,8 @@ Desktop Agent：
 - Agent：38 个测试全部通过
 - 前端：`npm run build` 通过
 - 运行期：`docs/evidence/v3.2.7.4/runtime/*-result.json`（33 项检查 PASS）
+- D-01 修复回归：FMReader 215 PASS / Reader 57 PASS / 后端全量 pytest 通过（0 failed，3 skipped）；
+  真实 A/B 证据在 `docs/evidence/v3.2.7.4/runtime-rerun-20261125/`
 - CI：run `45546259776`、`45546286541` 六 job 全成功；本分支 PR CI 以 PR 页面为准
 
 ## 6. 已知限制（未标记 PASS）
@@ -137,11 +154,12 @@ Desktop Agent：
 | 取消信号为进程内事件 | PARTIAL | 多进程 Worker 时改为数据库状态轮询 |
 | 本地 PostgreSQL 并发 | BLOCKED_BY_ENVIRONMENT | 使用 CI 或具备 Docker 的机器 |
 | Playwright 本地 E2E | NOT_RUN（CI 已通过） | `npx playwright install chromium` |
-| 真实 FM27 A/B / 断网 / 重启 | **REAL_FM27_ACCEPTANCE_PENDING** | 按 [REAL-FM27-ACCEPTANCE.md](./REAL-FM27-ACCEPTANCE.md) 人工执行 |
+| 真实 FM27 A/B / 断网 / 重启 | **PARTIAL**（A PASS / B PASS / C·D·E NOT_RUN） | D-01 已修复并真实复验，见 [REAL-FM27-ACCEPTANCE.md](./REAL-FM27-ACCEPTANCE.md) |
 | 前端诊断交互截图 | PARTIAL | 浏览器可用时补 |
 
 ## 7. 结论
 
 - 写入安全协议、取消状态机、operation 幂等、Agent 固定上下文与诊断工具在本环境中**真实执行通过**；
-- 由于没有真实 FM27 环境，**不得宣称真实运行闭环已完成**；状态为 `REAL_FM27_ACCEPTANCE_PENDING`；
+- 2026-11-25 已在真实 FM27（build `26620374`）上完成两轮 A/B：第 1 轮命中 D-01 跨存档污染（如实记为 FAIL），
+  修复后第 2 轮 A→B→A 均落在各自 `save_id`，身份/会话/审计完整；整体记为 `REAL_FM27_ACCEPTANCE_PARTIAL`（C/D/E 未执行）；
 - PR 创建后不自动合并、不发布、不删除分支、不开启自动快照。
