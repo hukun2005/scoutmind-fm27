@@ -50,6 +50,7 @@ WorldDateResolverTests.Run(harness);
         SaveSwitchDetectorTests.Run(harness);
         DateVerificationStoreTests.Run(harness);
         PersonLayoutCandidateTests.Run(harness);
+        PersonCandidateLocatorTests.Run(harness);
         await EngineTests.RunAsync(harness).ConfigureAwait(false);
 
         return harness.Summary();
