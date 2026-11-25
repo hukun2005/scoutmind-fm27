@@ -39,7 +39,13 @@ internal static class Program
 UnresolvedObjectCollectorTests.Run(harness);
 DateDiscoveryTests.Run(harness);
 PointerAndLocatorTests.Run(harness);
+ReferenceChainTests.Run(harness);
 StaticDateScanTests.Run(harness);
+WorldDateResolverTests.Run(harness);
+        DateCandidateDiagnosticsTests.Run(harness);
+        DateCandidateTrackerTests.Run(harness);
+        SnapshotSafetyGateTests.Run(harness);
+        DateVerificationStoreTests.Run(harness);
         await EngineTests.RunAsync(harness).ConfigureAwait(false);
 
         return harness.Summary();

@@ -82,6 +82,9 @@ public sealed class Cli
             case CliCommand.StaticDateScan:
                 return await RunStaticDateScanAsync(options, cancellationToken).ConfigureAwait(false);
 
+            case CliCommand.WorldDate:
+                return await RunWorldDateAsync(options, cancellationToken).ConfigureAwait(false);
+
             case CliCommand.DateRead:
                 return RunDateRead(options);
 
@@ -511,6 +514,226 @@ public sealed class Cli
             return ExitCodes.Incompatible;
         }
     }
+    private async Task<int> RunWorldDateAsync(CliOptions options, CancellationToken cancellationToken)
+    {
+        if (options.Diagnostics || options.VerificationDate is not null)
+        {
+            return await RunWorldDateDiagnosticsAsync(options, cancellationToken).ConfigureAwait(false);
+        }
+
+        var locator = new FmWorldDate();
+        var maxBytes = options.MaxScanMb is { } megabytes
+            ? megabytes * 1024L * 1024L
+            : WorldDateLocator.DefaultMaxBytes;
+        var result = await locator.ResolveAsync(maxBytes, cancellationToken).ConfigureAwait(false);
+        var resolution = result.Resolution;
+
+        var document = new
+        {
+            build = result.Build,
+            plugin_version = result.PluginVersion,
+            process_detected = result.ProcessDetected,
+            status = result.Status,
+            date = resolution?.Date,
+            confidence = resolution?.Confidence,
+            candidate_count = resolution?.Candidates.Count ?? 0,
+            total_matches = resolution?.TotalMatches ?? 0,
+            reason = resolution?.Reason,
+            candidates = resolution?.Candidates.Select(item => new
+            {
+                field = $"0x{item.DateAddress:X}",
+                raw = $"0x{item.RawDate:X8}",
+                date = item.Date,
+                reference = item.Reference,
+                gap_days = item.ReferenceGapDays,
+            }),
+            diagnostics = result.Diagnostics,
+        };
+
+        if (options.Json)
+        {
+            WriteJson(document);
+        }
+        else
+        {
+            _stdout.WriteLine($"世界日期：{resolution?.Date ?? "(未解析)"}（{resolution?.Status}/{resolution?.Confidence ?? "-"}）");
+            foreach (var line in result.Diagnostics) _stdout.WriteLine(line);
+        }
+
+        return result.Status switch
+        {
+            "game_not_running" => ExitCodes.NotFound,
+            "unsupported_build" => ExitCodes.Incompatible,
+            _ => resolution?.Status == "ok" ? ExitCodes.Success : ExitCodes.Incompatible,
+        };
+    }
+
+    private Task<int> RunWorldDateDiagnosticsAsync(CliOptions options, CancellationToken cancellationToken)
+    {
+        var maxBytes = options.MaxScanMb is { } megabytes
+            ? megabytes * 1024L * 1024L
+            : WorldDateLocator.DefaultMaxBytes;
+        var report = new FmWorldDateDiagnostics().Analyze(
+            options.VerificationDate,
+            options.StatePath,
+            maxBytes,
+            hints: null,
+            now: null,
+            cancellationToken);
+
+        if (options.Json)
+        {
+            WriteJson(ToWorldDateDiagnosticsDocument(report));
+        }
+        else
+        {
+            WriteWorldDateDiagnosticsHuman(report);
+        }
+
+        return Task.FromResult(report.Status switch
+        {
+            "game_not_running" => ExitCodes.NotFound,
+            "unsupported_build" or "no_modules" or "unreadable" => ExitCodes.Incompatible,
+            _ => report.DateSummary.SelectedDate is not null ? ExitCodes.Success : ExitCodes.Incompatible,
+        });
+    }
+
+    private static object ToWorldDateDiagnosticsDocument(WorldDateDiagnosticsReport report) => new
+    {
+        build = report.Process.Build,
+        plugin_version = report.Process.PluginVersion,
+        process_detected = report.Process.Pid is not null,
+        status = report.Status,
+        confidence = SnapshotSafetyGate.ToText(report.Confidence),
+        process = new
+        {
+            pid = report.Process.Pid,
+            process_start_time = report.Process.ProcessStartTime,
+            module_base = report.Process.ModuleBase,
+            build = report.Process.Build,
+            plugin_version = report.Process.PluginVersion,
+            session_key = report.Process.SessionKey,
+        },
+        session = new
+        {
+            session_id = report.Session.SessionId,
+            game_version = report.Session.GameVersion,
+            save_key = report.Session.SaveKey,
+        },
+        date_summary = new
+        {
+            selected_date = report.DateSummary.SelectedDate,
+            candidate_count = report.DateSummary.CandidateCount,
+            verified_candidate_count = report.DateSummary.VerifiedCandidateCount,
+            rejected_count = report.DateSummary.RejectedCount,
+        },
+        candidates = report.Candidates.Select(ToCandidateDocument),
+        rejected_candidates = report.RejectedCandidates.Select(ToCandidateDocument),
+        selection_reason = report.SelectionReason,
+        verification_evidence = report.VerificationEvidence,
+        limitations = report.Limitations,
+        snapshot = new
+        {
+            status = report.Snapshot.Status,
+            allowed = report.Snapshot.Allowed,
+            reasons = report.Snapshot.Reasons,
+        },
+        next_action = report.NextAction,
+        diagnostics = report.Diagnostics,
+    };
+
+    private static object ToCandidateDocument(DateCandidateDiagnostics candidate) => new
+    {
+        index = candidate.Index,
+        address = $"0x{candidate.Address:X}",
+        base_address = $"0x{candidate.BaseAddress:X}",
+        region_start = candidate.RegionStart == 0 ? null : $"0x{candidate.RegionStart:X}",
+        region_offset = candidate.RegionStart == 0 ? (string?)null : $"0x{candidate.RegionOffset:X}",
+        module = candidate.Module,
+        data_type = candidate.DataType,
+        raw_bytes = candidate.RawBytes,
+        raw_value = $"0x{candidate.RawValue:X8}",
+        date = candidate.Date,
+        reference_date = candidate.Reference,
+        reference_gap_days = candidate.ReferenceGapDays,
+        signature = candidate.Signature,
+        source = candidate.Source,
+        structure_fingerprint = candidate.StructureFingerprint,
+        logical_signature = candidate.LogicalSignature,
+        identity_signature = candidate.IdentitySignature,
+        reference_chain = candidate.ReferenceChain is null
+            ? null
+            : new
+            {
+                module = candidate.ReferenceChain.Module,
+                rva = $"0x{candidate.ReferenceChain.Rva:X}",
+                pointer_offsets = candidate.ReferenceChain.PointerOffsets.Select(offset => $"0x{offset:X}").ToArray(),
+                date_offset = $"0x{candidate.ReferenceChain.DateOffset:X}",
+                level = candidate.ReferenceChain.Level,
+                signature = candidate.ReferenceChain.Signature,
+            },
+        relative_address = $"0x{candidate.RelativeAddress:X}",
+        related_object = candidate.RelatedObject,
+        structure_evidence = candidate.StructureEvidence,
+        classification = SnapshotSafetyGate.ToText(candidate.Kind),
+        rejection_reason = SnapshotSafetyGate.ToText(candidate.Rejection),
+        confidence = SnapshotSafetyGate.ToText(candidate.Confidence),
+        first_seen = candidate.FirstSeen,
+        last_seen = candidate.LastSeen,
+        read_count = candidate.ReadCount,
+        consecutive_consistent_reads = candidate.ConsecutiveConsistentReads,
+        session_key = candidate.SessionKey,
+        observed_dates = candidate.ObservedDates,
+        rejection_detail = candidate.RejectionDetail,
+    };
+
+    private void WriteWorldDateDiagnosticsHuman(WorldDateDiagnosticsReport report)
+    {
+        _stdout.WriteLine("世界日期诊断");
+        _stdout.WriteLine($"状态：{report.Status}（{SnapshotSafetyGate.ToText(report.Confidence)}）");
+        _stdout.WriteLine($"选中日期：{report.DateSummary.SelectedDate ?? "(未选中)"}");
+        _stdout.WriteLine($"选择原因：{report.SelectionReason ?? "-"}");
+        _stdout.WriteLine(
+            $"候选：{report.DateSummary.CandidateCount} 个（已验证 {report.DateSummary.VerifiedCandidateCount}，排除 {report.DateSummary.RejectedCount}）");
+
+        if (report.Candidates.Count > 0)
+        {
+            _stdout.WriteLine("保留候选：");
+            foreach (var candidate in report.Candidates)
+            {
+                _stdout.WriteLine(
+                    $"  {candidate.Index}. 0x{candidate.Address:X} {candidate.Date ?? "(无法解码)"} " +
+                    $"[{SnapshotSafetyGate.ToText(candidate.Kind)}] {SnapshotSafetyGate.ToText(candidate.Confidence)} " +
+                    $"read={candidate.ReadCount} stable={candidate.ConsecutiveConsistentReads} sig={candidate.LogicalSignature}");
+            }
+        }
+
+        if (report.RejectedCandidates.Count > 0)
+        {
+            _stdout.WriteLine("排除候选：");
+            foreach (var candidate in report.RejectedCandidates)
+            {
+                _stdout.WriteLine(
+                    $"  {candidate.Index}. 0x{candidate.Address:X} {candidate.Date ?? "(无法解码)"} " +
+                    $"[{SnapshotSafetyGate.ToText(candidate.Kind)}] {SnapshotSafetyGate.ToText(candidate.Rejection)} " +
+                    $"{candidate.RejectionDetail}");
+            }
+        }
+
+        if (report.VerificationEvidence.Count > 0)
+        {
+            _stdout.WriteLine("验证证据：");
+            foreach (var line in report.VerificationEvidence) _stdout.WriteLine($"  {line}");
+        }
+
+        _stdout.WriteLine("限制：");
+        foreach (var line in report.Limitations) _stdout.WriteLine($"  {line}");
+
+        _stdout.WriteLine($"自动快照：{report.Snapshot.Status}");
+        foreach (var reason in report.Snapshot.Reasons) _stdout.WriteLine($"  - {reason}");
+        _stdout.WriteLine($"下一步：{report.NextAction}");
+    }
+
     private int RunStatus(CliOptions options)
     {
         var status = GetPipeline().Detect();
@@ -934,6 +1157,8 @@ public sealed class Cli
         writer.WriteLine("  ScoutMind.LiveReader module-info [--json]");
         writer.WriteLine("  ScoutMind.LiveReader static-date-scan --expect <yyyy-MM-dd> [--depth 1|2] [--max-mb <1..8192>] [--json]");
         writer.WriteLine("  ScoutMind.LiveReader date-read --rva <0x偏移> --field <0x字段偏移> [--json]");
+        writer.WriteLine("  ScoutMind.LiveReader world-date [--max-mb <1..8192>] [--json]");
+        writer.WriteLine("  ScoutMind.LiveReader world-date --diagnostics [--verify <yyyy-MM-dd>] [--state <文件>] [--max-mb <1..8192>] [--json]");
         writer.WriteLine("  ScoutMind.LiveReader compatibility list [--json]");
         writer.WriteLine();
         writer.WriteLine("退出码：");
@@ -945,6 +1170,7 @@ public sealed class Cli
         writer.WriteLine("  64 用法或配置错误");
     }
 }
+
 
 
 
