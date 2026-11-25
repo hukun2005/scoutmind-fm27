@@ -1354,7 +1354,8 @@ def recover_interrupted_imports(session_factory: Callable[[], Session]) -> int:
     * ``queued``：请求已创建任务但从未开始 → ``failed``（重试会重新认领）。
     * ``cancel_requested``：取消请求已记录但 Worker 未响应就退出 → ``cancelled``（取消意图必须生效）。
 
-    每条恢复都写 ``worker_recovered``，并额外写一条 ``backend_restarted`` 汇总事件。
+    每条恢复都写 ``worker_recovered``；每个受影响存档再写一条 ``backend_restarted`` 汇总事件，
+    使事件能通过按存档过滤的审计 API 观察到。
     """
     session = session_factory()
     try:
@@ -1366,10 +1367,11 @@ def recover_interrupted_imports(session_factory: Callable[[], Session]) -> int:
         if not jobs:
             return 0
         now = utcnow()
-        counts = {"running": 0, "queued": 0, "cancel_requested": 0}
+        per_save: dict[int, dict[str, int]] = {}
         for job in jobs:
             old_status = job.status
-            counts[old_status] = counts.get(old_status, 0) + 1
+            save_counts = per_save.setdefault(job.fm_save_id, {"running": 0, "queued": 0, "cancel_requested": 0})
+            save_counts[old_status] = save_counts.get(old_status, 0) + 1
             if old_status == "cancel_requested":
                 job.status = "cancelled"
                 job.cancelled_at = now
@@ -1407,13 +1409,14 @@ def recover_interrupted_imports(session_factory: Callable[[], Session]) -> int:
                 reason="backend_restarted",
                 actor="backend",
             )
-        record_audit(
-            session,
-            save_id=None,
-            event_type="backend_restarted",
-            evidence_summary={"recovered_jobs": len(jobs), **counts},
-            actor="backend",
-        )
+        for save_id, save_counts in per_save.items():
+            record_audit(
+                session,
+                save_id=save_id,
+                event_type="backend_restarted",
+                evidence_summary={"recovered_jobs": sum(save_counts.values()), **save_counts},
+                actor="backend",
+            )
         session.commit()
         return len(jobs)
     finally:

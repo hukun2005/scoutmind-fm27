@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -324,6 +325,20 @@ def new_check_list() -> tuple[list[dict[str, Any]], list[str]]:
     return [], []
 
 
+_LOCAL_PATH = re.compile(r"[A-Za-z]:\\[^\s\"']*")
+
+
+def _redact(value: Any) -> Any:
+    """把证据里的本机绝对路径替换为占位符，避免把用户名/临时目录带进仓库。"""
+    if isinstance(value, dict):
+        return {key: _redact(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    if isinstance(value, str):
+        return _LOCAL_PATH.sub("<local-path>", value)
+    return value
+
+
 def write_evidence(
     output: Path,
     filename: str,
@@ -347,6 +362,7 @@ def write_evidence(
     }
     if extra:
         result.update(extra)
+    result = _redact(result)
     target = output / filename
     target.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"{'PASS' if not failures else 'FAIL'} {tool}: {len(checks) - len(failures)}/{len(checks)}")

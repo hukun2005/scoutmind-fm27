@@ -1,0 +1,30 @@
+{
+  "tool": "collect_evidence",
+  "version": "v3.2.7.5",
+  "generated_at": "2026-11-25T11:35:29.0696925Z",
+  "directory": "<evidence-dir>",
+  "files": [
+    {
+      "file": "backend-restart-recovery-result.json",
+      "size": 3690,
+      "sha256": "9b3f2664699bb7f8c1500505af5f1e91ca3aa8e5c2646b3ddded2c95f4181736",
+      "redacted": true,
+      "captured_at": "2026-11-25T11:35:10.3121287Z"
+    },
+    {
+      "file": "cancel-two-process-result.json",
+      "size": 2022,
+      "sha256": "3a71f09c40088b20b7715eb4ac112bc41f72c6f8d929a20ab97d2575152ff02c",
+      "redacted": true,
+      "captured_at": "2026-11-25T11:34:03.1675751Z"
+    },
+    {
+      "file": "network-recovery-result.json",
+      "size": 6367,
+      "sha256": "32348e73bb6ee25e2ba6fd36213e8933f4a56c9bc7ad67b109a641ad5967f22f",
+      "redacted": true,
+      "captured_at": "2026-11-25T11:32:41.7929487Z"
+    }
+  ],
+  "note": "只做路径脱敏；证据内容来自真实执行，未做任何伪造或补写。"
+}

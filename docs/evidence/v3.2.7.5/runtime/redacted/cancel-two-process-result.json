@@ -1,0 +1,84 @@
+{
+  "tool": "verify_cancel_two_process",
+  "synthetic_identity": true,
+  "real_fm27": false,
+  "checks": [
+    {
+      "label": "job_observed_in_progress",
+      "ok": true,
+      "expect": "任务被观察到且取消请求已发出",
+      "observed": {
+        "cancel_sent": true,
+        "final_status": "cancelled"
+      }
+    },
+    {
+      "label": "cancel_commit_race_atomic",
+      "ok": true,
+      "expect": "取消成功→409 import_cancelled；或提交完成→取消 409",
+      "observed": {
+        "cancel_http": 200,
+        "cancel_code": null,
+        "import_http": 409,
+        "import_code": "import_cancelled",
+        "final_status": "cancelled"
+      }
+    },
+    {
+      "label": "worker_sensed_cancellation",
+      "ok": true,
+      "expect": "含 worker_cancel_requested/worker_cancelled",
+      "observed": [
+        "identity_verified",
+        "registered",
+        "session_created",
+        "worker_cancel_requested",
+        "worker_cancelled",
+        "worker_started"
+      ]
+    },
+    {
+      "label": "no_partial_write",
+      "ok": true,
+      "expect": "取消后 players == 0",
+      "observed": {
+        "players": 0
+      }
+    },
+    {
+      "label": "repeat_cancel_idempotent",
+      "ok": true,
+      "expect": "cancelled→200 幂等；completed→409",
+      "observed": {
+        "status": 200,
+        "code": null,
+        "body_status": "cancelled"
+      }
+    },
+    {
+      "label": "cancel_queued",
+      "ok": true,
+      "expect": "200 cancelled",
+      "observed": {
+        "status": 200,
+        "job_status": "cancelled"
+      }
+    },
+    {
+      "label": "cancel_queued_idempotent",
+      "ok": true,
+      "expect": "200 幂等",
+      "observed": {
+        "status": 200,
+        "job_status": "cancelled"
+      }
+    }
+  ],
+  "failures": [],
+  "partials": [],
+  "ok": true,
+  "status": "PASS",
+  "run_id": "289042f3",
+  "players": 50000,
+  "workdir": "<local-path>"
+}

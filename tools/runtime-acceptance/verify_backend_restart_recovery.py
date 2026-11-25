@@ -126,7 +126,7 @@ def main() -> int:
                 killed_while_running = True
                 break
 
-        submitter.join(timeout=60)
+        submitter.wait(timeout=60)
         submitter_result = json.loads(result_path.read_text(encoding="utf-8")) if result_path.exists() else {"status": None}
         check(
             "backend_killed_mid_import",

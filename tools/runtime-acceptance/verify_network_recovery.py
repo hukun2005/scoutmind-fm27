@@ -91,8 +91,6 @@ def main() -> int:
             "201 duplicate=false",
         )
         job_id = first.get("job_id")
-        baseline = backend.save_summary(context["save_id"]).get("coverage", {})
-        baseline_players = int(baseline.get("players") or 0)
 
         # --- 2a-1. 响应丢失但服务端已完成：原 operation_id 重试必须命中幂等 --------------------------------------
         # 用原始 socket 发出完整请求；等服务端把导入做完（任务 succeeded）后再断开，模拟「响应在途丢失」。
@@ -120,11 +118,11 @@ def main() -> int:
             if lost_job is not None and lost_job.get("status") in {"succeeded", "partial", "failed", "rejected"}:
                 break
         sock.close()  # 响应已产生但从未被客户端读取
-        after_lost = int(backend.save_summary(context["save_id"]).get("coverage", {}).get("players") or 0)
+        after_lost = backend.coverage(context["save_id"])
         check(
             "response_lost_server_completed",
             lost_job is not None and lost_job.get("status") in {"succeeded", "partial"},
-            {"job_status": (lost_job or {}).get("status"), "players": after_lost},
+            {"job_status": (lost_job or {}).get("status"), "coverage": after_lost},
             "服务端完成导入（succeeded/partial）",
         )
         status, lost_replay = api.request("POST", "/imports/scan", params=lost_params, raw=payload_bytes(lost_scan, players=50))
@@ -136,12 +134,12 @@ def main() -> int:
             {"status": status, "duplicate": lost_replay.get("duplicate"), "job_id": lost_replay.get("job_id"), "original_job_id": (lost_job or {}).get("id")},
             "duplicate=true 且同一 job",
         )
-        players_after_lost = int(backend.save_summary(context["save_id"]).get("coverage", {}).get("players") or 0)
+        after_lost_retry = backend.coverage(context["save_id"])
         check(
             "response_lost_no_double_write",
-            players_after_lost == after_lost,
-            {"players": players_after_lost, "before_retry": after_lost},
-            "重试后行数不变",
+            after_lost_retry == after_lost,
+            {"coverage_before_replay": after_lost, "coverage_after_replay": after_lost_retry},
+            "重试后球员/快照行数不变",
         )
 
         # --- 2a-2. 处理中途断开：服务端行为如实记录，原 operation_id 重试必须恰好写一次 -----------------------------
@@ -150,7 +148,7 @@ def main() -> int:
         abort_scan = f"{scan_id}-abort"
         abort_op = f"{operation_id}-abort"
         abort_params = {**context, "operation_id": abort_op}
-        before_abort = int(backend.save_summary(context["save_id"]).get("coverage", {}).get("players") or 0)
+        before_abort = backend.coverage(context["save_id"])
         abort_after_send(
             backend.port,
             "POST",
@@ -166,19 +164,21 @@ def main() -> int:
             if abort_job is not None and abort_job.get("status") in {"succeeded", "partial", "failed", "rejected"}:
                 break
         status, abort_retry = api.request("POST", "/imports/scan", params=abort_params, raw=payload_bytes(abort_scan, players=50))
-        players_after_abort_retry = int(backend.save_summary(context["save_id"]).get("coverage", {}).get("players") or 0)
+        after_abort_retry = backend.coverage(context["save_id"])
         listing = api.request("GET", "/imports", params={"save_id": context["save_id"], "limit": 50})[1]
         abort_jobs = [item for item in (listing.get("items") or []) if item.get("scan_id") == abort_scan]
         check(
             "mid_disconnect_retry_writes_exactly_once",
-            players_after_abort_retry == before_abort + 50 and len(abort_jobs) == 1,
+            after_abort_retry["players"] == before_abort["players"] + 50
+            and after_abort_retry["snapshots"] == before_abort["snapshots"] + 50
+            and len(abort_jobs) == 1,
             {
-                "observed_after_disconnect": {"job": abort_job, "players": before_abort},
+                "observed_after_disconnect": {"job": abort_job, "coverage": before_abort},
                 "retry_status": status,
-                "players_after_retry": players_after_abort_retry,
+                "coverage_after_retry": after_abort_retry,
                 "jobs_for_scan": len(abort_jobs),
             },
-            "断开后重试：恰好 +50 且 scan 只有 1 个 job（无论服务端是否已完成被中断的请求）",
+            "断开后重试：恰好 +50 球员/+50 快照 且 scan 只有 1 个 job（无论服务端是否已完成被中断的请求）",
         )
 
         # --- 2b. 后端不可达 ---------------------------------------------------------------------------------
@@ -208,6 +208,7 @@ def main() -> int:
         check("audit_network_reconnected", "network_reconnected" in events, sorted(events), "含 network_reconnected")
 
         # --- 6/7. 重连后原 operation_id 重试不重复写入 ----------------------------------------------------------
+        before_replay = backend.coverage(context["save_id"])
         status, replay = api.request("POST", "/imports/scan", params=params, raw=payload_bytes(scan_id, players=50))
         check(
             "retry_same_operation_id",
@@ -215,19 +216,20 @@ def main() -> int:
             {"status": status, "duplicate": replay.get("duplicate"), "job_id": replay.get("job_id")},
             "duplicate=true 且同一 job",
         )
-        after = backend.save_summary(context["save_id"]).get("coverage", {})
-        after_players = int(after.get("players") or 0)
+        after = backend.coverage(context["save_id"])
         listing = api.request("GET", "/imports", params={"save_id": context["save_id"], "limit": 50})[1]
         jobs_for_scan = [item for item in (listing.get("items") or []) if item.get("scan_id") == scan_id]
         check(
             "no_duplicate_write",
-            after_players == baseline_players and len(jobs_for_scan) == 1,
+            after["players"] == before_replay["players"]
+            and after["snapshots"] == before_replay["snapshots"]
+            and len(jobs_for_scan) == 1,
             {
-                "players_before": baseline_players,
-                "players_after": after_players,
+                "coverage_before_replay": before_replay,
+                "coverage_after_replay": after,
                 "jobs_for_scan": len(jobs_for_scan),
             },
-            "重放后行数不变且 scan 只有 1 个 job",
+            "重放后球员/快照行数不变且 scan 只有 1 个 job",
         )
 
         # --- 8. 旧会话 / 旧代次不复活 --------------------------------------------------------------------------

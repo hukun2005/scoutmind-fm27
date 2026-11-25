@@ -116,7 +116,7 @@ def main() -> int:
                 cancel_sent = True
                 break
 
-        submitter.join(timeout=180)
+        submitter.wait(timeout=180)
         submitter_result = {"status": None, "payload": {"error": "submitter 未产出结果"}}
         if result_path.exists():
             submitter_result = json.loads(result_path.read_text(encoding="utf-8"))

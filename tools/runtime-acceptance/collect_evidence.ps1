@@ -20,7 +20,6 @@ New-Item -ItemType Directory -Force -Path (Join-Path $resolved "redacted") | Out
 function Protect-Path([string]$Text) {
     # 只做最常见、不会破坏 JSON 结构的替换：Windows 盘符路径与用户主目录。
     $value = $Text -replace '[A-Za-z]:\\Users\\[^"\\\s]+', '<user-home>'
-    $value = $value -replace '[A-Za-z]:\\Users\\hukun\\[^"\\\s]*', '<user-home>'
     return $value
 }
 
@@ -49,7 +48,7 @@ Get-ChildItem -Path $resolved -File -Recurse | Where-Object { $_.FullName -notli
 
 $manifest = [ordered]@{
     tool        = "collect_evidence"
-    version     = "v3.2.7.4"
+    version     = "v3.2.7.5"
     generated_at = (Get-Date).ToUniversalTime().ToString("o")
     directory   = "<evidence-dir>"
     files       = $entries

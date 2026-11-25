@@ -1,0 +1,234 @@
+{
+  "tool": "verify_network_recovery",
+  "synthetic_identity": true,
+  "real_fm27": false,
+  "checks": [
+    {
+      "label": "normal_submit",
+      "ok": true,
+      "expect": "201 duplicate=false",
+      "observed": {
+        "status": 201,
+        "duplicate": false,
+        "job_id": 1
+      }
+    },
+    {
+      "label": "response_lost_server_completed",
+      "ok": true,
+      "expect": "服务端完成导入（succeeded/partial）",
+      "observed": {
+        "job_status": "succeeded",
+        "coverage": {
+          "players": 100,
+          "snapshots": 100,
+          "transfers": 0
+        }
+      }
+    },
+    {
+      "label": "retry_lost_operation_idempotent",
+      "ok": true,
+      "expect": "duplicate=true 且同一 job",
+      "observed": {
+        "status": 201,
+        "duplicate": true,
+        "job_id": 2,
+        "original_job_id": 2
+      }
+    },
+    {
+      "label": "response_lost_no_double_write",
+      "ok": true,
+      "expect": "重试后球员/快照行数不变",
+      "observed": {
+        "coverage_before_replay": {
+          "players": 100,
+          "snapshots": 100,
+          "transfers": 0
+        },
+        "coverage_after_replay": {
+          "players": 100,
+          "snapshots": 100,
+          "transfers": 0
+        }
+      }
+    },
+    {
+      "label": "mid_disconnect_retry_writes_exactly_once",
+      "ok": true,
+      "expect": "断开后重试：恰好 +50 球员/+50 快照 且 scan 只有 1 个 job（无论服务端是否已完成被中断的请求）",
+      "observed": {
+        "observed_after_disconnect": {
+          "job": {
+            "id": 3,
+            "save_id": 1,
+            "scan_id": "net-0e520c00-abort",
+            "source": "synthetic_fixture",
+            "status": "succeeded",
+            "schema_version": "1.0",
+            "reader_version": null,
+            "game_build": null,
+            "checksum": "8d3752a2d08ee7aa8a396d9dc88586bcbfbbf8e16bd310511c2411f816f0a087",
+            "received_at": "2026-11-25T11:32:33Z",
+            "finished_at": "2026-11-25T11:32:33Z",
+            "player_count": 50,
+            "transfer_count": 0,
+            "warnings": [],
+            "coverage": {
+              "players": 50,
+              "transfers": 0,
+              "player_fields": 0.3333,
+              "transfer_fields": 0.0,
+              "statistics": 0.0
+            },
+            "raw_payload_path": "<local-path>",
+            "save_identity_id": 1,
+            "save_session_id": 1,
+            "operation_id": "op-net-0e520c00-abort",
+            "save_generation": 0,
+            "rejected_reason": null,
+            "attempt_count": 1,
+            "cancel_requested_at": null,
+            "cancelled_at": null,
+            "cancellable": false,
+            "retryable": false
+          },
+          "coverage": {
+            "players": 100,
+            "snapshots": 100,
+            "transfers": 0
+          }
+        },
+        "retry_status": 201,
+        "coverage_after_retry": {
+          "players": 150,
+          "snapshots": 150,
+          "transfers": 0
+        },
+        "jobs_for_scan": 1
+      }
+    },
+    {
+      "label": "outage_detected_as_transport_error",
+      "ok": true,
+      "expect": "status=0 transport_error（客户端可识别断网）",
+      "observed": {
+        "status": 0,
+        "code": "transport_error"
+      }
+    },
+    {
+      "label": "heartbeat_during_outage_fails",
+      "ok": true,
+      "expect": "0（传输失败）",
+      "observed": {
+        "status": 0
+      }
+    },
+    {
+      "label": "reconnected_heartbeat_ok",
+      "ok": true,
+      "expect": "200",
+      "observed": {
+        "status": 200,
+        "body": {
+          "session_id": 1,
+          "save_id": 1,
+          "identity_id": 1,
+          "session_key": "78906:cde-0e520c00",
+          "process_id": 404,
+          "process_start_time": null,
+          "game_build": null,
+          "plugin_version": null,
+          "agent_id": "acceptance-cde",
+          "status": "verified",
+          "started_at": "2026-11-25T11:32:32Z",
+          "last_heartbeat_at": "2026-11-25T11:32:41Z",
+          "last_verified_at": "2026-11-25T11:32:41Z",
+          "ended_at": null,
+          "invalidated_reason": null,
+          "session_epoch": 0
+        }
+      }
+    },
+    {
+      "label": "audit_network_reconnected",
+      "ok": true,
+      "expect": "含 network_reconnected",
+      "observed": [
+        "identity_verified",
+        "network_reconnected",
+        "operation_replayed",
+        "registered",
+        "session_created",
+        "worker_started",
+        "write_accepted"
+      ]
+    },
+    {
+      "label": "retry_same_operation_id",
+      "ok": true,
+      "expect": "duplicate=true 且同一 job",
+      "observed": {
+        "status": 201,
+        "duplicate": true,
+        "job_id": 1
+      }
+    },
+    {
+      "label": "no_duplicate_write",
+      "ok": true,
+      "expect": "重放后球员/快照行数不变且 scan 只有 1 个 job",
+      "observed": {
+        "coverage_before_replay": {
+          "players": 150,
+          "snapshots": 150,
+          "transfers": 0
+        },
+        "coverage_after_replay": {
+          "players": 150,
+          "snapshots": 150,
+          "transfers": 0
+        },
+        "jobs_for_scan": 1
+      }
+    },
+    {
+      "label": "switch_rotates_generation",
+      "ok": true,
+      "expect": "generation ≥ 1",
+      "observed": {
+        "save_id": 1,
+        "generation": 1,
+        "invalidated_session_id": 1,
+        "next_session_id": null,
+        "protocol_version": "write-safety/v1"
+      }
+    },
+    {
+      "label": "stale_session_not_resurrected_after_reconnect",
+      "ok": true,
+      "expect": "409 旧会话不可写",
+      "observed": {
+        "status": 409,
+        "code": "save_session_invalidated"
+      }
+    },
+    {
+      "label": "fresh_session_writes_after_switch",
+      "ok": true,
+      "expect": "201",
+      "observed": {
+        "status": 201
+      }
+    }
+  ],
+  "failures": [],
+  "partials": [],
+  "ok": true,
+  "status": "PASS",
+  "run_id": "0e520c00",
+  "backend_starts": 2,
+  "workdir": "<local-path>"
+}
