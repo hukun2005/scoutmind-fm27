@@ -109,7 +109,8 @@ class ImportJob(TimestampMixin, Base):
     schema_version: Mapped[str] = mapped_column(String(16), nullable=False)
     reader_version: Mapped[str | None] = mapped_column(String(32))
     game_build: Mapped[str | None] = mapped_column(String(64))
-    status: Mapped[str] = mapped_column(String(16), default="running", nullable=False)
+    # V3.2.7.4：queued / running / cancel_requested / succeeded / partial / failed / rejected / cancelled
+    status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False, index=True)
     received_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
     player_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -128,6 +129,11 @@ class ImportJob(TimestampMixin, Base):
     save_generation: Mapped[int | None] = mapped_column(Integer)
     # 写入被 fence 拒绝时的稳定原因码（write_fence_stale 等）；正常任务为 NULL。
     rejected_reason: Mapped[str | None] = mapped_column(String(64))
+    # V3.2.7.4：每次请求（含幂等重放）递增，用于审计重试与冲突次数。
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # 取消是状态转换：请求时间与终态时间分开记录，已提交的事务不可撤销。
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     rows: Mapped[list[ImportRow]] = relationship(back_populates="job", cascade="all, delete-orphan")
 

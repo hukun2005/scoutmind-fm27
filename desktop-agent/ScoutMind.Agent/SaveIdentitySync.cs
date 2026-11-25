@@ -20,6 +20,16 @@ public sealed class SaveIdentitySync
     private int? _sessionId;
     private string? _sessionKey;
     private string? _fingerprint;
+    private bool _networkLost;
+
+    /// <summary>当前已验证的存档指纹；未登记身份时为 <c>null</c>。</summary>
+    public string? Fingerprint => _fingerprint;
+
+    /// <summary>本进程最近一次会话登记是否发生在断网恢复之后。</summary>
+    public bool Reconnected => _networkLost;
+
+    /// <summary>近期是否发生过网络/后端不可达（诊断用）。</summary>
+    public bool NetworkLost => _networkLost;
 
     /// <summary>创建协调器。</summary>
     /// <param name="client">后端客户端（同一实例复用以保留连接）。</param>
@@ -86,6 +96,7 @@ public sealed class SaveIdentitySync
             var registered = await _client.RegisterSaveIdentityAsync(body, cancellationToken).ConfigureAwait(false);
             if (!registered.Ok)
             {
+                TrackTransportFailure(registered.StatusCode);
                 return Fail(registered.Error ?? "后端拒绝注册存档身份。");
             }
 
@@ -115,6 +126,7 @@ public sealed class SaveIdentitySync
                 cancellationToken).ConfigureAwait(false);
             if (!started.Ok)
             {
+                TrackTransportFailure(started.StatusCode);
                 return Fail(started.Error ?? "后端拒绝登记会话。");
             }
 
@@ -152,17 +164,30 @@ public sealed class SaveIdentitySync
                 identity_id = _identityId,
                 fingerprint = snapshot.Fingerprint,
                 game_build = snapshot.GameBuild,
+                // 只在本进程经历过传输失败后的首个心跳上报，用于审计 network_reconnected。
+                reconnected = _networkLost,
             },
             cancellationToken).ConfigureAwait(false);
         if (!heartbeat.Ok)
         {
             // 失效/切换/超时：清空本地会话，下一轮重新登记；不得沿用旧会话写数据。
+            TrackTransportFailure(heartbeat.StatusCode);
             _sessionId = null;
             _sessionKey = null;
             return new SaveIdentitySyncResult(false, _identityId, null, heartbeat.Error ?? "会话心跳失败。");
         }
 
+        _networkLost = false;
         return new SaveIdentitySyncResult(true, _identityId, _sessionId, null);
+    }
+
+    private void TrackTransportFailure(int? statusCode)
+    {
+        if (statusCode is null)
+        {
+            // 无状态码 = 连接失败/超时；下一次成功心跳必须携带 reconnected。
+            _networkLost = true;
+        }
     }
 
     /// <summary>失效当前会话；没有会话时为空操作。</summary>

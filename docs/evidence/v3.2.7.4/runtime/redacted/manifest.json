@@ -1,0 +1,108 @@
+{
+  "tool": "collect_evidence",
+  "version": "v3.2.7.4",
+  "generated_at": "2026-11-25T05:15:06.8833528Z",
+  "directory": "<evidence-dir>",
+  "files": [
+    {
+      "file": "acceptance-run.json",
+      "size": 1311,
+      "sha256": "8f30d1fd9cf7c03da026438f49fa736afd71fe8e0abb25ab3f54a89ff19ff021",
+      "redacted": true,
+      "captured_at": "2026-11-25T05:15:06.3633906Z"
+    },
+    {
+      "file": "alembic-upgrade.log",
+      "size": 3352,
+      "sha256": "c9b7d6817ad1e41996d309d371579e4ca81b742e2c8094163b7b483c614c23a1",
+      "redacted": true,
+      "captured_at": "2026-11-25T05:14:52.7257884Z"
+    },
+    {
+      "file": "backend-stderr.log",
+      "size": 282,
+      "sha256": "1104d132cf07481e458825ab7f74d664b4d0994e9a49cdaba1952ae493992c1d",
+      "redacted": true,
+      "captured_at": "2026-11-25T05:14:54.1759474Z"
+    },
+    {
+      "file": "backend-stdout.log",
+      "size": 5354,
+      "sha256": "137f60c29ecd49eabad0afe320065c5dfbb42e308774dafd5943d999a3b40a99",
+      "redacted": true,
+      "captured_at": "2026-11-25T05:15:02.2275560Z"
+    },
+    {
+      "file": "environment.json",
+      "size": 910,
+      "sha256": "d78f2e0bc5f73f3be4566286c35ff51c2ac48b71a574515fc91d78d260d12d4e",
+      "redacted": true,
+      "captured_at": "2026-11-25T05:14:49.2947514Z"
+    },
+    {
+      "file": "manifest.json",
+      "size": 3617,
+      "sha256": "a3a3fbc6084d509ab11e991f30080b1950875a0369897897f4d0c7f184476cbf",
+      "redacted": true,
+      "captured_at": "2026-11-25T05:01:09.3170212Z"
+    },
+    {
+      "file": "network-failure-result.json",
+      "size": 714,
+      "sha256": "9a6c948f832c1da9d1b56cfe6f55a4a036cc8d92d8ff43d254101400a2378372",
+      "redacted": true,
+      "captured_at": "2026-11-25T05:15:06.3004975Z"
+    },
+    {
+      "file": "operation-idempotency-result.json",
+      "size": 4000,
+      "sha256": "060170827e27fafe509cf5eab7b075dc8459dd4f19b0b80626e8646e2f4340e0",
+      "redacted": true,
+      "captured_at": "2026-11-25T05:15:02.2291560Z"
+    },
+    {
+      "file": "save-isolation-result.json",
+      "size": 2978,
+      "sha256": "e98e9a624b3811db55ab7f16151cadbfe7e52510b4b8290798ba7de85674ebf6",
+      "redacted": true,
+      "captured_at": "2026-11-25T05:14:55.5457622Z"
+    },
+    {
+      "file": "SUMMARY.md",
+      "size": 440,
+      "sha256": "3c6c6a95d9bc2a4f744930407bb66ad03890fc64c7389fed80622eb26057ac36",
+      "redacted": true,
+      "captured_at": "2026-11-25T05:01:09.3377642Z"
+    },
+    {
+      "file": "verify_operation_idempotency.log",
+      "size": 176,
+      "sha256": "7799dd0e7793a3d806433a3279e7adb99e848744760ea442b01c65d97d23f068",
+      "redacted": true,
+      "captured_at": "2026-11-25T05:15:02.2307005Z"
+    },
+    {
+      "file": "verify_save_isolation.log",
+      "size": 162,
+      "sha256": "9251828a26275c3c59c85027b36955c2e357827c0f653f00992a735e31a1c553",
+      "redacted": true,
+      "captured_at": "2026-11-25T05:14:55.5472664Z"
+    },
+    {
+      "file": "verify_worker_fencing.log",
+      "size": 160,
+      "sha256": "79a2fcce7e45d57e5f0d5e38e125482e31f68e111847a0de66e69985fa729be4",
+      "redacted": true,
+      "captured_at": "2026-11-25T05:15:01.7511875Z"
+    },
+    {
+      "file": "worker-fencing-result.json",
+      "size": 2702,
+      "sha256": "c252d1f1c8df4f42eeb4babab1755a534608e208ce592b79a0677e4b858fb6ca",
+      "redacted": true,
+      "captured_at": "2026-11-25T05:15:01.7481449Z"
+    }
+  ],
+  "note": "只做路径脱敏；证据内容来自真实执行，未做任何伪造或补写。"
+}
+

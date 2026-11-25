@@ -67,6 +67,15 @@ public sealed class AgentApplication
             case AgentCommand.ConfigShow:
                 return RunConfigShow();
 
+            case AgentCommand.Diagnostics:
+                return await RunDiagnosticsAsync(options, cancellationToken).ConfigureAwait(false);
+
+            case AgentCommand.Jobs:
+                return await RunJobsAsync(options, cancellationToken).ConfigureAwait(false);
+
+            case AgentCommand.Network:
+                return await RunNetworkAsync(cancellationToken).ConfigureAwait(false);
+
             default:
                 WriteUsageError("未知子命令。");
                 return AgentExitCodes.UsageError;
@@ -273,11 +282,26 @@ public sealed class AgentApplication
         var state = stateStore.Load();
         _stdout.WriteLine($"自动采集启动：每 {minutes} 分钟检查；存档身份未验证或日期未通过跨进程验证前不会导入。按 Ctrl+C 停止。");
 
-        // Recover files left by a previous crash: retry before starting a new scan.
+        // V3.2.7.4：重启后不信任遗留任务，也不允许无上下文上传。
+        // 缺少 context 边车 → 隔离；有上下文 → 等身份重新验证后按指纹决定是否恢复。
+        var pendingRecovery = new List<(string Path, ScanTaskContext Context)>();
         foreach (var pending in queue.ListOutstanding())
         {
-            _stdout.WriteLine($"恢复待同步文件：{Path.GetFileName(pending)}");
-            await SyncOneAsync(pending, configuration, queue, cancellationToken).ConfigureAwait(false);
+            var saved = ScanTaskContext.TryLoad(ScanQueue.ContextPathFor(pending));
+            if (saved is null)
+            {
+                var folder = queue.QuarantineAll(pending, new
+                {
+                    quarantined_at = DateTimeOffset.UtcNow.ToString("O"),
+                    code = "context_missing",
+                    message = "重启后发现任务缺少写入上下文；为避免旧任务改绑当前存档，未自动上传。",
+                });
+                _stderr.WriteLine($"恢复中止：{Path.GetFileName(pending)} 缺少上下文，已隔离到 {folder}");
+                continue;
+            }
+
+            pendingRecovery.Add((pending, saved));
+            _stdout.WriteLine($"发现待恢复任务：{Path.GetFileName(pending)}（operation_id={saved.OperationId}）");
         }
 
         var round = 0;
@@ -321,6 +345,41 @@ public sealed class AgentApplication
                 _stderr.WriteLine($"[第 {round} 轮] 存档身份/会话未能在后端建立：{binding.Error}");
                 await DelayAsync(interval, cancellationToken).ConfigureAwait(false);
                 continue;
+            }
+
+            // 身份与会话已经服务端确认：只有同一指纹的遗留任务才恢复，其余隔离。
+            foreach (var (path, saved) in pendingRecovery.ToList())
+            {
+                if (!saved.BelongsTo(gate.Identity.Fingerprint))
+                {
+                    var folder = queue.QuarantineAll(path, new
+                    {
+                        quarantined_at = DateTimeOffset.UtcNow.ToString("O"),
+                        code = "context_mismatch",
+                        message = "任务上下文与当前已验证存档不一致；旧任务不得自动改绑到新的存档。",
+                        saved_fingerprint = saved.Fingerprint,
+                        current_fingerprint = gate.Identity.Fingerprint,
+                        operation_id = saved.OperationId,
+                    });
+                    pendingRecovery.Remove((path, saved));
+                    _stderr.WriteLine($"恢复中止：{Path.GetFileName(path)} 属于其他存档，已隔离到 {folder}");
+                    continue;
+                }
+
+                _stdout.WriteLine($"恢复上传（同一存档，operation_id={saved.OperationId}）：{Path.GetFileName(path)}");
+                var recovered = await SyncOneAsync(
+                        path,
+                        configuration,
+                        queue,
+                        cancellationToken,
+                        identitySync.Context,
+                        gate.Identity.Fingerprint,
+                        saved)
+                    .ConfigureAwait(false);
+                if (recovered)
+                {
+                    pendingRecovery.Remove((path, saved));
+                }
             }
 
             // 采集开始时登记 capture_context；没有 capture_id 就不进入扫描后的写入路径。
@@ -660,7 +719,9 @@ public sealed class AgentApplication
         AgentRuntimeConfiguration configuration,
         ScanQueue queue,
         CancellationToken cancellationToken,
-        SaveContextQuery? context = null)
+        SaveContextQuery? context = null,
+        string? fingerprint = null,
+        ScanTaskContext? taskContext = null)
     {
         var claimed = queue.Claim(path);
         if (claimed is null)
@@ -725,13 +786,28 @@ public sealed class AgentApplication
         BackendSyncResult result;
         try
         {
-            // V3.2.7.3：每次上传带唯一操作 ID；同一文件重试沿用同一 ID，后端据此幂等。
+            // V3.2.7.3/4：operation_id 固定写入 context 边车；同一文件重试沿用同一 ID，后端据此幂等。
+            // 内容一旦变化（manifest.PayloadSha256 改变）就会生成新的 ID，避免把新内容当旧请求。
+            var contextPath = ScanQueue.ContextPathFor(claimed);
+            var savedContext = taskContext ?? ScanTaskContext.TryLoad(contextPath);
+            var operationId = savedContext?.OperationId
+                ?? "op-" + manifest.PayloadSha256[..Math.Min(32, manifest.PayloadSha256.Length)];
+            if (context is not null && savedContext is null && !string.IsNullOrWhiteSpace(fingerprint))
+            {
+                new ScanTaskContext(
+                        0,
+                        context.IdentityId,
+                        context.SessionId,
+                        fingerprint,
+                        operationId,
+                        manifest.PayloadSha256,
+                        DateTimeOffset.UtcNow.ToString("O"))
+                    .Save(contextPath);
+            }
+
             var uploadContext = context is null
                 ? null
-                : new SaveContextQuery(
-                    context.IdentityId,
-                    context.SessionId,
-                    "op-" + manifest.PayloadSha256[..Math.Min(32, manifest.PayloadSha256.Length)]);
+                : new SaveContextQuery(context.IdentityId, context.SessionId, operationId);
             result = await client.PostScanAsync(payload.Json, cancellationToken, uploadContext).ConfigureAwait(false);
         }
         catch (ArgumentException ex)
@@ -776,6 +852,39 @@ public sealed class AgentApplication
             return false;
         }
 
+        if (job is { Status: "rejected" })
+        {
+            var folder = queue.FailAll(claimed, new
+            {
+                failed_at = DateTimeOffset.UtcNow.ToString("O"),
+                code = job.RejectedReason ?? "write_rejected",
+                message = "后端因写入安全策略拒绝了该 operation；需要重新识别存档并重新采集。",
+                http_status = result.StatusCode,
+                job_id = job.Id,
+                job_status = job.Status,
+            });
+            _stderr.WriteLine($"后端拒绝写入（任务 #{job.Id}，{job.RejectedReason}）：已移入 {folder}");
+            return false;
+        }
+
+        // 取消/上下文失效/内容冲突都不是“稍后重试就好”的临时错误：停止重试并保留证据。
+        var failureCode = TryReadErrorCode(result.ResponseBody);
+        if (failureCode is "import_cancelled" or "operation_rejected" or "operation_conflict" or "scan_payload_mismatch")
+        {
+            var folder = queue.FailAll(claimed, new
+            {
+                failed_at = DateTimeOffset.UtcNow.ToString("O"),
+                code = failureCode,
+                message = "后端明确拒绝该任务，自动重试不会成功；请重新采集或重新识别存档。",
+                http_status = result.StatusCode,
+                response = result.ResponseBody,
+                job_id = job?.Id,
+                job_status = job?.Status,
+            });
+            _stderr.WriteLine($"任务终止（{failureCode}）：已移入 {folder}");
+            return false;
+        }
+
         if (result.StatusCode is 400 or 422)
         {
             var folder = queue.FailAll(claimed, new
@@ -812,6 +921,178 @@ public sealed class AgentApplication
 
         return false;
     }
+
+    private static string? TryReadErrorCode(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return document.RootElement.TryGetProperty("detail", out var detail)
+                && detail.ValueKind == JsonValueKind.Object
+                && detail.TryGetProperty("code", out var code)
+                && code.ValueKind == JsonValueKind.String
+                    ? code.GetString()
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>诊断：队列、任务上下文、采集状态、后端可达性与最近导入任务。</summary>
+    private async Task<int> RunDiagnosticsAsync(AgentOptions options, CancellationToken cancellationToken)
+    {
+        var configuration = LoadConfiguration(echoDiagnostics: false);
+        var queue = new ScanQueue(configuration.QueueDirectory);
+        var state = new CaptureStateStore(configuration.QueueDirectory).Load();
+        using var client = new BackendClient(
+            configuration.Config.BackendBaseUrl,
+            configuration.Config.ApiToken,
+            _syncTimeout);
+        var probe = await client.ProbeAsync(cancellationToken).ConfigureAwait(false);
+        var jobs = await client.GetRecentJobsAsync(10, cancellationToken).ConfigureAwait(false);
+        var contexts = queue.ListOutstanding()
+            .Select(path => new
+            {
+                file = Path.GetFileName(path),
+                context = ScanTaskContext.TryLoad(ScanQueue.ContextPathFor(path)),
+            })
+            .ToArray();
+        var view = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["agent"] = $"agent-{Environment.MachineName}-{Environment.ProcessId}",
+            ["backendBaseUrl"] = configuration.Config.BackendBaseUrl,
+            ["backend_reachable"] = probe is not null,
+            ["backend_http_status"] = probe,
+            ["queue"] = new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["scans"] = CountEnvelopes(queue.ScanDirectory),
+                ["pending"] = CountEnvelopes(queue.PendingDirectory),
+                ["processing"] = CountEnvelopes(queue.ProcessingDirectory),
+                ["failed"] = CountEnvelopes(queue.FailedDirectory),
+                ["duplicates"] = CountEnvelopes(queue.DuplicatesDirectory),
+                ["quarantine"] = Directory.Exists(queue.QuarantineDirectory)
+                    ? Directory.GetDirectories(queue.QuarantineDirectory).Length
+                    : 0,
+            },
+            ["capture_state"] = state,
+            ["outstanding_contexts"] = contexts,
+            ["recent_jobs"] = jobs,
+        };
+
+        if (options.Json)
+        {
+            _stdout.WriteLine(JsonSerializer.Serialize(view, ScoutMindJson.Options));
+        }
+        else
+        {
+            _stdout.WriteLine($"后端：{configuration.Config.BackendBaseUrl}（可达={probe is not null}，HTTP {probe?.ToString(CultureInfo.InvariantCulture) ?? "—"}）");
+            _stdout.WriteLine($"队列：scans={CountEnvelopes(queue.ScanDirectory)} pending={CountEnvelopes(queue.PendingDirectory)} processing={CountEnvelopes(queue.ProcessingDirectory)} failed={CountEnvelopes(queue.FailedDirectory)} duplicates={CountEnvelopes(queue.DuplicatesDirectory)}");
+            _stdout.WriteLine($"采集状态：{state.Status}，存档={state.SaveName ?? "—"}，最近日期={state.LastGameDate ?? "—"}，连续失败={state.ConsecutiveFailures}");
+            if (contexts.Length == 0)
+            {
+                _stdout.WriteLine("待恢复任务：无");
+            }
+            else
+            {
+                _stdout.WriteLine($"待恢复任务：{contexts.Length}");
+                foreach (var item in contexts)
+                {
+                    var operation = item.context?.OperationId ?? "（缺少 context，恢复时会被隔离）";
+                    _stdout.WriteLine($"  · {item.file} → {operation}");
+                }
+            }
+
+            _stdout.WriteLine($"最近导入任务：{jobs.Count}");
+            foreach (var job in jobs)
+            {
+                _stdout.WriteLine($"  · #{job.Id} {job.ScanId} status={job.Status} players={job.PlayerCount} attempts={job.AttemptCount} rejected={job.RejectedReason ?? "—"}");
+            }
+        }
+
+        return probe is null ? AgentExitCodes.SyncFailed : AgentExitCodes.Success;
+    }
+
+    private async Task<int> RunJobsAsync(AgentOptions options, CancellationToken cancellationToken)
+    {
+        var configuration = LoadConfiguration(echoDiagnostics: false);
+        using var client = new BackendClient(
+            configuration.Config.BackendBaseUrl,
+            configuration.Config.ApiToken,
+            _syncTimeout);
+
+        if (string.Equals(options.AutoControl, "inspect", StringComparison.Ordinal))
+        {
+            var job = await client.GetJobAsync(options.ScanId!, cancellationToken).ConfigureAwait(false);
+            if (job is null)
+            {
+                _stderr.WriteLine($"未找到 scan_id={options.ScanId} 的导入任务（或后端不可达）。");
+                return AgentExitCodes.SyncFailed;
+            }
+
+            if (options.Json)
+            {
+                _stdout.WriteLine(JsonSerializer.Serialize(job, ScoutMindJson.Options));
+            }
+            else
+            {
+                _stdout.WriteLine($"#{job.Id} {job.ScanId} status={job.Status} players={job.PlayerCount} transfers={job.TransferCount} attempts={job.AttemptCount} rejected={job.RejectedReason ?? "—"}");
+            }
+
+            return job.IsTerminal ? AgentExitCodes.Success : AgentExitCodes.SyncFailed;
+        }
+
+        var jobs = await client.GetRecentJobsAsync(20, cancellationToken).ConfigureAwait(false);
+        if (options.Json)
+        {
+            _stdout.WriteLine(JsonSerializer.Serialize(jobs, ScoutMindJson.Options));
+        }
+        else if (jobs.Count == 0)
+        {
+            _stdout.WriteLine("后端没有可显示的导入任务（或后端不可达）。");
+        }
+        else
+        {
+            foreach (var job in jobs)
+            {
+                _stdout.WriteLine($"#{job.Id} {job.ScanId} status={job.Status} players={job.PlayerCount} attempts={job.AttemptCount} rejected={job.RejectedReason ?? "—"}");
+            }
+        }
+
+        return jobs.Count == 0 ? AgentExitCodes.SyncFailed : AgentExitCodes.Success;
+    }
+
+    private async Task<int> RunNetworkAsync(CancellationToken cancellationToken)
+    {
+        var configuration = LoadConfiguration(echoDiagnostics: false);
+        using var client = new BackendClient(
+            configuration.Config.BackendBaseUrl,
+            configuration.Config.ApiToken,
+            _syncTimeout);
+        var probe = await client.ProbeAsync(cancellationToken).ConfigureAwait(false);
+        if (probe is null)
+        {
+            _stderr.WriteLine($"无法连接后端：{configuration.Config.BackendBaseUrl}");
+            return AgentExitCodes.SyncFailed;
+        }
+
+        _stdout.WriteLine($"后端可达：{configuration.Config.BackendBaseUrl}（HTTP {probe.Value.ToString(CultureInfo.InvariantCulture)}）");
+        return AgentExitCodes.Success;
+    }
+
+    private static int CountEnvelopes(string directory) =>
+        Directory.Exists(directory)
+            ? Directory.GetFiles(directory, "scan-*.json")
+                .Count(path => !path.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase)
+                    && !path.EndsWith(".manifest.json", StringComparison.OrdinalIgnoreCase)
+                    && !path.EndsWith(".context.json", StringComparison.OrdinalIgnoreCase))
+            : 0;
 
     private AgentRuntimeConfiguration LoadConfiguration(bool echoDiagnostics = true)
     {
@@ -934,6 +1215,10 @@ public sealed class AgentApplication
         writer.WriteLine("  ScoutMind.Agent auto --interval-minutes <分钟>   # 同存档同游戏日期只导入一次");
         writer.WriteLine("  ScoutMind.Agent sync [--file <路径>]");
         writer.WriteLine("  ScoutMind.Agent config show");
+        writer.WriteLine("  ScoutMind.Agent diagnostics [--json]              # 队列/上下文/后端可达性/最近任务");
+        writer.WriteLine("  ScoutMind.Agent jobs list [--json]");
+        writer.WriteLine("  ScoutMind.Agent jobs inspect <scan_id> [--json]");
+        writer.WriteLine("  ScoutMind.Agent network status");
         writer.WriteLine();
         writer.WriteLine("退出码：");
         writer.WriteLine("  0  成功");

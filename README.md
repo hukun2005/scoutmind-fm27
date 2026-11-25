@@ -6,8 +6,12 @@ ScoutMind 读取 Football Manager 27 的可验证数据（游戏运行时快照�
 再用确定性统计和可解释的角色评分回答「这个球员值多少」「年轻球员该不该卖」「哪些俱乐部低买高卖」这类问题。
 LLM 只负责理解问题与组织解释，所有数字来自数据库和算法。
 
-> **当前状态：V2 分析层完整；真实 FM27 导出已跑通审查 → 导入 → 端到端；自研读取器已在 FM27 27.1（build 26620374 / 插件 27.1.0+2505117）验证为 Verified，可扫描；其他版本仍拒绝。**
-> 后端（413 个用例，含真实导出回归、权限隔离与性能回归）、前端（类型检查 + 生产构建）、C# 读取器（114 个自检用例）、Desktop Agent（同步链路）均已通过验证；
+> **当前状态：V3.2.7.4 写入安全与运行闭环完成；真实 FM27 A/B 验收仍待人工执行（`REAL_FM27_ACCEPTANCE_PENDING`）。**
+> 自研读取器已在 FM27 27.1（build 26620374 / 插件 27.1.0+2505117）验证为 Verified，可扫描；其他版本仍拒绝。
+> 后端（576 个用例，含写入栅栏、会话代次、Worker 取消、operation 幂等与真实导出回归）、
+> 前端（类型检查 + 生产构建）、C# 读取器与 Desktop Agent（含 `diagnostics` / `jobs` / `network` 诊断）均已通过本地验证；
+> 一键运行期验收见 [tools/runtime-acceptance/README.md](tools/runtime-acceptance/README.md)，
+> 阶段报告见 [docs/evidence/v3.2.7.4/FINAL-REPORT.md](docs/evidence/v3.2.7.4/FINAL-REPORT.md)。
 > 仓库自带一份明确标注的合成演示数据（`source=synthetic_fixture`），用于在没有真实扫描结果时验证界面和算法。
 >
 > 数据接入：除自研 C# 读取器外，已接入 [FMSuperScout](https://github.com/mavarobli/FMSuperScout) 的导出
@@ -48,6 +52,7 @@ scoutmind/
 ├── docs/             产品、架构、协议、FMSuperScout 接入、模型口径、安全文档
 ├── samples/demo/     合成演示扫描报文（JSON，可直接导入）
 ├── scripts/          安装、启动、导入、演示数据、Windows 发布脚本
+├── tools/            运行期验收（runtime-acceptance：存档隔离 / 取消 / 幂等 / 证据汇总）
 ├── docker-compose.yml
 └── README.md
 ```

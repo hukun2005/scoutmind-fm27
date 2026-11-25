@@ -1,0 +1,23 @@
+V3.2.7.4 后端全量测试（本地）
+
+命令：
+  cd backend
+  python -m pytest -q --junitxml=..\pytest-v3274-final.xml
+
+结果：
+  tests    = 576
+  failures = 0
+  errors   = 0
+  skipped  = 3
+  time     = 513.75s
+
+跳过原因：
+  - 3 个 PostgreSQL 用例（test_pg_head_schema / test_pg_transaction_rollback /
+    test_pg_scan_id_is_unique_per_save_not_global），本机没有可用的 PostgreSQL；
+    以 CI `postgres-migrations` job 为准。
+
+说明：
+  - 改动前基线（main @ 9a6145f）：565 passed / 3 skipped / 0 failed；
+  - 本分支新增 11 个用例（取消 5、operation 冲突 4、身份切换回归 2）；
+  - XML 原始报告未入库（体积原因），本文件为可审计摘要。
+

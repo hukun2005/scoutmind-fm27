@@ -63,3 +63,15 @@
 - 前端 `/save-identity` 诊断页：完成；
 - 已知未完成：真实 FM27 游戏内 A→B 切换（NOT_RUN）、本机 PG16（NOT_RUN，以 CI 为准）。
 - 详情：`docs/SCOUTMIND-V3.2.7.2-IMPLEMENTATION-REPORT.md`、`docs/evidence/v3.2.7.2/STATUS.md`。
+
+## V3.2.7.4 完成情况（2026-11-25）
+
+- PR #8 已合并（`9a6145f`），本版本做事后安全审核并修复 3 项缺陷（身份切换新会话失效、采集缺 fence、operation 未绑定 payload）；
+- Worker 取消：`queued → cancelled`（原子）、`running → cancel_requested → cancelled`，新增取消 API、`attempt_count` 与审计；
+- operation 幂等：同 op 不同内容 / 同 scan 不同内容 / rejected 重放均 409；重放递增 `attempt_count`；
+- Agent：固定 `.context.json`、重启重识别、`diagnostics` / `jobs list|inspect` / `network status`；
+- 一键运行期验收 `tools/runtime-acceptance/`：33 项真实 HTTP 检查通过；
+- 前端 `SaveIdentityView`：Worker / 网络 / 审计只读诊断；
+- 状态口径：工程闭环 PASS；真实 FM27 A/B、断网、重启 = **REAL_FM27_ACCEPTANCE_PENDING**；
+- 已知限制：`/imports/fmscout` 与 `/imports/transfers/history` 仍走 legacy 允许策略（计划 V3.2.7.5 收紧）；取消信号为进程内事件；
+- 详情：`docs/evidence/v3.2.7.4/FINAL-REPORT.md`。

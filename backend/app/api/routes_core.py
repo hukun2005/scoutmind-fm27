@@ -8,17 +8,26 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
 from ..analytics.longitudinal import quality_summary
-from ..ingestion.importer import ImportInProgressError, ImportOutcome, ScanImporter
+from ..ingestion import cancellation
+from ..ingestion.importer import (
+    ImportCancelled,
+    ImportInProgressError,
+    ImportOutcome,
+    OperationConflict,
+    OperationRejected,
+    ScanImporter,
+)
 from ..ingestion.squad_csv import csv_template, import_squad_csv
 from ..ingestion.protocol import ProtocolError, ScanPayload
 from ..models import Club, DataSource, FmSave, ImportJob, ImportRow, PlayerInstance, PlayerSnapshot, PlayerStatistic, Transfer
 from ..schemas import SaveCreate
+from ..services.save_identity import record_audit
 from ..services.write_safety import (
     WriteRejected,
     acquire_write_fence,
@@ -250,6 +259,8 @@ async def import_transfers(
         )
     except WriteRejected as rejection:
         _raise_write_rejected(db, target, rejection, operation_id=operation_id)
+    except (ImportCancelled, OperationConflict, OperationRejected) as exc:
+        raise _import_failure(exc) from exc
     return _outcome_payload(outcome)
 
 
@@ -370,7 +381,167 @@ def get_import(
         "rejected_codes": [
             {"code": code, "entity": entity, "count": int(count)} for code, entity, count in rejected
         ],
-        "retryable": job.status in {"failed", "partial", "running"},    }
+        "retryable": job.status in {"failed", "partial", "running"},
+        "cancellable": job.status in {"queued", "running", "cancel_requested"},
+    }
+
+
+@router.post("/imports/{job_id}/cancel")
+def cancel_import(
+    job_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> dict[str, Any]:
+    """请求取消一个排队中或运行中的导入任务（幂等）。
+
+    语义：
+    * ``queued`` → 直接原子落 ``cancelled``（尚未被 Worker 领取，无需等待检查点）；
+    * ``running`` → ``cancel_requested``，Worker 在下一个安全检查点回滚并落 ``cancelled``；
+    * 已是 ``cancelled`` → 原样返回（幂等，不重复写审计）；
+    * 已 ``succeeded/partial/failed/rejected`` → 409，已提交的事务不可撤销。
+    """
+    job = db.get(ImportJob, job_id)
+    owner = db.get(FmSave, job.fm_save_id) if job is not None else None
+    if job is None or owner is None or owner.user_id != user.id:
+        raise HTTPException(status_code=404, detail={"code": "import_not_found", "message": "导入批次不存在"})
+
+    if job.status == "cancelled":
+        return {**_job_payload(job), "cancel_requested": False, "already_cancelled": True}
+    if job.status not in {"queued", "running", "cancel_requested"}:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "import_not_cancellable",
+                "message": f"任务已结束（{job.status}），已提交的导入不可撤销",
+                "job_id": job.id,
+                "status": job.status,
+            },
+        )
+
+    previous_status = job.status
+    now = utcnow()
+    cancelled_directly = False
+    if previous_status == "queued":
+        # 排队任务尚未被 Worker 领取：直接原子地落到 cancelled，不依赖进程内事件。
+        result = db.execute(
+            update(ImportJob)
+            .where(ImportJob.id == job.id, ImportJob.status == "queued")
+            .values(status="cancelled", cancel_requested_at=now, cancelled_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount == 1:
+            cancelled_directly = True
+            record_audit(
+                db,
+                save_id=job.fm_save_id,
+                identity_id=job.save_identity_id,
+                session_id=job.save_session_id,
+                event_type="worker_cancel_requested",
+                old_status="queued",
+                new_status="cancel_requested",
+                evidence_summary={"job_id": job.id, "scan_id": job.scan_id, "operation_id": job.operation_id, "direct": True},
+                reason="user_cancel",
+                actor="user",
+            )
+            record_audit(
+                db,
+                save_id=job.fm_save_id,
+                identity_id=job.save_identity_id,
+                session_id=job.save_session_id,
+                event_type="worker_cancelled",
+                old_status="cancel_requested",
+                new_status="cancelled",
+                evidence_summary={"job_id": job.id, "scan_id": job.scan_id, "operation_id": job.operation_id, "direct": True},
+                reason="user_cancel",
+                actor="user",
+            )
+
+    if not cancelled_directly:
+        result = db.execute(
+            update(ImportJob)
+            .where(ImportJob.id == job.id, ImportJob.status.in_(("queued", "running")))
+            .values(status="cancel_requested", cancel_requested_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount == 1:
+            cancellation.request_cancel(job.id)
+            record_audit(
+                db,
+                save_id=job.fm_save_id,
+                identity_id=job.save_identity_id,
+                session_id=job.save_session_id,
+                event_type="worker_cancel_requested",
+                old_status=previous_status,
+                new_status="cancel_requested",
+                evidence_summary={
+                    "job_id": job.id,
+                    "scan_id": job.scan_id,
+                    "operation_id": job.operation_id,
+                    "generation": job.save_generation,
+                    "attempt_count": job.attempt_count,
+                },
+                reason="user_cancel",
+                actor="user",
+            )
+    db.commit()
+    db.expire_all()
+    job = db.get(ImportJob, job.id)
+    if job is None:  # 理论不可达：同一事务内刚更新过
+        raise HTTPException(status_code=404, detail={"code": "import_not_found", "message": "导入批次不存在"})
+    if job.status not in {"queued", "running", "cancel_requested", "cancelled"}:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "import_not_cancellable",
+                "message": f"任务在取消请求到达前已结束（{job.status}），已提交的导入不可撤销",
+                "job_id": job.id,
+                "status": job.status,
+            },
+        )
+    return {
+        **_job_payload(job),
+        "cancel_requested": job.status in {"cancel_requested", "queued", "running"},
+        "already_cancelled": job.status == "cancelled",
+    }
+
+
+def _import_failure(exc: Exception, job_id_hint: int | None = None) -> HTTPException:
+    """把导入器的取消/冲突/拒绝异常翻译成稳定的 409 响应。"""
+    if isinstance(exc, ImportCancelled):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "import_cancelled",
+                "message": "导入已在提交前取消，未写入任何业务数据",
+                "job_id": exc.job.id,
+                "status": exc.job.status,
+            },
+        )
+    if isinstance(exc, OperationRejected):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "operation_rejected",
+                "message": "该 operation_id 曾因写入安全策略被拒绝，不能自动重放；请重新识别存档并生成新的 operation_id",
+                "job_id": exc.job.id,
+                "rejected_reason": exc.job.rejected_reason,
+                "status": exc.job.status,
+            },
+        )
+    if isinstance(exc, OperationConflict):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": exc.code,
+                "message": exc.message,
+                "job_id": exc.job.id,
+                "status": exc.job.status,
+            },
+        )
+    return HTTPException(
+        status_code=409,
+        detail={"code": "import_failed", "message": str(exc), "job_id": job_id_hint},
+    )
 
 
 @router.post("/imports/scan", status_code=201)
@@ -435,6 +606,8 @@ async def import_scan(
                 ) from busy
             except WriteRejected as rejection:
                 _raise_write_rejected(db, target_save, rejection, operation_id=operation_id)
+            except (ImportCancelled, OperationConflict, OperationRejected) as exc:
+                raise _import_failure(exc) from exc
         body = _outcome_payload(outcome)
         body["adapted_by"] = report
         return body
@@ -460,6 +633,8 @@ async def import_scan(
             ) from busy
         except WriteRejected as rejection:
             _raise_write_rejected(db, target_save, rejection, operation_id=operation_id)
+        except (ImportCancelled, OperationConflict, OperationRejected) as exc:
+            raise _import_failure(exc) from exc
     return _outcome_payload(outcome)
 
 
@@ -518,6 +693,11 @@ def _job_payload(job: ImportJob | None) -> dict[str, Any] | None:
         "operation_id": job.operation_id,
         "save_generation": job.save_generation,
         "rejected_reason": job.rejected_reason,
+        "attempt_count": job.attempt_count,
+        "cancel_requested_at": iso(job.cancel_requested_at),
+        "cancelled_at": iso(job.cancelled_at),
+        "cancellable": job.status in {"queued", "running"},
+        "retryable": job.status in {"failed", "partial"},
     }
 
 

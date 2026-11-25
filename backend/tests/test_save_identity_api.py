@@ -128,7 +128,7 @@ def test_different_fingerprint_enters_conflict(client, save, db):
     conflict = db.query(SaveIdentityConflict).filter_by(status="open").one()
     assert conflict.conflicting_identity_id == other["identity_id"]
     event_types = [row.event_type for row in db.query(SaveIdentityAuditEvent).all()]
-    assert "conflict_detected" in event_types
+    assert "identity_conflict" in event_types
 
 
 def test_verify_requires_matching_fingerprint_and_evidence(client, save):
@@ -164,7 +164,7 @@ def test_verify_upgrades_candidate_and_audits(client, save, db):
     audit = client.get("/api/v1/save-identity-audit", params={"identity_id": candidate["identity_id"]})
     assert audit.status_code == 200
     events = audit.json()["items"]
-    assert events[0]["event_type"] == "user_confirmed"
+    assert events[0]["event_type"] == "identity_verified"
     assert events[0]["new_status"] == "verified"
     assert events[0]["evidence_summary"]["basis"] == "用户确认界面生涯一致"
 

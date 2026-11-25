@@ -57,13 +57,22 @@ public sealed record BackendJsonResult(bool Ok, int? StatusCode, JsonElement? Bo
 /// </summary>
 /// <param name="Id">任务 id。</param>
 /// <param name="ScanId">扫描 id。</param>
-/// <param name="Status">后端状态。</param>
+/// <param name="Status">后端状态（V3.2.7.4 含 queued/cancel_requested/cancelled）。</param>
 /// <param name="PlayerCount">已写入的球员快照数。</param>
 /// <param name="TransferCount">已写入的转会数。</param>
-public sealed record BackendJobState(int Id, string ScanId, string Status, int PlayerCount, int TransferCount)
+/// <param name="AttemptCount">后端记录的尝试次数。</param>
+/// <param name="RejectedReason">写入被拒绝时的稳定原因码。</param>
+public sealed record BackendJobState(
+    int Id,
+    string ScanId,
+    string Status,
+    int PlayerCount,
+    int TransferCount,
+    int AttemptCount = 0,
+    string? RejectedReason = null)
 {
-    /// <summary>后端是否已经结束该任务（成功、部分成功或失败）。</summary>
-    public bool IsTerminal => Status is "succeeded" or "partial" or "failed";
+    /// <summary>后端是否已经结束该任务（成功、部分成功、失败、拒绝或取消）。</summary>
+    public bool IsTerminal => Status is "succeeded" or "partial" or "failed" or "rejected" or "cancelled";
 
     /// <summary>是否已经完成到可以归档（成功或部分成功）。</summary>
     public bool IsComplete => Status is "succeeded" or "partial";
@@ -294,6 +303,11 @@ public sealed class BackendClient : IDisposable
             {
                 // 连接失败可以重试；超时不能：服务端可能已经在导入，重试只会制造第二个请求。
                 transportError = ex.Message;
+                if (attempt < 2)
+                {
+                    // 单次退避 500ms：断网恢复期间不做高频重试；总次数由循环上限（2 次）约束。
+                    await Task.Delay(TimeSpan.FromMilliseconds(500 * attempt), cancellationToken).ConfigureAwait(false);
+                }
             }
         }
 
@@ -338,25 +352,12 @@ public sealed class BackendClient : IDisposable
             }
 
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            using var document = JsonDocument.Parse(body);
-            if (!document.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+            foreach (var job in ParseJobs(body))
             {
-                return null;
-            }
-
-            foreach (var item in items.EnumerateArray())
-            {
-                if (item.ValueKind != JsonValueKind.Object) continue;
-                var id = item.TryGetProperty("id", out var idValue) && idValue.TryGetInt32(out var parsedId) ? parsedId : 0;
-                var status = item.TryGetProperty("status", out var statusValue) ? statusValue.GetString() : null;
-                if (string.IsNullOrWhiteSpace(status)) continue;
-                var players = item.TryGetProperty("player_count", out var playerValue) && playerValue.TryGetInt32(out var parsedPlayers)
-                    ? parsedPlayers
-                    : 0;
-                var transfers = item.TryGetProperty("transfer_count", out var transferValue) && transferValue.TryGetInt32(out var parsedTransfers)
-                    ? parsedTransfers
-                    : 0;
-                return new BackendJobState(id, scanId, status, players, transfers);
+                if (string.Equals(job.ScanId, scanId, StringComparison.Ordinal))
+                {
+                    return job;
+                }
             }
 
             return null;
@@ -365,6 +366,91 @@ public sealed class BackendClient : IDisposable
         {
             return null;
         }
+    }
+
+    /// <summary>查询最近导入任务，供 <c>jobs list</c> 与诊断使用；后端不可达时返回空列表。</summary>
+    public async Task<IReadOnlyList<BackendJobState>> GetRecentJobsAsync(int limit, CancellationToken cancellationToken)
+    {
+        var safeLimit = Math.Clamp(limit, 1, 200);
+        try
+        {
+            var url = $"{_importsEndpoint}?limit={safeLimit}";
+            using var response = await SendGetAsync(url, cancellationToken).ConfigureAwait(false);
+            if (response is null || !response.IsSuccessStatusCode)
+            {
+                return Array.Empty<BackendJobState>();
+            }
+
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            return ParseJobs(body);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return Array.Empty<BackendJobState>();
+        }
+    }
+
+    /// <summary>探测后端可达性与认证是否有效（诊断用，不写入任何数据）。</summary>
+    /// <returns>成功时的 HTTP 状态码；不可达时为 <c>null</c>。</returns>
+    public async Task<int?> ProbeAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var url = $"{_importsEndpoint}?limit=1";
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(5));
+            using var response = await SendGetAsync(url, timeout.Token).ConfigureAwait(false);
+            return response is null ? null : (int)response.StatusCode;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return null;
+        }
+    }
+
+    private async Task<HttpResponseMessage?> SendGetAsync(string url, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (_apiToken is not null)
+        {
+            request.Headers.TryAddWithoutValidation("X-ScoutMind-Token", _apiToken);
+        }
+
+        return await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static IReadOnlyList<BackendJobState> ParseJobs(string body)
+    {
+        using var document = JsonDocument.Parse(body);
+        if (!document.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<BackendJobState>();
+        }
+
+        var jobs = new List<BackendJobState>();
+        foreach (var item in items.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) continue;
+            var id = item.TryGetProperty("id", out var idValue) && idValue.TryGetInt32(out var parsedId) ? parsedId : 0;
+            var scanId = item.TryGetProperty("scan_id", out var scanValue) ? scanValue.GetString() : null;
+            var status = item.TryGetProperty("status", out var statusValue) ? statusValue.GetString() : null;
+            if (string.IsNullOrWhiteSpace(status)) continue;
+            var players = item.TryGetProperty("player_count", out var playerValue) && playerValue.TryGetInt32(out var parsedPlayers)
+                ? parsedPlayers
+                : 0;
+            var transfers = item.TryGetProperty("transfer_count", out var transferValue) && transferValue.TryGetInt32(out var parsedTransfers)
+                ? parsedTransfers
+                : 0;
+            var attempts = item.TryGetProperty("attempt_count", out var attemptValue) && attemptValue.TryGetInt32(out var parsedAttempts)
+                ? parsedAttempts
+                : 0;
+            var rejected = item.TryGetProperty("rejected_reason", out var rejectedValue) && rejectedValue.ValueKind == JsonValueKind.String
+                ? rejectedValue.GetString()
+                : null;
+            jobs.Add(new BackendJobState(id, scanId ?? string.Empty, status, players, transfers, attempts, rejected));
+        }
+
+        return jobs;
     }
 
     /// <inheritdoc />

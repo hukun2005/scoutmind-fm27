@@ -81,6 +81,11 @@ public sealed class ScanQueue
     /// <returns>同目录的 <c>*.manifest.json</c>。</returns>
     public static string ManifestPathFor(string envelopePath) => ScanManifest.PathFor(envelopePath);
 
+    /// <summary>任务信封对应的固定写入上下文（V3.2.7.4）；随任务一起移动。</summary>
+    /// <param name="envelopePath">信封路径。</param>
+    /// <returns>同目录的 <c>*.context.json</c>。</returns>
+    public static string ContextPathFor(string envelopePath) => Path.ChangeExtension(envelopePath, ".context.json");
+
     /// <summary>把任务移入 <c>processing/</c> 并返回新路径；文件不存在时返回 <c>null</c>。</summary>
     /// <param name="envelopePath">当前信封路径。</param>
     /// <returns>处理中的信封路径。</returns>
@@ -141,13 +146,17 @@ public sealed class ScanQueue
         var fullPath = Path.GetFullPath(envelopePath);
         var metaPath = MetaPathFor(fullPath);
         var manifestPath = ManifestPathFor(fullPath);
-        if (!File.Exists(fullPath) && !File.Exists(metaPath) && !File.Exists(manifestPath)) return null;
+        var contextPath = ContextPathFor(fullPath);
+        if (!File.Exists(fullPath) && !File.Exists(metaPath) && !File.Exists(manifestPath) && !File.Exists(contextPath))
+        {
+            return null;
+        }
         Directory.CreateDirectory(QuarantineDirectory);
         var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssfff");
         var stem = Path.GetFileNameWithoutExtension(fullPath);
         var folder = Path.Combine(QuarantineDirectory, $"{stem}-{stamp}");
         Directory.CreateDirectory(folder);
-        foreach (var path in new[] { fullPath, metaPath, manifestPath })
+        foreach (var path in new[] { fullPath, metaPath, manifestPath, contextPath })
         {
             if (File.Exists(path))
             {
@@ -229,7 +238,7 @@ public sealed class ScanQueue
         }
     }
 
-    /// <summary>信封和它的两个边车（不存在的跳过）。</summary>
+    /// <summary>信封和它的边车（meta / manifest / context；不存在的跳过）。</summary>
     private static IEnumerable<(string Path, string Suffix)> Sidecars(string envelopePath)
     {
         yield return (envelopePath, ".json");
@@ -237,6 +246,8 @@ public sealed class ScanQueue
         if (File.Exists(meta)) yield return (meta, ".meta.json");
         var manifest = ManifestPathFor(envelopePath);
         if (File.Exists(manifest)) yield return (manifest, ".manifest.json");
+        var context = ContextPathFor(envelopePath);
+        if (File.Exists(context)) yield return (context, ".context.json");
     }
 
     /// <summary>在目标目录里挑一个不冲突的文件名主干，避免覆盖既有任务。</summary>
@@ -278,6 +289,7 @@ public sealed class ScanQueue
         var paths = Directory.GetFiles(directory, "scan-*.json")
             .Where(path => !path.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
             .Where(path => !path.EndsWith(".manifest.json", StringComparison.OrdinalIgnoreCase))
+            .Where(path => !path.EndsWith(".context.json", StringComparison.OrdinalIgnoreCase))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         return paths;

@@ -1,0 +1,128 @@
+{
+  "tool": "verify_save_isolation",
+  "synthetic_identity": true,
+  "real_fm27": false,
+  "api": "http://127.0.0.1:8123/api/v1",
+  "checks": [
+    {
+      "label": "create_save_a",
+      "ok": true,
+      "expect": "201",
+      "observed": 201
+    },
+    {
+      "label": "create_save_b",
+      "ok": true,
+      "expect": "201",
+      "observed": 201
+    },
+    {
+      "label": "identities_isolated",
+      "ok": true,
+      "expect": "不同身份/会话",
+      "observed": {
+        "a": 1,
+        "b": 2
+      }
+    },
+    {
+      "label": "capture_a_created",
+      "ok": true,
+      "expect": "201 且归属 A",
+      "observed": 201
+    },
+    {
+      "label": "import_a_succeeded",
+      "ok": true,
+      "expect": "succeeded/partial",
+      "observed": "succeeded"
+    },
+    {
+      "label": "import_b_succeeded",
+      "ok": true,
+      "expect": "succeeded/partial",
+      "observed": "succeeded"
+    },
+    {
+      "label": "cross_save_write_rejected",
+      "ok": true,
+      "expect": "404/409 安全拒绝",
+      "observed": {
+        "status": 409,
+        "code": "save_context_mismatch"
+      }
+    },
+    {
+      "label": "switch_advances_generation",
+      "ok": true,
+      "expect": "generation ≥ 1",
+      "observed": {
+        "save_id": 1,
+        "generation": 1,
+        "invalidated_session_id": 1,
+        "next_session_id": null,
+        "protocol_version": "write-safety/v1"
+      }
+    },
+    {
+      "label": "old_session_write_rejected",
+      "ok": true,
+      "expect": "409 旧会话不可写",
+      "observed": {
+        "status": 409,
+        "code": "save_session_invalidated"
+      }
+    },
+    {
+      "label": "b_unaffected",
+      "ok": true,
+      "expect": "succeeded/partial",
+      "observed": "succeeded"
+    },
+    {
+      "label": "audit_a_events",
+      "ok": true,
+      "expect": "包含 ['identity_verified', 'registered', 'session_created', 'session_invalidated']",
+      "observed": [
+        "identity_verified",
+        "registered",
+        "save_switched",
+        "session_created",
+        "session_invalidated",
+        "worker_started",
+        "write_accepted"
+      ]
+    },
+    {
+      "label": "audit_b_isolated",
+      "ok": true,
+      "expect": "B 审计不含 A 身份",
+      "observed": [
+        2
+      ]
+    },
+    {
+      "label": "gate_blocks_after_switch",
+      "ok": true,
+      "expect": "切换后 A 采集闸门关闭",
+      "observed": {
+        "capture_allowed": false,
+        "blockers": [
+          "最近会话状态为 invalidated。"
+        ]
+      }
+    },
+    {
+      "label": "stale_capture_rejected",
+      "ok": true,
+      "expect": "409 旧会话不能更新采集",
+      "observed": {
+        "status": 409,
+        "code": "save_session_invalidated"
+      }
+    }
+  ],
+  "failures": [],
+  "ok": true,
+  "generation_after_switch": 1
+}

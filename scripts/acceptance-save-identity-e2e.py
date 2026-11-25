@@ -260,7 +260,7 @@ def main() -> int:
 
         status, audit_a = request(base, "GET", "/save-identity-audit", params={"save_id": save_a_id, "limit": 200})
         event_types = {item.get("event_type") for item in audit_a.get("items", [])}
-        required = {"registered", "user_confirmed", "session_started", "session_invalidated", "conflict_detected"}
+        required = {"registered", "identity_verified", "session_created", "session_invalidated", "identity_conflict"}
         record("audit_trail", "GET", "/save-identity-audit", {"save_id": save_a_id, "limit": 200}, None, status, {"total": audit_a.get("total"), "event_types": sorted(event_types)}, expect_status=200, check="包含注册/确认/会话失效/冲突审计", ok=required.issubset(event_types))
 
         status, audit_b = request(base, "GET", "/save-identity-audit", params={"save_id": save_b_id, "limit": 200})

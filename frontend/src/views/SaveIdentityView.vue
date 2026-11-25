@@ -6,6 +6,7 @@
 
 import { computed, onMounted, ref, watch } from 'vue'
 import { asApiError, type ApiError } from '../api/client'
+import { listImports } from '../api/imports'
 import { getSaveIdentity, listSaveIdentities, listSaveIdentityAudit } from '../api/saveIdentity'
 import DataTable from '../components/DataTable.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -13,6 +14,7 @@ import ErrorState from '../components/ErrorState.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
 import { useSessionStore } from '../stores/session'
+import type { ImportJob } from '../types/imports'
 import type { TableColumn } from '../types/table'
 import type {
   SaveIdentityAuditEvent,
@@ -75,6 +77,34 @@ const detailError = ref<ApiError | null>(null)
 const audit = ref<SaveIdentityAuditEvent[]>([])
 const auditLoading = ref(false)
 const auditError = ref<ApiError | null>(null)
+
+const jobs = ref<ImportJob[]>([])
+const jobsLoading = ref(false)
+const jobsError = ref<ApiError | null>(null)
+
+const IMPORT_STATUS_LABELS: Record<string, string> = {
+  queued: '排队中',
+  running: '运行中',
+  cancel_requested: '取消请求中',
+  cancelled: '已取消',
+  succeeded: '成功',
+  partial: '部分成功',
+  failed: '失败',
+  rejected: '已拒绝',
+}
+
+const IMPORT_STATUS_TAG_TYPES: Record<string, 'success' | 'warning' | 'danger' | 'info'> = {
+  queued: 'info',
+  running: 'warning',
+  cancel_requested: 'warning',
+  cancelled: 'info',
+  succeeded: 'success',
+  partial: 'warning',
+  failed: 'danger',
+  rejected: 'danger',
+}
+
+const HEARTBEAT_TIMEOUT_SECONDS = 120
 
 const identityColumns: TableColumn<SaveIdentitySummary>[] = [
   { prop: 'identity_id', label: 'ID', width: 72, align: 'right' },
@@ -148,11 +178,62 @@ const auditColumns: TableColumn<SaveIdentityAuditEvent>[] = [
   { prop: 'reason', label: '原因', minWidth: 200, showOverflowTooltip: true, formatter: (row) => displayText(row.reason) },
 ]
 
+const jobColumns: TableColumn<ImportJob>[] = [
+  { prop: 'id', label: 'ID', width: 72, align: 'right' },
+  { prop: 'status', label: '状态', width: 110, formatter: (row) => IMPORT_STATUS_LABELS[row.status] ?? row.status },
+  { prop: 'scan_id', label: '扫描', minWidth: 120, showOverflowTooltip: true, formatter: (row) => displayText(row.scan_id) },
+  { prop: 'attempt_count', label: '尝试', width: 72, align: 'right', formatter: (row) => displayText(row.attempt_count ?? 0) },
+  { prop: 'player_count', label: '球员', width: 72, align: 'right', formatter: (row) => displayText(row.player_count) },
+  { prop: 'received_at', label: '接收', width: 150, formatter: (row) => formatDateTime(row.received_at) },
+  { prop: 'finished_at', label: '结束', width: 150, formatter: (row) => formatDateTime(row.finished_at) },
+  {
+    prop: 'rejected_reason',
+    label: '拒绝/取消原因',
+    minWidth: 180,
+    showOverflowTooltip: true,
+    formatter: (row) => displayText(row.rejected_reason ?? (row.cancelled_at ? 'worker_cancelled' : null)),
+  },
+]
+
 const countEntries = computed(() =>
   (Object.entries(counts.value) as Array<[SaveIdentityStatus, number]>).sort((a, b) => b[1] - a[1]),
 )
 
 const gateBlockers = computed(() => detail.value?.blockers ?? [])
+
+const latestSession = computed<SaveSession | null>(() => detail.value?.sessions?.[0] ?? null)
+
+const heartbeatAgeSeconds = computed<number | null>(() => {
+  const last = latestSession.value?.last_heartbeat_at
+  if (!last) return null
+  const parsed = Date.parse(last)
+  return Number.isNaN(parsed) ? null : Math.max(0, Math.round((Date.now() - parsed) / 1000))
+})
+
+const networkFacts = computed(() => {
+  const session = latestSession.value
+  const age = heartbeatAgeSeconds.value
+  return {
+    sessionStatus: session ? SESSION_LABELS[session.status] ?? session.status : '无会话',
+    heartbeatFresh: age !== null && age <= HEARTBEAT_TIMEOUT_SECONDS,
+    heartbeatAge: age,
+    epoch: session?.session_epoch ?? null,
+    reconnects: audit.value.filter((event) => event.event_type === 'network_reconnected').length,
+    backendRestarts: audit.value.filter((event) => event.event_type === 'backend_restarted').length,
+  }
+})
+
+const workerCounts = computed(() => {
+  const result = new Map<string, number>()
+  for (const job of jobs.value) {
+    result.set(job.status, (result.get(job.status) ?? 0) + 1)
+  }
+  return Array.from(result.entries()).sort((a, b) => b[1] - a[1])
+})
+
+const cancelRequestedCount = computed(
+  () => jobs.value.filter((job) => job.status === 'cancel_requested' || job.status === 'cancelled').length,
+)
 
 async function reload(): Promise<void> {
   loading.value = true
@@ -206,7 +287,29 @@ async function loadAudit(identityId: number): Promise<void> {
   }
 }
 
-onMounted(reload)
+async function loadJobs(): Promise<void> {
+  const saveId = session.activeSave?.id
+  if (!saveId) {
+    jobs.value = []
+    return
+  }
+  jobsLoading.value = true
+  jobsError.value = null
+  try {
+    const response = await listImports({ save_id: saveId, limit: 8 })
+    jobs.value = response.items
+  } catch (failure) {
+    jobsError.value = asApiError(failure)
+    jobs.value = []
+  } finally {
+    jobsLoading.value = false
+  }
+}
+
+onMounted(() => {
+  void reload()
+  void loadJobs()
+})
 
 watch(
   () => session.dataRevision,
@@ -214,6 +317,7 @@ watch(
     detail.value = null
     audit.value = []
     void reload()
+    void loadJobs()
   },
 )
 </script>
@@ -307,6 +411,83 @@ watch(
           <div><dt>首次 / 最近发现</dt><dd>{{ formatDateTime(detail.first_seen_at) }} / {{ formatDateTime(detail.last_seen_at) }}</dd></div>
           <div class="save-identity__fact-wide"><dt>指纹</dt><dd class="sm-mono">{{ detail.fingerprint }}</dd></div>
         </dl>
+      </SectionCard>
+
+      <SectionCard title="Worker / 网络诊断" :subtitle="`最近 ${jobs.length} 个导入任务`">
+        <template #actions>
+          <el-button size="small" :loading="jobsLoading" @click="loadJobs">刷新任务</el-button>
+        </template>
+
+        <dl class="save-identity__facts save-identity__facts--compact">
+          <div>
+            <dt>会话状态</dt>
+            <dd>
+              {{ networkFacts.sessionStatus }}
+              <el-tag
+                size="small"
+                :type="networkFacts.heartbeatFresh ? 'success' : 'warning'"
+                effect="plain"
+                class="save-identity__inline-tag"
+              >
+                {{ networkFacts.heartbeatFresh ? '心跳有效' : '心跳超时/未知' }}
+              </el-tag>
+            </dd>
+          </div>
+          <div>
+            <dt>最近心跳</dt>
+            <dd>
+              {{ formatDateTime(latestSession?.last_heartbeat_at) }}
+              <span v-if="networkFacts.heartbeatAge !== null" class="save-identity__muted">
+                （{{ networkFacts.heartbeatAge }} 秒前，阈值 {{ HEARTBEAT_TIMEOUT_SECONDS }} 秒）
+              </span>
+            </dd>
+          </div>
+          <div><dt>写入代次</dt><dd>{{ displayText(networkFacts.epoch) }}</dd></div>
+          <div><dt>断网重连 / 后端重启</dt><dd>{{ networkFacts.reconnects }} / {{ networkFacts.backendRestarts }} 次</dd></div>
+          <div><dt>取消相关任务</dt><dd>{{ cancelRequestedCount }} 个（cancel_requested + cancelled）</dd></div>
+        </dl>
+
+        <div v-if="workerCounts.length" class="save-identity__counts save-identity__counts--tight">
+          <el-tag
+            v-for="[status, count] in workerCounts"
+            :key="status"
+            size="small"
+            effect="plain"
+            :type="IMPORT_STATUS_TAG_TYPES[status] ?? 'info'"
+          >
+            {{ IMPORT_STATUS_LABELS[status] ?? status }} {{ count }}
+          </el-tag>
+        </div>
+
+        <ErrorState v-if="jobsError" :error="jobsError" title="导入任务加载失败" compact @retry="loadJobs" />
+        <EmptyState
+          v-else-if="!jobsLoading && jobs.length === 0"
+          title="当前存档还没有导入任务"
+          description="任务进入队列后，这里会显示排队、运行、取消与最终结果；取消是状态转换，不会删除历史。"
+          compact
+        />
+        <DataTable
+          v-else
+          :columns="jobColumns"
+          :rows="jobs"
+          :loading="jobsLoading"
+          row-key="id"
+          dense
+        >
+          <template #cell="{ row, column, value }">
+            <el-tag
+              v-if="column.prop === 'status'"
+              size="small"
+              :type="IMPORT_STATUS_TAG_TYPES[row.status] ?? 'info'"
+            >
+              {{ IMPORT_STATUS_LABELS[row.status] ?? row.status }}
+            </el-tag>
+            <span v-else>{{ value }}</span>
+          </template>
+        </DataTable>
+        <p class="save-identity__hint">
+          仅展示只读诊断：本页不会取消任务、不会重试、不会修改身份状态。
+        </p>
       </SectionCard>
 
       <SectionCard title="证据" :subtitle="`${detail.evidence.length} 条`">
@@ -421,5 +602,28 @@ watch(
 
 .save-identity__fact-wide {
   grid-column: 1 / -1;
+}
+
+.save-identity__facts--compact {
+  margin-bottom: var(--sm-space-3);
+}
+
+.save-identity__inline-tag {
+  margin-left: var(--sm-space-2);
+}
+
+.save-identity__muted {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+.save-identity__counts--tight {
+  margin-bottom: var(--sm-space-2);
+}
+
+.save-identity__hint {
+  margin: var(--sm-space-2) 0 0;
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
 }
 </style>

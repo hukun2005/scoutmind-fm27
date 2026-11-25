@@ -1,0 +1,152 @@
+{
+  "tool": "verify_operation_idempotency",
+  "synthetic_identity": true,
+  "real_fm27": false,
+  "api": "http://127.0.0.1:8123/api/v1",
+  "checks": [
+    {
+      "label": "first_import",
+      "ok": true,
+      "expect": "201 duplicate=false",
+      "observed": {
+        "status": 201,
+        "duplicate": false
+      }
+    },
+    {
+      "label": "replay_same_operation_same_payload",
+      "ok": true,
+      "expect": "duplicate=true 且同一 job",
+      "observed": {
+        "status": 201,
+        "duplicate": true,
+        "job_id": 7
+      }
+    },
+    {
+      "label": "same_operation_different_payload",
+      "ok": true,
+      "expect": "409 operation_conflict",
+      "observed": {
+        "status": 409,
+        "code": "operation_conflict"
+      }
+    },
+    {
+      "label": "same_scan_different_payload",
+      "ok": true,
+      "expect": "409 scan_payload_mismatch",
+      "observed": {
+        "status": 409,
+        "code": "scan_payload_mismatch"
+      }
+    },
+    {
+      "label": "attempt_count_incremented",
+      "ok": true,
+      "expect": "attempt_count ≥ 2",
+      "observed": {
+        "id": 7,
+        "save_id": 4,
+        "scan_id": "idem-bbf2cd82",
+        "source": "synthetic_fixture",
+        "status": "succeeded",
+        "schema_version": "1.0",
+        "reader_version": null,
+        "game_build": null,
+        "checksum": "4b544628dabae14b457c2af8b44a11215485122c89be30db14b3cfbfefec7d18",
+        "received_at": "2026-11-25T05:15:02Z",
+        "finished_at": "2026-11-25T05:15:02Z",
+        "player_count": 0,
+        "transfer_count": 0,
+        "warnings": [
+          "acceptance-marker:v1"
+        ],
+        "coverage": {
+          "players": 0,
+          "transfers": 0,
+          "player_fields": 0.0,
+          "transfer_fields": 0.0,
+          "statistics": 0.0
+        },
+        "raw_payload_path": "<temp>\\scoutmind-acceptance-1b1669a5\\data\\raw\\4\\154512ce693d4fb1814a7b56b8f92ecc.json",
+        "save_identity_id": 4,
+        "save_session_id": 5,
+        "operation_id": "op-idem-bbf2cd82",
+        "save_generation": 0,
+        "rejected_reason": null,
+        "attempt_count": 4,
+        "cancel_requested_at": null,
+        "cancelled_at": null,
+        "cancellable": false,
+        "retryable": false
+      }
+    },
+    {
+      "label": "audit_operation_replayed",
+      "ok": true,
+      "expect": "含 operation_replayed",
+      "observed": [
+        "identity_verified",
+        "operation_conflict",
+        "operation_replayed",
+        "registered",
+        "session_created",
+        "worker_started",
+        "write_accepted"
+      ]
+    },
+    {
+      "label": "audit_operation_conflict",
+      "ok": true,
+      "expect": "含 operation_conflict",
+      "observed": [
+        "identity_verified",
+        "operation_conflict",
+        "operation_replayed",
+        "registered",
+        "session_created",
+        "worker_started",
+        "write_accepted"
+      ]
+    },
+    {
+      "label": "rejected_operation_not_replayed",
+      "ok": true,
+      "expect": "409 operation_rejected",
+      "observed": {
+        "status": 409,
+        "code": "operation_rejected"
+      }
+    },
+    {
+      "label": "reconnected_heartbeat",
+      "ok": true,
+      "expect": "200",
+      "observed": {
+        "status": 200,
+        "session": "verified"
+      }
+    },
+    {
+      "label": "audit_network_reconnected",
+      "ok": true,
+      "expect": "含 network_reconnected",
+      "observed": [
+        "identity_verified",
+        "network_reconnected",
+        "operation_conflict",
+        "operation_replay_rejected",
+        "operation_replayed",
+        "registered",
+        "session_created",
+        "worker_started",
+        "write_accepted"
+      ]
+    }
+  ],
+  "failures": [],
+  "partials": [],
+  "ok": true,
+  "status": "PASS"
+}

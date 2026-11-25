@@ -298,7 +298,7 @@ def register_identity(
                 db,
                 save_id=save.id,
                 identity_id=identity.id,
-                event_type="conflict_detected",
+                event_type="identity_conflict",
                 old_status=None,
                 new_status="conflict",
                 new_fingerprint=payload.fingerprint,
@@ -349,7 +349,7 @@ def register_identity(
 
     _store_evidence(db, existing, payload)
     if new_status != old_status:
-        event_type = "conflict_detected" if new_status == "conflict" else "registered"
+        event_type = "identity_conflict" if new_status == "conflict" else "registered"
         record_audit(
             db,
             save_id=save.id,
@@ -437,7 +437,7 @@ def verify_identity(
         db,
         save_id=save.id,
         identity_id=identity.id,
-        event_type="user_confirmed",
+        event_type="identity_verified",
         old_status=old_status,
         new_status="verified",
         old_fingerprint=identity.identity_fingerprint,
@@ -507,7 +507,7 @@ def start_session(
         save_id=save.id,
         identity_id=identity.id,
         session_id=session.id,
-        event_type="session_started",
+        event_type="session_created",
         new_status=status,
         evidence_summary={"session_key": payload.session_key, "agent_id": payload.agent_id},
         actor=actor,
@@ -610,8 +610,27 @@ def heartbeat(
         _invalidate_session(db, save, session, reason="epoch_stale", actor=actor)
         raise protocol_error(409, "write_session_epoch_stale", "会话代次已落后，已失效，请重新识别存档")
 
+    previous_heartbeat = session.last_heartbeat_at
     session.last_heartbeat_at = current
     session.last_verified_at = current
+    # 心跳审计按 60 秒节流；断网恢复（reconnected）必须记录，便于还原“何时恢复写入资格”。
+    gap_seconds = (current - previous_heartbeat).total_seconds() if previous_heartbeat else None
+    if payload.reconnected or gap_seconds is None or gap_seconds > 60:
+        record_audit(
+            db,
+            save_id=save.id,
+            identity_id=session.save_identity_id,
+            session_id=session.id,
+            event_type="network_reconnected" if payload.reconnected else "session_heartbeat",
+            new_status=session.session_status,
+            evidence_summary={
+                "generation": session.session_epoch,
+                "gap_seconds": gap_seconds,
+                "agent_version": payload.agent_version,
+                "reconnected": payload.reconnected,
+            },
+            actor=actor,
+        )
     return session
 
 
