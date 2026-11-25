@@ -81,6 +81,30 @@ public static class SaveIdentityTests
             TestHarness.Equal("si:v1:unresolved:26620374", resolution.Fingerprint, "歧义时不得生成稳定指纹");
         });
 
+        harness.Run("身份：多存档歧义时用户确认指纹可唯一消歧", () =>
+        {
+            var files = new[]
+            {
+                SaveFile("a.fm", fileId: "F1", mtime: Start),
+                SaveFile("b.fm", fileId: "F2", mtime: Start.AddMinutes(5)),
+            };
+            var confirmed = SaveIdentityFingerprint.FromSaveFile("V1", "F2");
+            var resolution = SaveIdentityResolver.Resolve(
+                new SaveIdentityInput(Process(), files, null, confirmed));
+
+            TestHarness.Equal(SaveIdentityStatus.Verified, resolution.Status, "确认指纹唯一命中时应 VERIFIED");
+            TestHarness.Equal(SaveIdentityKind.UserConfirmed, resolution.Kind, "来源应为用户确认");
+            TestHarness.True(!resolution.IsAmbiguous, "确认后不得再标记歧义");
+            TestHarness.Equal(confirmed, resolution.Fingerprint, "指纹应是被确认的那个存档");
+            TestHarness.True(resolution.SnapshotEligible, "确认后的身份应允许参与自动快照评估");
+
+            var unmatched = SaveIdentityResolver.Resolve(new SaveIdentityInput(
+                Process(), files, null, SaveIdentityFingerprint.FromSaveFile("V9", "F9")));
+
+            TestHarness.Equal(SaveIdentityStatus.Discovered, unmatched.Status, "不匹配的确认不能猜存档");
+            TestHarness.True(unmatched.IsAmbiguous, "仍应标记歧义");
+        });
+
         harness.Run("身份：唯一被游戏占用的文件可确定为当前存档", () =>
         {
             var resolution = SaveIdentityResolver.Resolve(new SaveIdentityInput(
@@ -106,7 +130,7 @@ public static class SaveIdentityTests
 
             TestHarness.Equal(SaveIdentityStatus.Verified, verified.Status, "确认一致时应 VERIFIED");
             TestHarness.Equal(SaveIdentityKind.UserConfirmed, verified.Kind, "来源应为用户确认");
-            TestHarness.True(!verified.SnapshotEligible, "即使 VERIFIED，本版本也不开放自动快照");
+            TestHarness.True(verified.SnapshotEligible, "VERIFIED 身份应允许参与自动快照评估");
 
             var conflict = SaveIdentityResolver.Resolve(new SaveIdentityInput(
                 Process(), new[] { SaveFile("a.fm") }, null, SaveIdentityFingerprint.FromSaveFile("V9", "F9")));

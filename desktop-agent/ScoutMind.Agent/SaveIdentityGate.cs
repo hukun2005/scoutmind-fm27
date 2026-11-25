@@ -30,8 +30,8 @@ public sealed record SaveIdentitySnapshot(
 /// <summary>
 /// 存档身份安全门判定。只有读取器明确给出 <c>status=verified</c>、<c>snapshot_eligible=true</c>
 /// 且 <c>automatic_snapshot_enabled=true</c> 时才允许继续采集。
-/// 本版本读取器恒返回 <c>snapshot_eligible=false</c>，因此这里必然 BLOCKED——这是有意为之：
-/// 数据安全高于自动化便利，直到身份体系经过真实环境验收。
+/// 自动快照只在 Agent 主动开启 <c>auto</c> / <c>scan --sync</c> 时通过环境变量启用；
+/// 读取器只对 <c>verified</c> 身份给出 <c>snapshot_eligible=true</c>，其余情况仍然 BLOCKED。
 /// </summary>
 /// <param name="Allowed">是否允许继续采集。</param>
 /// <param name="Status">读取器给出的身份状态。</param>
@@ -175,7 +175,7 @@ public static class ReaderSaveIdentityGate
 
             if (!automaticSnapshotEnabled)
             {
-                reasons.Add("自动快照在本版本保持关闭（automatic_snapshot_enabled=false）。");
+                reasons.Add("自动快照未启用（automatic_snapshot_enabled=false）：只有 auto 或 scan --sync 会开启。");
                 return new SaveIdentityGate(false, status, fingerprint, kind, confidence, sessionKey, gameBuild,
                     snapshotEligible, automaticSnapshotEnabled, reasons) { Snapshot = snapshot };
             }

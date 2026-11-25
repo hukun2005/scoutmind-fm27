@@ -22,12 +22,29 @@ public sealed record BackendSyncResult(
     int Attempts);
 
 /// <summary>写接口必须显式携带的存档上下文；缺失时后端按历史行为放行。</summary>
-public sealed record SaveContextQuery(int IdentityId, int SessionId, string? OperationId = null)
+/// <param name="IdentityId">已由后端确认的存档身份 id。</param>
+/// <param name="SessionId">当前可写会话 id。</param>
+/// <param name="OperationId">幂等操作 id；同一个 operation 不重复写入。</param>
+/// <param name="SaveId">目标存档；由 <see cref="BackendClient.ResolveSaveAsync"/> 按指纹解析得到。</param>
+public sealed record SaveContextQuery(int IdentityId, int SessionId, string? OperationId = null, int? SaveId = null)
 {
     /// <summary>追加到写接口的查询串。</summary>
-    public string Query => OperationId is null
-        ? $"?save_identity_id={IdentityId}&save_session_id={SessionId}"
-        : $"?save_identity_id={IdentityId}&save_session_id={SessionId}&operation_id={Uri.EscapeDataString(OperationId)}";
+    public string Query
+    {
+        get
+        {
+            var query = $"?save_identity_id={IdentityId}&save_session_id={SessionId}";
+            if (OperationId is not null)
+            {
+                query += $"&operation_id={Uri.EscapeDataString(OperationId)}";
+            }
+            if (SaveId is > 0)
+            {
+                query += $"&save_id={SaveId.Value}";
+            }
+            return query;
+        }
+    }
 }
 
 /// <summary>一次 JSON 请求的结果（身份注册/会话生命周期使用）。</summary>
@@ -169,13 +186,31 @@ public sealed class BackendClient : IDisposable
             body,
             cancellationToken);
 
+    /// <summary>按存档指纹解析目标存档；不存在时后端会新建并激活。</summary>
+    public Task<BackendJsonResult> ResolveSaveAsync(object body, CancellationToken cancellationToken) =>
+        SendJsonAsync(HttpMethod.Post, _baseUrl + "/saves/resolve", body, cancellationToken);
+
     /// <summary>注册/更新存档身份。后端按证据封顶，Agent 不自行宣称 verified。</summary>
-    public Task<BackendJsonResult> RegisterSaveIdentityAsync(object body, CancellationToken cancellationToken) =>
-        SendJsonAsync(HttpMethod.Post, _baseUrl + "/save-identities/register", body, cancellationToken);
+    public Task<BackendJsonResult> RegisterSaveIdentityAsync(
+        object body,
+        CancellationToken cancellationToken,
+        int? saveId = null) =>
+        SendJsonAsync(
+            HttpMethod.Post,
+            _baseUrl + "/save-identities/register" + (saveId is > 0 ? $"?save_id={saveId.Value}" : string.Empty),
+            body,
+            cancellationToken);
 
     /// <summary>登记会话；同一 <c>session_key</c> 幂等。</summary>
-    public Task<BackendJsonResult> StartSaveSessionAsync(object body, CancellationToken cancellationToken) =>
-        SendJsonAsync(HttpMethod.Post, _baseUrl + "/save-sessions/start", body, cancellationToken);
+    public Task<BackendJsonResult> StartSaveSessionAsync(
+        object body,
+        CancellationToken cancellationToken,
+        int? saveId = null) =>
+        SendJsonAsync(
+            HttpMethod.Post,
+            _baseUrl + "/save-sessions/start" + (saveId is > 0 ? $"?save_id={saveId.Value}" : string.Empty),
+            body,
+            cancellationToken);
 
     /// <summary>会话心跳；后端发现身份/指纹变化会使会话失效。</summary>
     public Task<BackendJsonResult> HeartbeatSaveSessionAsync(

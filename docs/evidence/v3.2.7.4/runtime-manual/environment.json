@@ -1,0 +1,32 @@
+{
+  "collected_at": "2026-11-25T06:03:05.2551061Z",
+  "os": {
+    "platform": "Microsoft Windows 10.0.26300",
+    "architecture": "X64",
+    "powershell": "7.7.0"
+  },
+  "tools": {
+    "python": "Python 3.13.15",
+    "dotnet": "10.0.404",
+    "node": "v24.22.1",
+    "npm": "11.19.1"
+  },
+  "fm27": {
+    "process_detected": true,
+    "process_id": 66972,
+    "version": null,
+    "steam_build": null,
+    "game_plugin_dll": null,
+    "note": "版本必须来自 Reader 诊断输出；未执行 Reader 时为 null"
+  },
+  "scoutmind_processes": {
+    "reader_detected": false,
+    "agent_detected": false
+  },
+  "repository": {
+    "root": "<local-path>",
+    "branch": "codex/v3.2.7.4-runtime-closure",
+    "commit": "9d3277c20201580ef9ba7fbf6777b66d8dbc6858"
+  },
+  "verdict": "FM27_RUNNING_ENVIRONMENT_UNVERIFIED"
+}

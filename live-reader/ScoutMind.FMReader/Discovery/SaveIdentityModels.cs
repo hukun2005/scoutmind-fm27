@@ -210,7 +210,7 @@ public sealed record SaveIdentityInput(
 /// <param name="Conflicts">冲突说明。</param>
 /// <param name="Explanation">判定解释。</param>
 /// <param name="IsAmbiguous">是否无法唯一确定当前存档。</param>
-/// <param name="SnapshotEligible">是否允许自动快照；本版本恒为 <c>false</c>。</param>
+/// <param name="SnapshotEligible">是否允许自动快照；只有 <c>verified</c> 身份为 <c>true</c>。</param>
 public sealed record SaveIdentityResolution(
     SaveIdentityStatus Status,
     SaveIdentityConfidence Confidence,
@@ -268,8 +268,14 @@ public static class SaveIdentityFingerprint
 /// </summary>
 public static class SaveIdentityResolver
 {
-    /// <summary>自动快照开关。本版本固定关闭。</summary>
-    public const bool AutomaticSnapshotEnabled = false;
+    /// <summary>
+    /// 自动快照总开关。默认关闭，只有 Agent 在 <c>auto</c> 路径显式设置
+    /// <c>SCOUTMIND_AUTOMATIC_SNAPSHOT=1</c> 时才开启；即使开启，也只有
+    /// <c>verified</c> 身份才会得到 <c>snapshot_eligible=true</c>。
+    /// </summary>
+    public static bool AutomaticSnapshotEnabled =>
+        string.Equals(Environment.GetEnvironmentVariable("SCOUTMIND_AUTOMATIC_SNAPSHOT"), "1", StringComparison.Ordinal)
+        || string.Equals(Environment.GetEnvironmentVariable("SCOUTMIND_AUTOMATIC_SNAPSHOT"), "true", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>解析身份。</summary>
     /// <param name="input">输入。</param>
@@ -330,6 +336,24 @@ public static class SaveIdentityResolver
 
         var files = input.SaveFiles ?? Array.Empty<SaveFileSnapshot>();
         var selection = SelectActiveFile(files);
+        if (selection.Ambiguous && !string.IsNullOrWhiteSpace(input.UserConfirmedFingerprint))
+        {
+            // 多存档且都没有被进程占用时，SelectActiveFile 无法判定；若用户此前已确认过某个
+            // 存档指纹，则允许用该指纹在候选文件里唯一定位当前存档（显式确认优先于“最新文件”猜测）。
+            var confirmed = files
+                .Where(candidate => candidate.HasStableMetadata)
+                .Where(candidate => string.Equals(
+                    SaveIdentityFingerprint.FromSaveFile(candidate.VolumeSerial!, candidate.FileId!),
+                    input.UserConfirmedFingerprint,
+                    StringComparison.Ordinal))
+                .ToList();
+            if (confirmed.Count == 1)
+            {
+                explanation.Add("存在多个候选存档文件；已按用户确认的指纹唯一定位到当前存档。");
+                selection = (confirmed[0], false);
+            }
+        }
+
         if (selection.Ambiguous)
         {
             explanation.Add("存在多个可能的存档文件，无法唯一确定当前存档。");
@@ -461,7 +485,7 @@ public static class SaveIdentityResolver
             conflicts,
             explanation,
             IsAmbiguous: false,
-            SnapshotEligible: false);
+            SnapshotEligible: status == SaveIdentityStatus.Verified);
     }
 
     private static SaveEvidence FileMetadataEvidence(SaveFileSnapshot file, SaveIdentityConfidence confidence) => new(

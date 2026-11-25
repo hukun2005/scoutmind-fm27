@@ -184,7 +184,39 @@ public sealed class AgentApplication
             return ReaderScanFailed;
         }
 
-        var synced = await SyncOneAsync(result.OutputFile, configuration, queue, cancellationToken).ConfigureAwait(false);
+        // 手动同步也走身份链路：能拿到 verified 身份时登记会话并按 save_id 上传，
+        // 避免把另一个存档的数据写进「当前存档」（D-01）。
+        SaveContextQuery? context = null;
+        using var identityClient = new BackendClient(
+            configuration.Config.BackendBaseUrl,
+            configuration.Config.ApiToken,
+            _syncTimeout);
+        var identitySync = new SaveIdentitySync(identityClient);
+        runner.AutomaticSnapshot = true;
+        var gate = await EvaluateAutoGateAsync(runner, cancellationToken).ConfigureAwait(false);
+        if (gate.Identity.Allowed)
+        {
+            var binding = await identitySync
+                .EnsureAsync(gate.Identity, cancellationToken, configuration.Config.SaveName)
+                .ConfigureAwait(false);
+            if (binding.Ok)
+            {
+                context = identitySync.Context;
+            }
+            else
+            {
+                _stderr.WriteLine($"存档身份/会话登记失败，本次按无上下文上传：{binding.Error}");
+            }
+        }
+        else
+        {
+            _stderr.WriteLine(
+                $"存档身份未通过安全门（{gate.Identity.Status}），本次按无上下文上传；需要多存档隔离时请先确认身份：{string.Join("；", gate.Identity.Reasons)}");
+        }
+
+        var synced = await SyncOneAsync(result.OutputFile, configuration, queue, cancellationToken, context)
+            .ConfigureAwait(false);
+        await identitySync.InvalidateAsync("scan_sync_finished", CancellationToken.None).ConfigureAwait(false);
         return synced ? AgentExitCodes.Success : AgentExitCodes.SyncFailed;
     }
 
@@ -271,7 +303,11 @@ public sealed class AgentApplication
         using var _lock = captureLock;
         var stateStore = new CaptureStateStore(configuration.QueueDirectory);
         var readerTimeout = TimeSpan.FromSeconds(Math.Max(180, configuration.Config.TimeoutSeconds + 120));
-        var runner = new ReaderRunner(configuration.ReaderPath, readerTimeout);
+        var runner = new ReaderRunner(configuration.ReaderPath, readerTimeout)
+        {
+            // auto 是用户显式开启的自动采集路径；读取器仍只对 verified 身份报告可快照。
+            AutomaticSnapshot = true,
+        };
         using var identityClient = new BackendClient(
             configuration.Config.BackendBaseUrl,
             configuration.Config.ApiToken,
@@ -336,7 +372,9 @@ public sealed class AgentApplication
                 continue;
             }
 
-            var binding = await identitySync.EnsureAsync(gate.Identity, cancellationToken).ConfigureAwait(false);
+            var binding = await identitySync
+                .EnsureAsync(gate.Identity, cancellationToken, configuration.Config.SaveName)
+                .ConfigureAwait(false);
             if (!binding.Ok)
             {
                 // 后端不可达或会话未 verified：本轮不得写入，也不得伪造成功。
@@ -503,7 +541,9 @@ public sealed class AgentApplication
             }
 
             // 结果落盘后、导入前再次确认会话可写：扫描可能耗时较久，期间会话可能被切换或超时失效。
-            var submit = await identitySync.EnsureAsync(afterScan, cancellationToken).ConfigureAwait(false);
+            var submit = await identitySync
+                .EnsureAsync(afterScan, cancellationToken, configuration.Config.SaveName)
+                .ConfigureAwait(false);
             if (!submit.Ok)
             {
                 var folder = queue.FailAll(result.OutputFile, new
@@ -795,7 +835,7 @@ public sealed class AgentApplication
             if (context is not null && savedContext is null && !string.IsNullOrWhiteSpace(fingerprint))
             {
                 new ScanTaskContext(
-                        0,
+                        context.SaveId ?? 0,
                         context.IdentityId,
                         context.SessionId,
                         fingerprint,
@@ -805,9 +845,11 @@ public sealed class AgentApplication
                     .Save(contextPath);
             }
 
+            // 存档 id 必须随请求一起发送：后端据此写入对应 fm_save，而不是回落到「当前存档」（D-01）。
+            var saveId = context?.SaveId ?? savedContext?.SaveId;
             var uploadContext = context is null
                 ? null
-                : new SaveContextQuery(context.IdentityId, context.SessionId, operationId);
+                : new SaveContextQuery(context.IdentityId, context.SessionId, operationId, saveId is > 0 ? saveId : null);
             result = await client.PostScanAsync(payload.Json, cancellationToken, uploadContext).ConfigureAwait(false);
         }
         catch (ArgumentException ex)

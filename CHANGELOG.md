@@ -34,4 +34,4 @@
 
 - `/imports/fmscout`、`/imports/transfers/history` 仍走 legacy 允许策略（PARTIAL，计划 V3.2.7.5 收紧）。
 - 取消信号为进程内事件，单写进程部署假设。
-- 真实 FM27 A/B、断网、重启验收：`REAL_FM27_ACCEPTANCE_PENDING`。
+- 真实 FM27 A/B、断网、重启验收：2026-11-25 真实执行，`REAL_FM27_ACCEPTANCE_FAIL`——A 通过，B 出现跨存档污染（D-01：扫描报文无存档标识 + Agent 不传目标存档，B 写入 A 的 `save_id`）；C/D/E 未执行。

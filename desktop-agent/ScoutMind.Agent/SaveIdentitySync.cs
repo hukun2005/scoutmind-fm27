@@ -1,7 +1,7 @@
 namespace ScoutMind.Agent;
 
 /// <summary>身份/会话登记结果。<c>Ok=false</c> 时本轮不得写入后端。</summary>
-public sealed record SaveIdentitySyncResult(bool Ok, int? IdentityId, int? SessionId, string? Error);
+public sealed record SaveIdentitySyncResult(bool Ok, int? IdentityId, int? SessionId, string? Error, int? SaveId = null);
 
 /// <summary>
 /// 把 Reader 的身份结论登记到后端，并维护会话生命周期（V3.2.7.2 Phase 3）。
@@ -18,12 +18,16 @@ public sealed class SaveIdentitySync
 
     private int? _identityId;
     private int? _sessionId;
+    private int? _saveId;
     private string? _sessionKey;
     private string? _fingerprint;
     private bool _networkLost;
 
     /// <summary>当前已验证的存档指纹；未登记身份时为 <c>null</c>。</summary>
     public string? Fingerprint => _fingerprint;
+
+    /// <summary>后端按指纹解析出的目标存档；未解析时为 <c>null</c>。</summary>
+    public int? SaveId => _saveId;
 
     /// <summary>本进程最近一次会话登记是否发生在断网恢复之后。</summary>
     public bool Reconnected => _networkLost;
@@ -45,11 +49,17 @@ public sealed class SaveIdentitySync
     /// <summary>当前可写上下文；未同时持有身份与会话时为 <c>null</c>。</summary>
     public SaveContextQuery? Context =>
         _identityId is { } identityId && _sessionId is { } sessionId
-            ? new SaveContextQuery(identityId, sessionId)
+            ? new SaveContextQuery(identityId, sessionId, SaveId: _saveId)
             : null;
 
     /// <summary>确保身份已注册、会话有效并完成一次心跳。</summary>
-    public async Task<SaveIdentitySyncResult> EnsureAsync(SaveIdentityGate gate, CancellationToken cancellationToken)
+    /// <param name="gate">Reader 身份诊断结论。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <param name="saveName">新建存档时使用的显示名；为空时后端按指纹生成。</param>
+    public async Task<SaveIdentitySyncResult> EnsureAsync(
+        SaveIdentityGate gate,
+        CancellationToken cancellationToken,
+        string? saveName = null)
     {
         var snapshot = gate.Snapshot;
         if (snapshot is null
@@ -65,6 +75,28 @@ public sealed class SaveIdentitySync
             // 指纹变化：旧身份下不能写新存档的数据。
             await InvalidateAsync("save_switched", cancellationToken).ConfigureAwait(false);
             _identityId = null;
+            _saveId = null;
+        }
+
+        if (_identityId is null || _saveId is null)
+        {
+            // 先按指纹解析后端存档：不同存档必须落在不同 fm_save，绝不共用「当前存档」。
+            var resolved = await _client.ResolveSaveAsync(
+                new { fingerprint = snapshot.Fingerprint, name = saveName },
+                cancellationToken).ConfigureAwait(false);
+            if (!resolved.Ok)
+            {
+                TrackTransportFailure(resolved.StatusCode);
+                return Fail(resolved.Error ?? "后端拒绝解析存档。");
+            }
+
+            var saveId = resolved.ReadInt("save_id");
+            if (saveId is null)
+            {
+                return Fail("后端未返回 save_id。");
+            }
+
+            _saveId = saveId;
         }
 
         if (_identityId is null)
@@ -90,10 +122,10 @@ public sealed class SaveIdentitySync
                     detail = item.Detail,
                 }).ToArray(),
                 agent_id = _agentId,
-                session_key = snapshot.SessionKey,
+                session_key = StableSessionKey(snapshot),
             };
 
-            var registered = await _client.RegisterSaveIdentityAsync(body, cancellationToken).ConfigureAwait(false);
+            var registered = await _client.RegisterSaveIdentityAsync(body, cancellationToken, _saveId).ConfigureAwait(false);
             if (!registered.Ok)
             {
                 TrackTransportFailure(registered.StatusCode);
@@ -110,20 +142,25 @@ public sealed class SaveIdentitySync
             _fingerprint = snapshot.Fingerprint;
         }
 
-        if (_sessionId is null || !string.Equals(_sessionKey, snapshot.SessionKey, StringComparison.Ordinal))
+        var stableKey = StableSessionKey(snapshot);
+        if (_sessionId is null || !string.Equals(_sessionKey, stableKey, StringComparison.Ordinal))
         {
             await InvalidateAsync("agent_restarted", cancellationToken).ConfigureAwait(false);
 
+            // 每次新建会话都用带时间戳的键：同一进程切换存档、切回旧存档或重启后，
+            // 旧会话可能已 invalidated，复用旧键会被后端拒绝（session_key 全局唯一）。
+            var startKey = $"{stableKey}#{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
             var started = await _client.StartSaveSessionAsync(
                 new
                 {
                     identity_id = _identityId,
-                    session_key = snapshot.SessionKey,
+                    session_key = startKey,
                     game_build = snapshot.GameBuild,
                     plugin_version = snapshot.PluginVersion,
                     agent_id = _agentId,
                 },
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                _saveId).ConfigureAwait(false);
             if (!started.Ok)
             {
                 TrackTransportFailure(started.StatusCode);
@@ -149,12 +186,13 @@ public sealed class SaveIdentitySync
                     false,
                     _identityId,
                     null,
-                    $"后端会话状态为 {status ?? "unknown"}，不可写入。");
+                    $"后端会话状态为 {status ?? "unknown"}，不可写入。",
+                    _saveId);
             }
 
             _sessionId = sessionId;
-            _sessionKey = snapshot.SessionKey;
-            return new SaveIdentitySyncResult(true, _identityId, _sessionId, null);
+            _sessionKey = stableKey;
+            return new SaveIdentitySyncResult(true, _identityId, _sessionId, null, _saveId);
         }
 
         var heartbeat = await _client.HeartbeatSaveSessionAsync(
@@ -178,7 +216,7 @@ public sealed class SaveIdentitySync
         }
 
         _networkLost = false;
-        return new SaveIdentitySyncResult(true, _identityId, _sessionId, null);
+        return new SaveIdentitySyncResult(true, _identityId, _sessionId, null, _saveId);
     }
 
     private void TrackTransportFailure(int? statusCode)
@@ -203,5 +241,13 @@ public sealed class SaveIdentitySync
         _sessionKey = null;
     }
 
-    private SaveIdentitySyncResult Fail(string error) => new(false, _identityId, _sessionId, error);
+    /// <summary>同一进程 + 同一存档的稳定会话键；真正启动会话时再附加时间戳。</summary>
+    private static string StableSessionKey(SaveIdentitySnapshot snapshot)
+    {
+        var fingerprint = snapshot.Fingerprint ?? "unknown";
+        var suffix = fingerprint.Length >= 8 ? fingerprint[^8..] : fingerprint;
+        return $"{snapshot.SessionKey}#{suffix}";
+    }
+
+    private SaveIdentitySyncResult Fail(string error) => new(false, _identityId, _sessionId, error, _saveId);
 }

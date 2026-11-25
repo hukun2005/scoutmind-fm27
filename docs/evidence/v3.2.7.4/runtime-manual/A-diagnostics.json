@@ -1,0 +1,36 @@
+{
+  "agent": "agent-LAPTOP-69NTM3N3-123188",
+  "backendBaseUrl": "http://127.0.0.1:8010/api/v1",
+  "backend_reachable": true,
+  "backend_http_status": 200,
+  "queue": {
+    "scans": 0,
+    "pending": 0,
+    "processing": 0,
+    "failed": 0,
+    "duplicates": 0,
+    "quarantine": 0
+  },
+  "capture_state": {
+    "saveName": null,
+    "lastGameDate": null,
+    "lastScanId": null,
+    "status": "idle",
+    "consecutiveFailures": 0,
+    "updatedAt": null
+  },
+  "outstanding_contexts": [],
+  "recent_jobs": [
+    {
+      "id": 1,
+      "scanId": "fmreader-8ccd8dcd4b63f95c",
+      "status": "succeeded",
+      "playerCount": 18614,
+      "transferCount": 0,
+      "attemptCount": 2,
+      "rejectedReason": null,
+      "isTerminal": true,
+      "isComplete": true
+    }
+  ]
+}
