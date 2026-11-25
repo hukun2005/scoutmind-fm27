@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using ScoutMind.FMReader.Calibration;
 using ScoutMind.FMReader.Engine;
 using ScoutMind.FMReader.Layouts;
 using ScoutMind.FMReader.Probes;
@@ -648,102 +650,178 @@ internal static class Program
 
             case "calibrate":
             {
-                // 只读校准：对已定位的球员对象，逐个候选偏移尝试嵌套字符串解码，按"像人名"的比例排序。
-                // 不写任何游戏内存；用于在布局漂移时重新发现姓名字段偏移。
-                var layout = new LayoutResolver().Resolve("26620374", "27.1");
-                if (layout is null)
+                // 只读校准：现场检测环境 → 跨区域抽样 → 同一对象多次读取 → JSON/Markdown 报告。
+                // 不写任何游戏内存；旧的位置参数 count / maxOffset 仍然保留。
+                if (args.Contains("--help", StringComparer.Ordinal))
                 {
-                    Console.Error.WriteLine("未登记的构建");
+                    Console.WriteLine("用法：ScoutMind.FMReader.Diag calibrate [count] [maxOffset] [选项]");
+                    Console.WriteLine();
+                    Console.WriteLine("  count                 抽样数量（默认 24）");
+                    Console.WriteLine("  maxOffset             候选偏移扫描上限（默认 1024）");
+                    Console.WriteLine("  --dry-run             只检测环境，不读取球员对象");
+                    Console.WriteLine("  --candidate <id>      指定候选布局（默认 fm27.1.person.2026-11-25）");
+                    Console.WriteLine("  --reads <n>           同一对象重复读取次数（默认 3，至少 2）");
+                    Console.WriteLine("  --samples <n>         覆盖抽样数量");
+                    Console.WriteLine("  --locate-limit <n>    堆扫描最多定位数量（默认 max(240, samples*10)）");
+                    Console.WriteLine("  --output <path>       写入脱敏 JSON");
+                    Console.WriteLine("  --local-output <path> 写入含原始指针的本机诊断 JSON（不要上传）");
+                    Console.WriteLine("  --markdown <path>     写入脱敏 Markdown 报告");
+                    Console.WriteLine("  --include-pointers    标准输出包含原始指针（仅本机调试）");
+                    Console.WriteLine("  --version             输出版本");
+                    return 0;
+                }
+
+                if (args.Contains("--version", StringComparer.Ordinal))
+                {
+                    Console.WriteLine("calibrate 1.0 (schema 1.0)");
+                    return 0;
+                }
+
+                var candidateId = FlagValue(args, "--candidate") ?? PersonLayoutCandidate.Fm27_1_20261125.CandidateId;
+                var candidate = candidateId == PersonLayoutCandidate.Fm27_1_20261125.CandidateId
+                    ? PersonLayoutCandidate.Fm27_1_20261125
+                    : null;
+                if (candidate is null)
+                {
+                    Console.Error.WriteLine($"未知候选：{candidateId}");
+                    return 64;
+                }
+
+                var sampleCount = args.Length > 1 && int.TryParse(args[1], out var parsedCount) ? parsedCount : 24;
+                sampleCount = IntFlag(args, "--samples", sampleCount);
+                var maxOffset = args.Length > 2 && int.TryParse(args[2], out var parsedMax) ? parsedMax : 0x400;
+                maxOffset = IntFlag(args, "--max-offset", maxOffset);
+                var readCount = IntFlag(args, "--reads", 3);
+                var locateLimit = IntFlag(args, "--locate-limit", Math.Max(240, sampleCount * 10));
+                var dryRun = args.Contains("--dry-run", StringComparer.Ordinal);
+                var includePointers = args.Contains("--include-pointers", StringComparer.Ordinal);
+                var outputPath = FlagValue(args, "--output");
+                var localOutputPath = FlagValue(args, "--local-output");
+                var markdownPath = FlagValue(args, "--markdown");
+
+                var status = await engine.GetStatusAsync(cancellation.Token).ConfigureAwait(false);
+                var gameVersion = status.Gate?.Layout is { Length: > 0 } gateLayout
+                    ? gateLayout.Replace("FM", string.Empty, StringComparison.Ordinal).Replace('_', '.')
+                    : status.PluginVersion;
+                var environment = new CalibrationEnvironment(
+                    status.ProcessId,
+                    string.IsNullOrWhiteSpace(status.ProcessPath) ? null : Path.GetFileNameWithoutExtension(status.ProcessPath),
+                    gameVersion,
+                    status.Build,
+                    status.PluginVersion,
+                    status.Gate?.Status.ToString(),
+                    status.Gate?.AllowScan == true,
+                    status.AccessDenied);
+
+                var timestamp = DateTimeOffset.Now;
+                PersonCalibrationReport EmitBlocked(string conclusion) => new()
+                {
+                    CandidateId = candidate.CandidateId,
+                    GameVersion = environment.GameVersion ?? "unknown",
+                    BuildNumber = environment.BuildNumber ?? "unknown",
+                    Environment = environment,
+                    CalibrationTimestamp = timestamp,
+                    NameFieldOffsets = candidate.NameOffsetCandidates,
+                    DateOfBirthOffset = candidate.DateOfBirthOffsetCandidate,
+                    SamplingStrategy = "even_stride",
+                    DryRun = dryRun,
+                    VerificationStatus = CandidateVerificationStatus.UnsupportedBuild,
+                    Conclusion = conclusion,
+                };
+
+                void Emit(PersonCalibrationReport report)
+                {
+                    Console.WriteLine(PersonCalibrationReportWriter.ToJson(report, includePointers));
+                    if (!string.IsNullOrWhiteSpace(outputPath))
+                    {
+                        File.WriteAllText(outputPath, PersonCalibrationReportWriter.ToJson(report));
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(localOutputPath))
+                    {
+                        File.WriteAllText(localOutputPath, PersonCalibrationReportWriter.ToJson(report, includePointers: true));
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(markdownPath))
+                    {
+                        File.WriteAllText(markdownPath, PersonCalibrationReportWriter.ToMarkdown(report));
+                    }
+                }
+
+                if (status.Gate?.AllowScan != true)
+                {
+                    Emit(EmitBlocked("版本闸门未允许扫描：本次不读取任何球员对象，也不使用历史环境作为通过依据。"));
                     return 3;
                 }
 
-                var count = args.Length > 1 && int.TryParse(args[1], out var parsedCount) ? parsedCount : 80;
-                var maxOffset = args.Length > 2 && int.TryParse(args[2], out var parsedMax) ? parsedMax : 0x400;
-                using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
-                var locator = new ScoutMind.FMReader.Engine.HeapObjectLocator(memory);
-                var players = locator.FindPlayers(layout, count, TimeSpan.FromSeconds(40));
-                var rows = new List<(int Off, int Readable, int NameLike, int Distinct, List<string> Samples)>();
-                for (var off = 0; off <= maxOffset; off += 8)
+                if (!string.Equals(status.Build, candidate.BuildNumber, StringComparison.Ordinal)
+                    || (!string.IsNullOrWhiteSpace(gameVersion)
+                        && !string.Equals(gameVersion, candidate.GameVersion, StringComparison.Ordinal)))
                 {
-                    var readable = 0;
-                    var nameLike = 0;
-                    var distinct = new HashSet<string>(StringComparer.Ordinal);
-                    var samples = new List<string>();
-                    foreach (var player in players)
-                    {
-                        string? value;
-                        try
-                        {
-                            value = memory.NestedString(player.Person + (ulong)off);
-                        }
-                        catch (ScoutMind.FMReader.Probes.MemoryUnreadableException)
-                        {
-                            continue;
-                        }
-
-                        if (string.IsNullOrWhiteSpace(value))
-                        {
-                            continue;
-                        }
-
-                        readable++;
-                        var plausible = value.Length is >= 2 and <= 40
-                                        && value.All(ch => char.IsLetter(ch) || ch is ' ' or '\'' or '-' or '.');
-                        if (plausible)
-                        {
-                            nameLike++;
-                            distinct.Add(value);
-                            if (samples.Count < 5)
-                            {
-                                samples.Add(value);
-                            }
-                        }
-                    }
-
-                    if (readable > 0)
-                    {
-                        rows.Add((off, readable, nameLike, distinct.Count, samples));
-                    }
+                    Emit(EmitBlocked(
+                        $"检测到的构建/版本（{status.Build ?? "unknown"} / {gameVersion ?? "unknown"}）与候选"
+                        + $"（{candidate.BuildNumber} / {candidate.GameVersion}）不一致，拒绝用该候选校准。"));
+                    return 3;
                 }
 
-                Console.WriteLine(ToJson(new
+                var layout = new LayoutResolver().Resolve(status.Build, gameVersion);
+                if (layout is null)
                 {
-                    players = players.Count,
-                    current_offsets = new
+                    Emit(EmitBlocked("没有与本次检测到的构建/版本对应的布局。"));
+                    return 3;
+                }
+
+                if (dryRun)
+                {
+                    Emit(new PersonCalibrationReport
                     {
-                        PERO_FIRST_NAME = layout["PERO_FIRST_NAME"],
-                        PERO_SECOND_NAME = layout["PERO_SECOND_NAME"],
-                        PERO_COMMON_NAME = layout["PERO_COMMON_NAME"],
-                    },
-                    name_field_probe = players.Take(8).Select(player => new
-                    {
-                        person = $"0x{player.Person:X}",
-                        first_ptr = $"0x{memory.Pointer(player.Person + (ulong)layout["PERO_FIRST_NAME"]):X}",
-                        second_ptr = $"0x{memory.Pointer(player.Person + (ulong)layout["PERO_SECOND_NAME"]):X}",
-                        common_ptr = $"0x{memory.Pointer(player.Person + (ulong)layout["PERO_COMMON_NAME"]):X}",
-                        first = memory.NestedString(player.Person + (ulong)layout["PERO_FIRST_NAME"]),
-                        second = memory.NestedString(player.Person + (ulong)layout["PERO_SECOND_NAME"]),
-                        ca = memory.UInt16(player.Block + (ulong)layout["PLAO_CA"]),
-                    }),
-                    candidates = rows.OrderByDescending(row => row.NameLike)
-                        .ThenByDescending(row => row.Distinct)
-                        .Take(25)
-                        .Select(row => new
-                        {
-                            offset = $"0x{row.Off:X}",
-                            readable = row.Readable,
-                            name_like = row.NameLike,
-                            distinct = row.Distinct,
-                            samples = row.Samples,
-                        }),
-                }));
-                return 0;
+                        CandidateId = candidate.CandidateId,
+                        GameVersion = environment.GameVersion ?? "unknown",
+                        BuildNumber = environment.BuildNumber ?? "unknown",
+                        Environment = environment,
+                        CalibrationTimestamp = timestamp,
+                        NameFieldOffsets = candidate.NameOffsetCandidates,
+                        DateOfBirthOffset = candidate.DateOfBirthOffsetCandidate,
+                        SamplingStrategy = "even_stride",
+                        DryRun = true,
+                        VerificationStatus = CandidateVerificationStatus.Unverified,
+                        Conclusion = "dry-run：只检测环境，未读取任何球员对象。",
+                    });
+                    return 0;
+                }
+
+                try
+                {
+                    using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
+                    var locator = new ScoutMind.FMReader.Engine.HeapObjectLocator(memory);
+                    var located = locator.FindPlayers(layout, Math.Max(1, locateLimit), TimeSpan.FromSeconds(45));
+                    var persons = located.Select(player => player.Person).ToList();
+                    var report = new PersonCalibrationEngine(memory).Run(
+                        candidate,
+                        persons,
+                        environment,
+                        new PersonCalibrationOptions(
+                            Math.Max(2, readCount),
+                            sampleCount,
+                            locateLimit,
+                            (uint)Math.Max(0, maxOffset),
+                            true,
+                            false),
+                        timestamp);
+                    Emit(report);
+                    return report.VerificationStatus == CandidateVerificationStatus.Unstable ? 3 : 0;
+                }
+                catch (ScoutMind.FMReader.Probes.MemoryUnreadableException)
+                {
+                    Emit(EmitBlocked("无法读取进程内存（可能未加载存档或权限不足）。"));
+                    return 3;
+                }
             }
 
             case "xref":
             {
-                // 在每条球员记录的范围内寻找"指向完整 person 对象"的指针：
-                // 对记录内每个 8 字节槽读指针 T，再用旧布局的姓名偏移尝试解码，命中即为可用的 person 基址。
+                // 旧行为（默认）：在每条球员记录范围内寻找"指向完整 person 对象"的指针。
+                // 新增（只读）：--link <index> 走路线 A 的多字段关联；--link-all 做唯一性审计。
                 var layout = new LayoutResolver().Resolve("26620374", "27.1");
                 if (layout is null)
                 {
@@ -753,6 +831,103 @@ internal static class Program
 
                 using var memory = ScoutMind.FMReader.Engine.WinMemorySource.Open();
                 var locator = new ScoutMind.FMReader.Engine.HeapObjectLocator(memory);
+                var includePointers = args.Contains("--include-pointers", StringComparer.Ordinal);
+
+                if (args.Contains("--link", StringComparer.Ordinal)
+                    || args.Contains("--link-all", StringComparer.Ordinal))
+                {
+                    var locatedLimit = Math.Max(1, IntFlag(args, "--located", 400));
+                    var located = locator.FindPlayers(layout, locatedLimit, TimeSpan.FromSeconds(45));
+                    if (located.Count == 0)
+                    {
+                        Console.Error.WriteLine("没有定位到球员记录");
+                        return 3;
+                    }
+
+                    var factsReader = new PlayerRecordFactsReader(memory, layout);
+                    var facts = located.Select(factsReader.Read).ToList();
+                    var indexOf = BuildIndexMap(located);
+                    var linker = new AttributeRecordLinker();
+
+                    if (args.Contains("--link-all", StringComparer.Ordinal))
+                    {
+                        var auditCount = Math.Max(1, IntFlag(args, "--samples", 32));
+                        var indexes = PersonCalibrationEngine.SelectEvenly(
+                            Enumerable.Range(0, facts.Count).ToList(),
+                            auditCount);
+                        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+                        var rows = new List<object>();
+                        foreach (var index in indexes)
+                        {
+                            var result = linker.Link(PersonIdentityFields.FromFacts(facts[index]), facts);
+                            var key = result.Status.ToString();
+                            counts[key] = counts.GetValueOrDefault(key) + 1;
+                            rows.Add(new
+                            {
+                                target_index = index,
+                                name = BuildName(facts[index]),
+                                date_of_birth = FormatDate(facts[index].DateOfBirth),
+                                status = key,
+                                reason = result.Reason,
+                                compatible = result.CompatibleCandidates.Count,
+                                matched_fields = result.CompatibleCandidates.Count == 0
+                                    ? Array.Empty<string>()
+                                    : result.CompatibleCandidates[0].Comparisons
+                                        .Where(item => item.Applicable && item.Matched)
+                                        .Select(item => item.Field)
+                                        .ToArray(),
+                                missing_fields = result.MissingFields,
+                            });
+                        }
+
+                        Console.WriteLine(ToJson(new
+                        {
+                            mode = "link-all",
+                            located_total = facts.Count,
+                            sampled = indexes.Count,
+                            counts,
+                            rows,
+                        }));
+                        return 0;
+                    }
+
+                    var targetIndex = IntFlag(args, "--link", 0);
+                    if (targetIndex < 0 || targetIndex >= facts.Count)
+                    {
+                        Console.Error.WriteLine($"记录序号超出范围：{targetIndex}（共 {facts.Count} 条）");
+                        return 3;
+                    }
+
+                    var humanConfirmed = args.Contains("--human-confirmed", StringComparer.Ordinal);
+                    var targetIdentity = PersonIdentityFields.FromFacts(facts[targetIndex]);
+                    var link = linker.Link(targetIdentity, facts, humanConfirmed);
+                    Console.WriteLine(ToJson(new
+                    {
+                        mode = "link",
+                        located_total = facts.Count,
+                        target_index = targetIndex,
+                        target = IdentityJson(targetIdentity),
+                        status = link.Status.ToString(),
+                        reason = link.Reason,
+                        human_confirmed = humanConfirmed,
+                        missing_fields = link.MissingFields,
+                        compatible_candidates = link.CompatibleCandidates
+                            .Select(candidate => LinkCandidateJson(candidate, indexOf, includePointers))
+                            .ToArray(),
+                        rejected_total = link.RejectedCandidates.Count,
+                        rejected_candidates = link.RejectedCandidates
+                            .Take(10)
+                            .Select(candidate => LinkCandidateJson(candidate, indexOf, includePointers))
+                            .ToArray(),
+                        conflicts_total = link.Conflicts.Count,
+                        conflict_candidates = link.Conflicts
+                            .Take(10)
+                            .Select(candidate => LinkCandidateJson(candidate, indexOf, includePointers))
+                            .ToArray(),
+                    }));
+                    return 0;
+                }
+
                 var players = locator.FindPlayers(layout, 10, TimeSpan.FromSeconds(40));
                 var hits = new List<object>();
                 foreach (var player in players.Take(5))
@@ -883,6 +1058,90 @@ internal static class Program
                 return 64;
         }
     }
+
+    private static string? FlagValue(string[] args, string flag)
+    {
+        var index = Array.IndexOf(args, flag);
+        if (index < 0 || index + 1 >= args.Length)
+        {
+            return null;
+        }
+
+        var value = args[index + 1];
+        return value.StartsWith("--", StringComparison.Ordinal) ? null : value;
+    }
+
+    private static int IntFlag(string[] args, string flag, int fallback) =>
+        int.TryParse(FlagValue(args, flag), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : fallback;
+
+    private static Dictionary<ulong, int> BuildIndexMap(IReadOnlyList<LocatedObject> located)
+    {
+        var map = new Dictionary<ulong, int>(located.Count);
+        for (var index = 0; index < located.Count; index++)
+        {
+            map.TryAdd(located[index].Address, index);
+        }
+
+        return map;
+    }
+
+    private static string? BuildName(PlayerRecordFacts facts) =>
+        BuildName(facts.FirstName, facts.SecondName, facts.CommonName);
+
+    private static string? BuildName(string? first, string? second, string? common)
+    {
+        if (!string.IsNullOrWhiteSpace(common))
+        {
+            return common;
+        }
+
+        var joined = string.Join(" ", new[] { first, second }.Where(part => !string.IsNullOrWhiteSpace(part)));
+        return string.IsNullOrWhiteSpace(joined) ? null : joined;
+    }
+
+    private static object IdentityJson(PersonIdentityFields identity) => new
+    {
+        name = BuildName(identity.FirstName, identity.SecondName, identity.CommonName),
+        first_name = identity.FirstName,
+        second_name = identity.SecondName,
+        common_name = identity.CommonName,
+        date_of_birth = FormatDate(identity.DateOfBirth),
+        club = identity.ClubName,
+        uid = identity.Uid,
+    };
+
+    private static string? FormatDate(DateOnly? value) =>
+        value?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private static object LinkCandidateJson(
+        AttributeLinkCandidate candidate,
+        IReadOnlyDictionary<ulong, int> indexOf,
+        bool includePointers) => new
+    {
+        record_index = indexOf.TryGetValue(candidate.RecordPointer, out var index) ? index : (int?)null,
+        record_pointer = includePointers ? $"0x{candidate.RecordPointer:X}" : null,
+        name = BuildName(candidate.Facts),
+        first_name = candidate.Facts.FirstName,
+        second_name = candidate.Facts.SecondName,
+        common_name = candidate.Facts.CommonName,
+        date_of_birth = FormatDate(candidate.Facts.DateOfBirth),
+        ca = candidate.Facts.Ca,
+        pa = candidate.Facts.Pa,
+        club = candidate.Facts.ClubName,
+        uid = candidate.Facts.Uid,
+        missing_fields = candidate.Facts.MissingFields,
+        reasons = candidate.Reasons,
+        comparisons = candidate.Comparisons.Select(item => new
+        {
+            field = item.Field,
+            target_value = item.TargetValue,
+            candidate_value = item.CandidateValue,
+            applicable = item.Applicable,
+            matched = item.Matched,
+        }).ToArray(),
+    };
 
     private static string? ReadNationName(ScoutMind.FMReader.Probes.IMemorySource memory, ScoutMind.FMReader.Layouts.ILayout layout, ulong person)
     {
