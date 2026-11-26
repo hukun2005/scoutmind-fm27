@@ -37,8 +37,15 @@ GitHub Actions 提示 `actions/checkout@v4`、`actions/setup-python@v5`、`actio
 
 .NET 侧存在既有 nullable 警告（如 `MemScan.Win.cs` 的 `SnapshotError` / `ImageNote`），与 V3.2.9 改动无关。
 
-## 4. 说明
+## 4. 两次运行
+
+| Run ID | 提交 | 内容 | 结果 |
+| --- | --- | --- | --- |
+| 45749190883 | `80a1edd` | 代码 + 首批证据文档 | 6/6 success |
+| 45751356334 | `1232ce4` | CI 结果与最终报告文档 | 6/6 success |
+
+## 5. 说明
 
 - 本阶段没有跳过 CI、没有把未启动的 CI 写成通过。
 - Playwright 治理用例为既有套件；V3.2.9 新增页面未单独增加 Playwright 用例（浏览器 E2E 标记 NOT_RUN，见 TEST-MATRIX）。
-- 最终文档提交会触发一次新的 CI；若结果不同，以最新 run 为准并在 FINAL-REPORT 更新。
+- 后续若仅修改 Markdown 证据，提交信息会使用 `[skip ci]`，避免无意义的重复构建；代码提交必须保持 CI 全绿。
