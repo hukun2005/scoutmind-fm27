@@ -1312,3 +1312,229 @@ def _reject_save_identity_audit_rewrite(*_args: object) -> None:
     """审计事件不可覆盖：修正必须追加新事件。"""
     raise ValueError("save_identity_audit_events 是不可覆盖的审计表：禁止更新或删除")
 
+
+# ---------------------------------------------------------------------------
+# V3.2.9 全库球员身份治理
+#
+# 设计原则（与任务书 §1/§3/§5 一致）：
+# * UID 只是「存档内关联键」，不是全球永久身份；所有观测都带存档身份作用域。
+# * 无法确定的球员保留为候选或冲突，绝不自动合并。
+# * 人工审核只产生「人类已确认」这类状态，Verified 仍由 V3.2.8.1 的门控决定，
+#   API 不接受客户端直接把状态写成 Verified。
+# ---------------------------------------------------------------------------
+
+#: ``player_uid_observations.status`` 的取值。
+UID_OBSERVATION_STATUSES = ("Valid", "Missing", "Duplicate", "Conflicted", "Stale", "Unsupported")
+#: ``player_identity_links.verification_status`` 的取值。
+#: 注意：这里没有 Verified —— Verified 属于 V3.2.8.1 的作用域模型，本层不生产它。
+IDENTITY_LINK_STATUSES = (
+    "Unverified",
+    "Candidate",
+    "ConfirmedByHuman",
+    "Stale",
+    "Conflicted",
+    "Rejected",
+)
+#: 人工审核队列状态。
+IDENTITY_REVIEW_STATUSES = (
+    "PendingHumanReview",
+    "Confirmed",
+    "Rejected",
+    "KeptIndependent",
+    "Deferred",
+    "Stale",
+)
+#: 批处理任务状态。
+SCAN_RUN_STATUSES = ("Queued", "Running", "Paused", "Completed", "Failed", "Cancelled")
+
+
+class PlayerUidObservation(TimestampMixin, Base):
+    """一次带作用域的 UID 观测（只追加）。
+
+    ``observation_key`` 是幂等键：同一次扫描重放不会产生第二行。作用域包含存档、存档身份指纹、
+    会话、来源、采集时间与实例，任何一项变化都是新的观测，不会覆盖历史。
+    ``uid`` 保留原始文本（含前导零），``uid_status`` 是统一分类结果（valid/sentinel/missing/invalid）。
+    """
+
+    __tablename__ = "player_uid_observations"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", "observation_key", name="uq_uid_observation_save_key"),
+        Index("ix_uid_observation_save_uid", "fm_save_id", "uid"),
+        Index("ix_uid_observation_save_status", "fm_save_id", "status"),
+        Index("ix_uid_observation_instance", "player_instance_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    observation_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    save_identity_fingerprint: Mapped[str | None] = mapped_column(String(128))
+    session_key: Mapped[str | None] = mapped_column(String(128))
+    player_instance_id: Mapped[int | None] = mapped_column(ForeignKey("player_instances.id"))
+    player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"), index=True)
+    uid: Mapped[str | None] = mapped_column(String(64))
+    uid_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    uid_reason: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    source_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    game_build: Mapped[str | None] = mapped_column(String(64))
+    layout_version: Mapped[str | None] = mapped_column(String(32))
+    observed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    attribute_record_digest: Mapped[str | None] = mapped_column(String(64))
+    evidence_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    # 重复/冲突时指向「另一条记录所属的球员」，不合并、只留证据。
+    conflicting_player_id: Mapped[int | None] = mapped_column(Integer)
+
+
+class PlayerIdentityLink(TimestampMixin, Base):
+    """Canonical 球员与某个存档内实例之间的关联（只追加 + 显式失效）。
+
+    历史不覆盖：关联失效写 ``valid_to`` 并追加新行，``superseded_by_id`` 指向新行。
+    ``verification_status`` 永远不含 Verified；Verified 由 V3.2.8.1 的 C# 门控给出。
+    """
+
+    __tablename__ = "player_identity_links"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", "link_key", name="uq_identity_link_save_key"),
+        Index("ix_identity_link_save_player", "fm_save_id", "canonical_player_id"),
+        Index("ix_identity_link_save_uid", "fm_save_id", "save_local_uid"),
+        Index("ix_identity_link_status", "fm_save_id", "verification_status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    canonical_player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), nullable=False, index=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    player_instance_id: Mapped[int | None] = mapped_column(ForeignKey("player_instances.id"))
+    save_local_uid: Mapped[str | None] = mapped_column(String(64))
+    uid_occurrence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    source_record_id: Mapped[str | None] = mapped_column(String(64))
+    verification_status: Mapped[str] = mapped_column(String(24), default="Candidate", nullable=False)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    link_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    linked_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    valid_from: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime)
+    superseded_by_id: Mapped[int | None] = mapped_column(Integer)
+    evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class PlayerIdentityReviewItem(TimestampMixin, Base):
+    """人工审核队列的一条待处理身份问题（同名/UID 重复/跨存档/UID 冲突）。
+
+    ``item_key`` 保证重复扫描幂等；同一问题不会因为多跑一次扫描而出现两行。
+    已由人工处理的条目不会被后续扫描覆盖（扫描只在不存在时创建）。
+    """
+
+    __tablename__ = "player_identity_review_items"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", "item_key", name="uq_identity_review_save_key"),
+        Index("ix_identity_review_save_status", "fm_save_id", "status"),
+        Index("ix_identity_review_save_type", "fm_save_id", "item_type"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    item_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    item_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), default="warning", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="PendingHumanReview", nullable=False)
+    subject_uid: Mapped[str | None] = mapped_column(String(64))
+    primary_player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"))
+    candidate_player_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    conflict_reason: Mapped[str | None] = mapped_column(String(64))
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    detected_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class PlayerIdentityReviewAction(Base):
+    """审核操作的不可变审计行（追加写，禁止更新/删除）。"""
+
+    __tablename__ = "player_identity_review_actions"
+    __table_args__ = (Index("ix_identity_review_action_item", "review_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    review_id: Mapped[int] = mapped_column(
+        ForeignKey("player_identity_review_items.id"), nullable=False, index=True
+    )
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    action: Mapped[str] = mapped_column(String(24), nullable=False)
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    previous_status: Mapped[str | None] = mapped_column(String(24))
+    new_status: Mapped[str] = mapped_column(String(24), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(512))
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+@event.listens_for(PlayerIdentityReviewAction, "before_update")
+@event.listens_for(PlayerIdentityReviewAction, "before_delete")
+def _reject_identity_review_action_rewrite(*_args: object) -> None:
+    raise ValueError("player_identity_review_actions 是不可覆盖的审计表：禁止更新或删除")
+
+
+class IdentityScanRun(TimestampMixin, Base):
+    """一次全库身份扫描的批次状态，用于有界批处理、幂等重放与断点恢复。
+
+    ``payload_checksum`` 是作用域描述（存档 + 存档身份指纹 + 构建 + 布局 + 实例范围）的哈希；
+    恢复时重算不一致就拒绝继续，避免在错误存档/错误布局上复用旧进度。
+    """
+
+    __tablename__ = "identity_scan_runs"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", "scan_id", name="uq_identity_scan_save_scan"),
+        Index("ix_identity_scan_save_status", "fm_save_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    scan_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="Queued", nullable=False)
+    cursor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    batch_size: Mapped[int] = mapped_column(Integer, default=200, nullable=False)
+    total_instances: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    processed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    matched_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    conflict_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    payload_checksum: Mapped[str | None] = mapped_column(String(64))
+    save_identity_fingerprint: Mapped[str | None] = mapped_column(String(128))
+    game_build: Mapped[str | None] = mapped_column(String(64))
+    layout_version: Mapped[str | None] = mapped_column(String(32))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class CrossSaveIdentityCandidate(TimestampMixin, Base):
+    """不同存档之间「可能是同一个现实球员」的候选（不自动合并）。
+
+    相同 UID 只是证据之一：``uid_equal`` 记录它，但跨存档 UID 不构成身份。
+    """
+
+    __tablename__ = "cross_save_identity_candidates"
+    __table_args__ = (
+        UniqueConstraint(
+            "fm_save_id", "other_save_id", "subject_player_id", "other_player_id",
+            name="uq_cross_save_pair",
+        ),
+        Index("ix_cross_save_save_status", "fm_save_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    other_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    subject_player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), nullable=False, index=True)
+    other_player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), nullable=False, index=True)
+    normalized_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    birth_date: Mapped[date | None] = mapped_column(Date)
+    match_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="CrossSaveCandidate", nullable=False)
+    uid_equal: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    resolved_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+

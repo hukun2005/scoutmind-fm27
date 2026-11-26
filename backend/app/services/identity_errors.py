@@ -1,0 +1,44 @@
+"""V3.2.9 身份治理的稳定错误码。
+
+服务层不依赖 FastAPI；路由层把 :class:`IdentityGovernanceError` 转成带 ``code`` 的 HTTP 响应。
+错误码同时用于审计与证据报告，因此字符串必须稳定、可检索。
+"""
+
+from __future__ import annotations
+
+
+class IdentityGovernanceError(Exception):
+    """一次可预期、可审计的身份治理失败。"""
+
+    def __init__(self, code: str, message: str, *, status_code: int = 409) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+
+    def as_detail(self) -> dict[str, str]:
+        return {"code": self.code, "message": self.message}
+
+
+#: 任务书 §15 的失败分类，集中在这里避免拼写漂移。
+UID_DUPLICATE = "UID_DUPLICATE"
+UID_MISSING = "UID_MISSING"
+UID_SCOPE_CONFLICT = "UID_SCOPE_CONFLICT"
+PERSON_NOT_FOUND = "PERSON_NOT_FOUND"
+ATTRIBUTE_RECORD_NOT_FOUND = "ATTRIBUTE_RECORD_NOT_FOUND"
+MULTIPLE_MATCHES = "MULTIPLE_MATCHES"
+IDENTITY_CONFLICT = "IDENTITY_CONFLICT"
+SAVE_IDENTITY_MISMATCH = "SAVE_IDENTITY_MISMATCH"
+STALE_PERSON_POINTER = "STALE_PERSON_POINTER"
+BATCH_CHECKSUM_MISMATCH = "BATCH_CHECKSUM_MISMATCH"
+BATCH_RESUME_FAILED = "BATCH_RESUME_FAILED"
+DATABASE_MIGRATION_ERROR = "DATABASE_MIGRATION_ERROR"
+CANONICAL_LINK_CONFLICT = "CANONICAL_LINK_CONFLICT"
+TRANSFER_LINK_CONFLICT = "TRANSFER_LINK_CONFLICT"
+AGENT_CONCURRENCY_ERROR = "AGENT_CONCURRENCY_ERROR"
+REAL_FM27_UNAVAILABLE = "REAL_FM27_UNAVAILABLE"
+REVIEW_ALREADY_RESOLVED = "REVIEW_ALREADY_RESOLVED"
+REVIEW_NOT_FOUND = "REVIEW_NOT_FOUND"
+VERIFIED_NOT_SETTABLE = "VERIFIED_NOT_SETTABLE"
+SCAN_NOT_FOUND = "SCAN_NOT_FOUND"
+SCAN_STATE_INVALID = "SCAN_STATE_INVALID"

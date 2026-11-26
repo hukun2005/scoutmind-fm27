@@ -7,6 +7,7 @@ Response payloads are assembled by the routers from deterministic analytics resu
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -316,3 +317,42 @@ class SaveSessionSwitchIn(BaseModel):
     reason: str = Field(default="save_switch", min_length=1, max_length=64)
     next_session_id: int | None = Field(default=None, ge=1)
     actor: str = Field(default="agent", max_length=64)
+
+# ---------------------------------------------------------------------------
+# V3.2.9 身份审核中心
+# ---------------------------------------------------------------------------
+
+
+class IdentityReviewResolveIn(BaseModel):
+    """人工审核决定。``payload`` 只作证据补充，不允许携带 Verified。"""
+
+    decision: Literal["same", "different", "independent", "defer"]
+    note: str | None = Field(default=None, max_length=512)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class IdentityScanStartIn(BaseModel):
+    """创建一次全库身份扫描批次。"""
+
+    scan_id: str = Field(min_length=1, max_length=64)
+    batch_size: int = Field(default=200, ge=1, le=1000)
+    save_identity_fingerprint: str | None = Field(default=None, max_length=128)
+    game_build: str | None = Field(default=None, max_length=64)
+    layout_version: str | None = Field(default=None, max_length=32)
+    max_batches: int | None = Field(default=None, ge=1, le=200)
+
+
+class IdentityScanResumeIn(BaseModel):
+    """恢复扫描前必须携带当前作用域，用于拒绝在错误存档/布局上复用旧进度。"""
+
+    save_identity_fingerprint: str | None = Field(default=None, max_length=128)
+    game_build: str | None = Field(default=None, max_length=64)
+    layout_version: str | None = Field(default=None, max_length=32)
+    max_batches: int | None = Field(default=None, ge=1, le=200)
+
+
+class CrossSaveReviewIn(BaseModel):
+    """跨存档候选的人工决定；确认也不会产生 Verified。"""
+
+    decision: Literal["same", "different", "defer"]
+    note: str | None = Field(default=None, max_length=512)
