@@ -47,6 +47,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'data', label: '数据中心', to: '/data', icon: 'data', hint: '数据导入、覆盖度与兼容性' },
   { key: 'governance', label: '数据治理', to: '/governance', icon: 'data', hint: '同日冲突、canonical 审核与成长时间轴' },
   { key: 'identity', label: '身份复核', to: '/identity', icon: 'players', hint: '同 UID 冲突的人工确认与审计' },
+  { key: 'identity-center', label: '球员身份中心', to: '/identity-center', icon: 'players', hint: 'UID 作用域、审核队列与跨存档候选' },
   { key: 'save-identity', label: '存档身份', to: '/save-identity', icon: 'data', hint: '存档身份、会话心跳与采集阻断诊断' },
   { key: 'unresolved', label: '自由球员', to: '/unresolved', icon: 'players', hint: '无 UID 球员的观察、确认与忽略' },
 ]
