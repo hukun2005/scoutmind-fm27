@@ -1599,3 +1599,53 @@ def _reject_data_repair_audit_rewrite(*_args: object) -> None:
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
     resolved_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
+
+class DataRepairAudit(TimestampMixin, Base):
+    """V3.3.0 自动导入引擎的修复与隔离审计（只追加，不覆盖）。
+
+    一行代表「一个实体行上的一条决策」：
+
+    * ``decision='repaired'``：Level 1/2 修复已应用，``before_json`` / ``after_json`` 保留原值与新值；
+    * ``decision='quarantined'``：Level 3 隔离，该行没有写入正式数据，``requires_review=True``。
+
+    幂等键是 ``(import_job_id, entity, row_index, rule_id, field)``：同一批次重复执行不会重复写审计。
+    原始报文本身仍保存在 ``import_jobs.raw_payload_path``，审计只记录必要的前后值。
+    """
+
+    __tablename__ = "data_repair_audits"
+    __table_args__ = (
+        UniqueConstraint(
+            "import_job_id", "entity", "row_index", "rule_id", "field",
+            name="uq_data_repair_job_row_rule",
+        ),
+        Index("ix_data_repair_save_scan", "fm_save_id", "scan_id"),
+        Index("ix_data_repair_save_decision", "fm_save_id", "decision"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    # 导入任务；隔离行在任务创建前就被拦下时允许为空，但正式写入的修复必然绑定任务。
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), index=True)
+    scan_id: Mapped[str | None] = mapped_column(String(64))
+    entity: Mapped[str] = mapped_column(String(16), nullable=False)
+    row_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    rule_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    rule_version: Mapped[str] = mapped_column(String(16), default="1", nullable=False)
+    level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    field: Mapped[str | None] = mapped_column(String(64))
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str | None] = mapped_column(String(32))
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    result: Mapped[str] = mapped_column(String(16), default="applied", nullable=False)
+    requires_review: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    executed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+@event.listens_for(DataRepairAudit, "before_update")
+@event.listens_for(DataRepairAudit, "before_delete")
+def _reject_data_repair_audit_rewrite(*_args: object) -> None:
+    """修复审计不可覆盖：错误决策通过新增修正记录表达。"""
+    raise ValueError("data_repair_audits 是不可覆盖的审计表：禁止更新或删除")
+
