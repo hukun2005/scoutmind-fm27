@@ -93,6 +93,7 @@ def answer_question(
     ]
     answer["reliability"] = _reliability_block(answer)
     answer["citations"] = _citations(calls)
+    answer["player_cards"] = _player_cards(calls)
     answer["mode"] = "deterministic"
     if "fallback_reason" in dir():
         answer["llm_fallback"] = fallback_reason
@@ -126,6 +127,7 @@ def _compose_llm_answer(
             "calls": len(payloads),
         },
         "citations": _citations(planned.calls),
+        "player_cards": _player_cards(planned.calls),
         "disclaimers": list(DISCLAIMERS),
         "mode": "llm-planned",
         "plan_trace": planned.trace,
@@ -472,6 +474,55 @@ def _transfer_history(session: Session, save_id: int, intent: planner.Intent, ca
         else "没有可复盘的本队交易。"
     )
     return _answer(conclusion, sections, int(summary.get("deals") or 0) if isinstance(summary, dict) else 0, "low", [])
+
+
+def _player_cards(calls: list[ToolCall]) -> list[dict[str, object]]:
+    """从工具结果中提取真实出现过的球员，供前端渲染可跳转的球员卡片。
+
+    只保留工具实际返回的 ``instance_id`` 与姓名；不补充任何未返回的字段，也不根据姓名猜测身份。
+    同一 instance_id 只出现一次，最多 8 张。
+    """
+    cards: list[dict[str, object]] = []
+    seen: set[int] = set()
+
+    def add(node: dict[str, object], tool: str) -> None:
+        instance_id = node.get("instance_id")
+        name = node.get("name")
+        if not isinstance(instance_id, int) or not isinstance(name, str) or name == "":
+            return
+        if instance_id in seen:
+            return
+        seen.add(instance_id)
+        club = node.get("club")
+        cards.append(
+            {
+                "instance_id": instance_id,
+                "name": name,
+                "age": node.get("age"),
+                "position": node.get("position"),
+                "club": club if isinstance(club, str) else None,
+                "ca": node.get("ca"),
+                "pa": node.get("pa"),
+                "market_value": node.get("market_value"),
+                "source_tool": tool,
+            }
+        )
+
+    def visit(node: object, tool: str) -> None:
+        if isinstance(node, dict):
+            player = node.get("player")
+            if isinstance(player, dict):
+                add(player, tool)
+            add(node, tool)
+            for value in node.values():
+                visit(value, tool)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value, tool)
+
+    for call in calls:
+        visit(call.result, call.name)
+    return cards[:8]
 
 
 def _reliability_block(answer: dict[str, object]) -> dict[str, object]:

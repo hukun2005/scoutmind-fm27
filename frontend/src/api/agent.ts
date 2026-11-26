@@ -7,7 +7,7 @@ import type {
   SendMessageRequest,
   SendMessageResponse,
 } from '../types/agent'
-import { apiGet, apiPost } from './client'
+import { apiDelete, apiGet, apiPost } from './client'
 
 /**
  * `GET /agent/conversations` — conversation list of one save.
@@ -25,6 +25,14 @@ export function listConversations(saveId?: number): Promise<ConversationListResp
  */
 export function createConversation(title?: string): Promise<Conversation> {
   return apiPost<Conversation>('/agent/conversations', title ? { title } : {})
+}
+
+/**
+ * `DELETE /agent/conversations/{id}` — remove one conversation and its messages.
+ * @param conversationId Conversation identifier.
+ */
+export function deleteConversation(conversationId: number): Promise<void> {
+  return apiDelete(`/agent/conversations/${conversationId}`)
 }
 
 /**

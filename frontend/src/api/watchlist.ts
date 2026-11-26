@@ -2,21 +2,46 @@
 
 import type {
   AlertListResponse,
+  WatchlistCreateListRequest,
   WatchlistCreateRequest,
+  WatchlistGroup,
+  WatchlistGroupResponse,
   WatchlistItem,
   WatchlistListResponse,
   WatchlistPatchRequest,
+  WatchlistQuery,
   WatchlistRefreshResponse,
 } from '../types/watchlist'
 import { apiDelete, apiGet, apiPatch, apiPost } from './client'
 
 /**
- * `GET /watchlist` — tracked players of one save.
- * @param saveId Save identifier (defaults to the backend's active save).
- * @returns Paged watchlist items.
+ * `GET /watchlist` — tracked players of one save with list/status/search filters.
+ * @param query Save, list, keyword and status filters.
+ * @returns Watchlist items plus the named lists of the save.
  */
-export function listWatchlist(saveId?: number): Promise<WatchlistListResponse> {
-  return apiGet<WatchlistListResponse>('/watchlist', { save_id: saveId })
+export function listWatchlist(query: WatchlistQuery = {}): Promise<WatchlistListResponse> {
+  return apiGet<WatchlistListResponse>('/watchlist', {
+    save_id: query.saveId,
+    list_id: query.listId,
+    q: query.q,
+    status: query.status,
+  })
+}
+
+/**
+ * `GET /watchlist/lists` — named watchlists and their item counts.
+ * @param saveId Save identifier (defaults to the backend's active save).
+ */
+export function listWatchlistGroups(saveId?: number): Promise<WatchlistGroupResponse> {
+  return apiGet<WatchlistGroupResponse>('/watchlist/lists', { save_id: saveId })
+}
+
+/**
+ * `POST /watchlist/lists` — create one named watchlist.
+ * @param body List name.
+ */
+export function createWatchlistGroup(body: WatchlistCreateListRequest): Promise<Pick<WatchlistGroup, 'id' | 'name'>> {
+  return apiPost<Pick<WatchlistGroup, 'id' | 'name'>>('/watchlist/lists', body)
 }
 
 /**

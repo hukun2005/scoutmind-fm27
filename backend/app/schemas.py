@@ -27,19 +27,32 @@ class SaveResolveIn(BaseModel):
     name: str | None = Field(default=None, max_length=128)
 
 
+WatchStatus = Literal["watching", "preparing", "paused", "done"]
+
+
+class WatchlistCreate(BaseModel):
+    """Create one named watchlist for the active save."""
+
+    name: str = Field(min_length=1, max_length=64)
+
+
 class WatchItemCreate(BaseModel):
     """Add one player to the watchlist."""
 
     instance_id: int
-    tag: str | None = None
-    note: str | None = None
+    tag: str | None = Field(default=None, max_length=32)
+    note: str | None = Field(default=None, max_length=512)
+    list_id: int | None = None
+    status: WatchStatus = "watching"
 
 
 class WatchItemUpdate(BaseModel):
-    """Change the tag or note of a watchlist entry."""
+    """Change the list, status, tag or note of a watchlist entry."""
 
-    tag: str | None = None
-    note: str | None = None
+    list_id: int | None = None
+    status: WatchStatus | None = None
+    tag: str | None = Field(default=None, max_length=32)
+    note: str | None = Field(default=None, max_length=512)
 
 
 class EvaluateRequest(BaseModel):

@@ -4,7 +4,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { asApiError, type ApiError } from '../api/client'
 import { getPlayer, getPlayerDevelopment, getPlayerHistory } from '../api/players'
@@ -15,6 +15,7 @@ import {
   addWatchlistItem,
   deleteWatchlistItem,
   listWatchlist,
+  patchWatchlistItem,
 } from '../api/watchlist'
 import AttributeBar from '../components/AttributeBar.vue'
 import ChartCard from '../components/ChartCard.vue'
@@ -43,6 +44,7 @@ import type { SimilarTransferItem, SimilarTransfersResponse } from '../types/tra
 import type { WatchlistItem } from '../types/watchlist'
 import type { PlayerStatus } from '../types/status'
 import type { TableColumn } from '../types/table'
+import { useCompareStore } from '../stores/compare'
 import { useSessionStore } from '../stores/session'
 import { buildAppearanceChart, buildGrowthChart, buildRadarChart } from '../utils/chart'
 import {
@@ -112,6 +114,8 @@ const watchLoading = ref(false)
 const watchError = ref<ApiError | null>(null)
 /** Last instance id loaded, used to clear stale panels when the route changes. */
 let loadedInstanceId: number | null = null
+/** Monotonic token: responses from an older player/reload never write into the current page. */
+let activeToken = 0
 
 /** Instance id from the route; `null` for a malformed URL. */
 const instanceId = computed(() => {
@@ -301,7 +305,7 @@ const valuationWarnings = computed(() => valuation.value?.warnings ?? [])
 const valuationInsufficient = computed(() => valuation.value?.insufficient_sample === true)
 
 /** Load the profile, history and development panels. */
-async function loadCore(id: number): Promise<void> {
+async function loadCore(id: number, token: number = activeToken): Promise<void> {
   detailLoading.value = true
   detailError.value = null
   historyLoading.value = true
@@ -312,63 +316,78 @@ async function loadCore(id: number): Promise<void> {
   await Promise.all([
     (async () => {
       try {
-        detail.value = await getPlayer(id)
-        session.markSources([detail.value.summary.source])
+        const next = await getPlayer(id)
+        if (token !== activeToken) return
+        detail.value = next
+        session.markSources([next.summary.source])
       } catch (caught) {
+        if (token !== activeToken) return
         detailError.value = asApiError(caught)
         detail.value = null
       } finally {
-        detailLoading.value = false
+        if (token === activeToken) detailLoading.value = false
       }
     })(),
     (async () => {
       try {
-        history.value = await getPlayerHistory(id)
+        const next = await getPlayerHistory(id)
+        if (token !== activeToken) return
+        history.value = next
       } catch (caught) {
+        if (token !== activeToken) return
         historyError.value = asApiError(caught)
         history.value = null
       } finally {
-        historyLoading.value = false
+        if (token === activeToken) historyLoading.value = false
       }
     })(),
     (async () => {
       try {
-        development.value = await getPlayerDevelopment(id)
+        const next = await getPlayerDevelopment(id)
+        if (token !== activeToken) return
+        development.value = next
       } catch (caught) {
+        if (token !== activeToken) return
         developmentError.value = asApiError(caught)
         development.value = null
       } finally {
-        developmentLoading.value = false
+        if (token === activeToken) developmentLoading.value = false
       }
     })(),
   ])
 }
 
 /** Load the comparable-transfer valuation. */
-async function loadValuation(id: number): Promise<void> {
+async function loadValuation(id: number, token: number = activeToken): Promise<void> {
   valuationLoading.value = true
   valuationError.value = null
   try {
-    valuation.value = await getValuation(id)
+    const next = await getValuation(id)
+    if (token !== activeToken) return
+    valuation.value = next
   } catch (caught) {
+    if (token !== activeToken) return
     valuationError.value = asApiError(caught)
     valuation.value = null
   } finally {
-    valuationLoading.value = false
+    if (token === activeToken) valuationLoading.value = false
   }
 }
 
 /** Load comparable transfers. */
-async function loadSimilar(id: number): Promise<void> {
+async function loadSimilar(id: number, token: number = activeToken): Promise<void> {
   similarLoading.value = true
   similarError.value = null
   try {
-    similar.value = await getSimilarTransfers(id, 20)
+    const next = await getSimilarTransfers(id, 20)
+    if (token !== activeToken) return
+    similar.value = next
   } catch (caught) {
+    if (token !== activeToken) return
     similarError.value = asApiError(caught)
     similar.value = null
   } finally {
-    similarLoading.value = false
+    if (token === activeToken) similarLoading.value = false
   }
 }
 
@@ -398,27 +417,32 @@ async function runEvaluation(): Promise<void> {
   evaluationLoading.value = true
   evaluationError.value = null
   try {
-    evaluation.value = await evaluateRole({ instance_id: id, role_key: roleKey })
+    const next = await evaluateRole({ instance_id: id, role_key: roleKey })
+    if (instanceId.value !== id || selectedRoleKey.value !== roleKey) return
+    evaluation.value = next
   } catch (caught) {
+    if (instanceId.value !== id || selectedRoleKey.value !== roleKey) return
     evaluationError.value = asApiError(caught)
     evaluation.value = null
   } finally {
-    evaluationLoading.value = false
+    if (instanceId.value === id && selectedRoleKey.value === roleKey) evaluationLoading.value = false
   }
 }
 
 /** Read whether the player is already tracked. */
-async function loadWatchState(): Promise<void> {
+async function loadWatchState(token: number = activeToken): Promise<void> {
   watchLoading.value = true
   watchError.value = null
   try {
-    const response = await listWatchlist(session.activeSaveId ?? undefined)
+    const response = await listWatchlist({ saveId: session.activeSaveId ?? undefined })
+    if (token !== activeToken) return
     watchItem.value = (response.items ?? []).find((item) => item.instance_id === instanceId.value) ?? null
   } catch (caught) {
+    if (token !== activeToken) return
     watchError.value = asApiError(caught)
     watchItem.value = null
   } finally {
-    watchLoading.value = false
+    if (token === activeToken) watchLoading.value = false
   }
 }
 
@@ -446,17 +470,68 @@ async function toggleWatch(next: boolean): Promise<void> {
   }
 }
 
+const router = useRouter()
+const compare = useCompareStore()
+const noteOpen = ref(false)
+const noteSaving = ref(false)
+const noteText = ref('')
+
+/** Open the personal note editor of the watched player. */
+function openNote(): void {
+  noteText.value = watchItem.value?.note ?? ''
+  noteOpen.value = true
+}
+
+/** Persist the personal note; empty text clears it without touching tags or list. */
+async function saveNote(): Promise<void> {
+  const item = watchItem.value
+  if (!item) return
+  noteSaving.value = true
+  try {
+    const updated = await patchWatchlistItem(item.id, { note: noteText.value.trim() })
+    watchItem.value = { ...item, ...updated }
+    noteOpen.value = false
+    ElMessage.success('备注已保存')
+  } catch (caught) {
+    ElMessage.error(`备注保存失败：${asApiError(caught).message}`)
+  } finally {
+    noteSaving.value = false
+  }
+}
+
+/** Add the player to the local comparison selection. */
+function addToCompare(): void {
+  const id = instanceId.value
+  if (id === null) return
+  compare.ensureSave(session.activeSaveId)
+  const result = compare.add(id)
+  if (result === 'added') ElMessage.success(`已加入对比（${compare.count}/4）`)
+  else if (result === 'exists') ElMessage.info('该球员已在对比中')
+  else ElMessage.warning('对比最多 4 名球员，请先在对比页移除一名')
+}
+
+/** Ask the AI scout assistant for a report grounded in this player's data. */
+function generateReport(): void {
+  const id = instanceId.value
+  if (id === null) return
+  const name = summary.value?.name ?? '该球员'
+  void router.push({ path: '/agent', query: { instance_id: String(id), q: `分析 ${name} 的能力、成长与估值` } })
+}
+
 /** Placing, injury, loan and pending-move status (P0-2/P0-4). */
-async function loadStatus(id: number): Promise<void> {
+async function loadStatus(id: number, token: number = activeToken): Promise<void> {
   statusLoading.value = true
   statusError.value = null
   try {
-    status.value = await getPlayerStatus(id)
+    const next = await getPlayerStatus(id)
+    if (token !== activeToken) return
+    status.value = next
   } catch (caught) {
+    if (token !== activeToken) return
     statusError.value = asApiError(caught)
     status.value = null
   } finally {
-    statusLoading.value = false
+    if (token === activeToken) statusLoading.value = false
   }
 }
 
@@ -479,11 +554,12 @@ function triState(value: boolean | null | undefined): string {
 function reloadAll(): void {
   const id = instanceId.value
   if (id === null) return
-  void loadCore(id)
-  void loadValuation(id)
-  void loadSimilar(id)
-  void loadStatus(id)
-  void loadWatchState()
+  const token = ++activeToken
+  void loadCore(id, token)
+  void loadValuation(id, token)
+  void loadSimilar(id, token)
+  void loadStatus(id, token)
+  void loadWatchState(token)
   if (selectedRoleKey.value) void runEvaluation()
 }
 
@@ -553,9 +629,28 @@ void loadRoles()
             />
           </span>
         </el-tooltip>
+        <el-button v-if="watchItem" size="small" @click="openNote">编辑备注</el-button>
+        <el-button size="small" @click="addToCompare">加入对比</el-button>
+        <el-button size="small" @click="generateReport">生成球员报告</el-button>
         <el-button size="small" :loading="detailLoading" @click="reloadAll">刷新</el-button>
       </template>
     </PageHeader>
+
+    <el-dialog v-model="noteOpen" title="个人备注" width="460px">
+      <el-input
+        v-model="noteText"
+        type="textarea"
+        :rows="4"
+        maxlength="512"
+        show-word-limit
+        placeholder="记录观察结论、谈判计划或需要复核的问题"
+      />
+      <p class="sm-text-2xs sm-text-faint">备注只保存到本存档的关注名单，不会被后续导入覆盖。</p>
+      <template #footer>
+        <el-button size="small" @click="noteOpen = false">取消</el-button>
+        <el-button size="small" type="primary" :loading="noteSaving" @click="saveNote">保存</el-button>
+      </template>
+    </el-dialog>
 
     <EmptyState
       v-if="instanceId === null"

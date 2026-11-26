@@ -3,11 +3,25 @@
 import type { DataSource } from './common'
 import type { PlayerSummary } from './players'
 
+/** Workflow status of one watched player; stored as an enum-like string. */
+export type WatchStatus = 'watching' | 'preparing' | 'paused' | 'done'
+
+/** One named watchlist of `GET /watchlist/lists`. */
+export interface WatchlistGroup {
+  id: number
+  name: string
+  count: number
+  is_default: boolean
+}
+
 /** One tracked player of `GET /watchlist`. */
 export interface WatchlistItem {
   id: number
   instance_id: number
+  list_id: number
+  list_name: string | null
   player: PlayerSummary
+  status: WatchStatus
   tag: string | null
   note: string | null
   source: DataSource | string
@@ -18,17 +32,41 @@ export interface WatchlistItem {
 export interface WatchlistListResponse {
   items: WatchlistItem[]
   total: number
+  lists: WatchlistGroup[]
+}
+
+/** `GET /watchlist/lists` payload. */
+export interface WatchlistGroupResponse {
+  items: WatchlistGroup[]
+  total: number
+}
+
+/** Query filters of `GET /watchlist`. */
+export interface WatchlistQuery {
+  saveId?: number
+  listId?: number
+  q?: string
+  status?: WatchStatus
+}
+
+/** Request body of `POST /watchlist/lists`. */
+export interface WatchlistCreateListRequest {
+  name: string
 }
 
 /** Request body of `POST /watchlist/items`. */
 export interface WatchlistCreateRequest {
   instance_id: number
+  list_id?: number
+  status?: WatchStatus
   tag?: string
   note?: string
 }
 
 /** Request body of `PATCH /watchlist/items/{id}`. */
 export interface WatchlistPatchRequest {
+  list_id?: number
+  status?: WatchStatus
   tag?: string
   note?: string
 }

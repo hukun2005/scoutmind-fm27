@@ -74,7 +74,7 @@ const routes: RouteRecordRaw[] = [
     path: '/agent',
     name: 'agent',
     component: () => import('../views/AgentView.vue'),
-    meta: { title: 'AI 体育总监' },
+    meta: { title: 'AI 球探助手' },
   },
   {
     path: '/identity',

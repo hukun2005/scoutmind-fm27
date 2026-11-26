@@ -5,7 +5,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRoute, useRouter } from 'vue-router'
 import { asApiError, type ApiError } from '../api/client'
+import { addWatchlistItem } from '../api/watchlist'
 import {
   createShortlist,
   getHiddenValue,
@@ -36,6 +38,8 @@ import { EMPTY, displayText, formatDecimal, formatInt, formatMoney, formatPercen
 import { positionLabel } from '../utils/labels'
 
 const session = useSessionStore()
+const router = useRouter()
+const route = useRoute()
 
 const SLOT_OPTIONS = [
   { value: 'GK', label: '门将' },
@@ -55,14 +59,16 @@ const form = reactive<{
   minAge: number | undefined
   maxAge: number | undefined
   budgetWan: number | undefined
+  minScore: number | undefined
   limit: number
-}>({ slot: 'ST', minAge: undefined, maxAge: undefined, budgetWan: undefined, limit: 20 })
+}>({ slot: 'ST', minAge: undefined, maxAge: undefined, budgetWan: undefined, minScore: undefined, limit: 20 })
 
 const shortlistName = ref('')
 
 const candidates = ref<PlayerScore[]>([])
 const total = ref(0)
 const dataGaps = ref<string[]>([])
+const gradeRules = ref('')
 const loading = ref(false)
 const error = ref<ApiError | null>(null)
 const searched = ref(false)
@@ -112,7 +118,8 @@ const columns: TableColumn<PlayerScore>[] = [
   { prop: 'name', label: '球员', minWidth: 150, formatter: (row) => row.player.name },
   { prop: 'age', label: '年龄', width: 64, align: 'right', formatter: (row) => displayText(row.player.age) },
   { prop: 'position', label: '位置', width: 92, formatter: (row) => positionLabel(row.player.position) },
-  { prop: 'club', label: '俱乐部', width: 150, formatter: (row) => displayText(row.player.club) },
+  { prop: 'club', label: '俱乐部', width: 140, formatter: (row) => displayText(row.player.club) },
+  { prop: 'grade', label: '推荐等级', width: 112, formatter: (row) => row.grade_label ?? '数据不足' },
   { prop: 'score', label: '综合评分', width: 96, align: 'right', formatter: (row) => formatDecimal(row.score, 1) },
   { prop: 'ability', label: 'A 能力', width: 84, align: 'right', formatter: (row) => formatDecimal(dimension(row, 'ability'), 0) },
   { prop: 'potential', label: 'P 潜力', width: 84, align: 'right', formatter: (row) => formatDecimal(dimension(row, 'potential'), 0) },
@@ -121,6 +128,7 @@ const columns: TableColumn<PlayerScore>[] = [
   { prop: 'value', label: 'V 价值', width: 84, align: 'right', formatter: (row) => formatDecimal(dimension(row, 'value'), 0) },
   { prop: 'room', label: 'R 空间', width: 84, align: 'right', formatter: (row) => formatDecimal(dimension(row, 'room'), 0) },
   { prop: 'market_value', label: '身价', width: 110, align: 'right', formatter: (row) => formatMoney(row.player.market_value) },
+  { prop: 'actions', label: '操作', width: 132, align: 'right' },
 ]
 
 const hiddenColumns: TableColumn<HiddenValueHit>[] = [
@@ -151,11 +159,13 @@ async function search(): Promise<void> {
       min_age: form.minAge,
       max_age: form.maxAge,
       max_value: form.budgetWan === undefined ? undefined : Math.round(form.budgetWan * 10_000),
+      min_score: form.minScore,
       limit: form.limit,
     })
     candidates.value = result.items ?? []
     total.value = result.total ?? 0
     dataGaps.value = result.data_gaps ?? []
+    gradeRules.value = result.grade_rules ?? ''
   } catch (caught) {
     error.value = asApiError(caught)
     candidates.value = []
@@ -239,7 +249,35 @@ async function openShortlist(id: number): Promise<void> {
   }
 }
 
+/** Follow one candidate; the backend keeps the item in the default list. */
+async function followCandidate(row: PlayerScore): Promise<void> {
+  try {
+    await addWatchlistItem({ instance_id: row.player.instance_id })
+    ElMessage.success(`已关注 ${row.player.name}`)
+  } catch (caught) {
+    ElMessage.warning(asApiError(caught).message)
+  }
+}
+
+/** Open the player detail page of one candidate. */
+function openCandidate(row: PlayerScore): void {
+  void router.push(`/players/${row.player.instance_id}`)
+}
+
+/** Element tag type of a recommendation grade. */
+function gradeTagType(grade: string | undefined): 'success' | 'primary' | 'warning' | 'danger' | 'info' {
+  if (grade === 'S' || grade === 'A') return 'success'
+  if (grade === 'B') return 'primary'
+  if (grade === 'C') return 'warning'
+  if (grade === 'D') return 'danger'
+  return 'info'
+}
+
 onMounted(() => {
+  const slot = route.query.slot
+  if (typeof slot === 'string' && SLOT_OPTIONS.some((option) => option.value === slot)) {
+    form.slot = slot
+  }
   void search()
   void loadHidden()
   void loadShortlists()
@@ -301,7 +339,20 @@ onMounted(() => {
             controls-position="right"
           />
         </label>
+        <label class="console__field">
+          <span class="sm-label">最低综合评分</span>
+          <el-input-number
+            v-model="form.minScore"
+            :min="0"
+            :max="100"
+            :step="5"
+            size="small"
+            placeholder="不限"
+            controls-position="right"
+          />
+        </label>
       </div>
+      <p v-if="gradeRules" class="sm-text-2xs sm-text-faint">{{ gradeRules }}</p>
       <el-alert
         v-if="dataGaps.length > 0"
         class="recruit__gaps"
@@ -392,6 +443,18 @@ onMounted(() => {
 
         <template #cell="{ row, column, value }">
           <ScoreBadge v-if="column.prop === 'score'" :score="row.score" size="sm" />
+          <el-tag
+            v-else-if="column.prop === 'grade'"
+            size="small"
+            :type="gradeTagType(row.grade)"
+            disable-transitions
+          >
+            {{ row.grade ?? 'insufficient' }} · {{ row.grade_label ?? '数据不足' }}
+          </el-tag>
+          <template v-else-if="column.prop === 'actions'">
+            <el-button link size="small" @click.stop="openCandidate(row)">详情</el-button>
+            <el-button link size="small" type="primary" @click.stop="followCandidate(row)">关注</el-button>
+          </template>
           <template v-else>{{ value }}</template>
         </template>
       </DataTable>

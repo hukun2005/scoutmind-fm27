@@ -56,6 +56,19 @@ export interface AnswerEvidence {
   value: Record<string, unknown> | string | number | null
 }
 
+/** One player actually returned by the tools behind an answer; safe to link and follow. */
+export interface AgentPlayerCard {
+  instance_id: number
+  name: string
+  age: number | null
+  position: string | null
+  club: string | null
+  ca: number | null
+  pa: number | null
+  market_value: number | null
+  source_tool: string
+}
+
 /** Structured answer rendered by the agent screen. */
 export interface AgentAnswer {
   conclusion: string
@@ -73,6 +86,8 @@ export interface AgentAnswer {
   reliability?: AnswerReliability
   /** Tool results behind every number in the answer. */
   citations?: AnswerCitation[]
+  /** Players that appeared in the tool results; empty when the answer is not player-centric. */
+  player_cards?: AgentPlayerCard[]
 }
 
 /** One tool invocation exposed under 工具调用. */

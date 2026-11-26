@@ -398,6 +398,7 @@ def search_recruitment(
             "exclude_own_club": exclude_own_club,
         },
         "data_gaps": _pool_gaps(scored),
+        "grade_rules": GRADE_RULES,
     }
     return payload
 
@@ -646,9 +647,13 @@ def _score_candidate(
         else None
     )
     strengths = _strengths(attribute_result)
+    grade, grade_label = _grade(score, weight_sum)
     return {
         "player": _player_payload(target),
         "score": score,
+        "grade": grade,
+        "grade_label": grade_label,
+        "score_coverage": round(weight_sum, 2),
         "dimensions": dimensions,
         "position_template": {
             "position": target.position,
@@ -1034,6 +1039,33 @@ def _strengths(attribute_result: dict[str, object] | None) -> list[str]:
     if attribute_result is None:
         return []
     return list(attribute_result["strengths"])  # type: ignore[arg-type]
+
+
+GRADE_RULES = (
+    "推荐等级只用于排序展示：S≥85 / A≥75 / B≥65 / C≥55 / D<55；"
+    "可用维度权重不足 60% 时标记为「数据不足」，不给出等级。"
+)
+
+
+def _grade(score: float | None, available_weight: float) -> tuple[str, str]:
+    """Deterministic recommendation grade with an explicit coverage gate.
+
+    缺失维度已经在加权时剔除（不是按 0 计分）；当可用权重不足 0.6 时不再给出等级，
+    避免用一半数据得出「强烈推荐」这种结论。
+    """
+    if score is None:
+        return "insufficient", "数据不足"
+    if available_weight < 0.6:
+        return "insufficient", "数据不足"
+    if score >= 85:
+        return "S", "重点推荐"
+    if score >= 75:
+        return "A", "推荐"
+    if score >= 65:
+        return "B", "可考虑"
+    if score >= 55:
+        return "C", "观察"
+    return "D", "不建议"
 
 
 def _risks(target: Candidate, score: float | None) -> list[str]:

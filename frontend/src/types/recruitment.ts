@@ -54,6 +54,11 @@ export interface CostEstimate {
 export interface PlayerScore {
   player: RecruitmentPlayer
   score: number | null
+  /** Deterministic grade derived from score and score coverage; `insufficient` when coverage < 60%. */
+  grade?: string
+  grade_label?: string
+  /** Share of dimension weight that had real data (0–1); missing dimensions are excluded, not scored 0. */
+  score_coverage?: number
   dimensions: PlayerDimension[]
   position_template: PositionTemplate
   strengths: string[]
@@ -79,6 +84,7 @@ export interface RecruitmentSearchRequest {
 /** `POST /recruitment/search` payload. */
 export interface RecruitmentSearchResponse {
   items: PlayerScore[]
+  grade_rules?: string
   total: number
   algorithm_version: string
   criteria: Record<string, unknown>

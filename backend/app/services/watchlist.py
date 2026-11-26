@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..analytics.players import latest_snapshot, list_players, PlayerFilter
-from ..models import Alert, PlayerInstance, PlayerSnapshot, Watchlist, WatchlistItem, WatchRule
+from ..analytics.players import PlayerFilter, latest_snapshot_subquery, list_players
+from ..models import Alert, Club, PlayerInstance, PlayerSnapshot, Watchlist, WatchlistItem, WatchRule
 from ..utils import iso, utcnow
+
+WATCH_STATUSES = ("watching", "preparing", "paused", "done")
 
 DEFAULT_WATCHLIST = "默认关注"
 
@@ -30,37 +32,75 @@ def get_or_create_watchlist(session: Session, user_id: int, save_id: int) -> Wat
     return watchlist
 
 
-def list_items(session: Session, save_id: int) -> list[dict[str, object]]:
-    """All watched players with their latest summary."""
-    items = list(
-        session.scalars(
-            select(WatchlistItem)
-            .join(Watchlist, Watchlist.id == WatchlistItem.watchlist_id)
-            .where(Watchlist.fm_save_id == save_id)
-            .order_by(WatchlistItem.created_at.desc())
+def list_items(
+    session: Session,
+    save_id: int,
+    list_id: int | None = None,
+    query: str | None = None,
+    status: str | None = None,
+) -> list[dict[str, object]]:
+    """All watched players of one save with their latest summary.
+
+    使用 ``latest_snapshot_subquery`` 一次取回实例、球员与最新快照，避免按行查询（N+1）。
+    缺失字段保持 ``None``，由前端显示「暂无数据」，不补 0。
+    """
+    latest = latest_snapshot_subquery()
+    stmt = (
+        select(
+            WatchlistItem,
+            Watchlist.name.label("list_name"),
+            latest.c.instance_id,
+            latest.c.full_name,
+            latest.c.age,
+            latest.c.position,
+            latest.c.ca,
+            latest.c.pa,
+            latest.c.market_value,
+            latest.c.contract_end,
+            latest.c.club_id,
+            latest.c.source,
         )
+        .join(Watchlist, Watchlist.id == WatchlistItem.watchlist_id)
+        .outerjoin(latest, latest.c.instance_id == WatchlistItem.player_instance_id)
+        .where(Watchlist.fm_save_id == save_id)
     )
+    if list_id is not None:
+        stmt = stmt.where(Watchlist.id == list_id)
+    if status:
+        stmt = stmt.where(WatchlistItem.status == status)
+    if query:
+        stmt = stmt.where(func.lower(latest.c.full_name).like(f"%{query.strip().lower()}%"))
+    rows = session.execute(stmt.order_by(WatchlistItem.created_at.desc())).all()
+
+    clubs = {
+        club_id: name
+        for club_id, name in session.execute(
+            select(Club.id, Club.name).where(Club.fm_save_id == save_id)
+        ).all()
+    }
     payload: list[dict[str, object]] = []
-    for item in items:
-        instance = session.get(PlayerInstance, item.player_instance_id)
-        if instance is None:
-            continue
-        snapshot = latest_snapshot(session, instance.id)
+    for row in rows:
+        item: WatchlistItem = row[0]
+        instance_id = row.instance_id if row.instance_id is not None else item.player_instance_id
         payload.append(
             {
                 "id": item.id,
-                "instance_id": instance.id,
+                "instance_id": instance_id,
+                "list_id": item.watchlist_id,
+                "list_name": row.list_name,
                 "player": {
-                    "instance_id": instance.id,
-                    "name": instance.player.full_name,
-                    "age": snapshot.age if snapshot else None,
-                    "position": instance.position,
-                    "ca": snapshot.ca if snapshot else None,
-                    "pa": snapshot.pa if snapshot else None,
-                    "market_value": snapshot.market_value if snapshot else None,
-                    "contract_end": snapshot.contract_end.isoformat() if snapshot and snapshot.contract_end else None,
-                    "club": None,
+                    "instance_id": instance_id,
+                    "name": row.full_name,
+                    "age": row.age,
+                    "position": row.position,
+                    "ca": row.ca,
+                    "pa": row.pa,
+                    "market_value": row.market_value,
+                    "contract_end": row.contract_end.isoformat() if row.contract_end else None,
+                    "club": clubs.get(row.club_id) if row.club_id else None,
+                    "source": row.source,
                 },
+                "status": item.status or "watching",
                 "tag": item.tag,
                 "note": item.note,
                 "source": item.source,
@@ -70,25 +110,89 @@ def list_items(session: Session, save_id: int) -> list[dict[str, object]]:
     return payload
 
 
-def add_item(session: Session, user_id: int, save_id: int, instance_id: int, tag: str | None, note: str | None) -> WatchlistItem:
+def list_groups(session: Session, user_id: int, save_id: int) -> list[dict[str, object]]:
+    """Named lists of one save with their item counts; the default list is created on first use."""
+    get_or_create_watchlist(session, user_id, save_id)
+    rows = session.execute(
+        select(Watchlist.id, Watchlist.name, func.count(WatchlistItem.id))
+        .outerjoin(WatchlistItem, WatchlistItem.watchlist_id == Watchlist.id)
+        .where(Watchlist.user_id == user_id, Watchlist.fm_save_id == save_id)
+        .group_by(Watchlist.id, Watchlist.name)
+        .order_by(Watchlist.id)
+    ).all()
+    return [
+        {
+            "id": int(row[0]),
+            "name": str(row[1]),
+            "count": int(row[2] or 0),
+            "is_default": str(row[1]) == DEFAULT_WATCHLIST,
+        }
+        for row in rows
+    ]
+
+
+def create_list(session: Session, user_id: int, save_id: int, name: str) -> Watchlist:
+    """Create one named watchlist; names are unique per user and save."""
+    cleaned = name.strip()
+    if not cleaned:
+        raise ValueError("名单名称不能为空")
+    if len(cleaned) > 64:
+        raise ValueError("名单名称最长 64 个字符")
+    existing = session.scalar(
+        select(Watchlist).where(
+            Watchlist.user_id == user_id,
+            Watchlist.fm_save_id == save_id,
+            Watchlist.name == cleaned,
+        )
+    )
+    if existing is not None:
+        raise ValueError("已存在同名名单")
+    watchlist = Watchlist(user_id=user_id, fm_save_id=save_id, name=cleaned)
+    session.add(watchlist)
+    session.flush()
+    return watchlist
+
+
+def resolve_list(session: Session, user_id: int, save_id: int, list_id: int | None) -> Watchlist:
+    """Resolve a list id to an owned list of the save; ``None`` selects the default list."""
+    if list_id is None:
+        return get_or_create_watchlist(session, user_id, save_id)
+    watchlist = session.get(Watchlist, list_id)
+    if watchlist is None or watchlist.user_id != user_id or watchlist.fm_save_id != save_id:
+        raise ValueError("关注名单不存在")
+    return watchlist
+
+
+def add_item(
+    session: Session,
+    user_id: int,
+    save_id: int,
+    instance_id: int,
+    tag: str | None,
+    note: str | None,
+    list_id: int | None = None,
+    status: str = "watching",
+) -> WatchlistItem:
     """Follow a player, raising ``ValueError`` when the instance is unknown or already followed."""
     instance = session.get(PlayerInstance, instance_id)
     if instance is None or instance.fm_save_id != save_id:
         raise ValueError("player instance not found in this save")
-    watchlist = get_or_create_watchlist(session, user_id, save_id)
+    watchlist = resolve_list(session, user_id, save_id, list_id)
+    if status not in WATCH_STATUSES:
+        raise ValueError("关注状态无效")
     existing = session.scalar(
-        select(WatchlistItem).where(
-            WatchlistItem.watchlist_id == watchlist.id,
-            WatchlistItem.player_instance_id == instance_id,
-        )
+        select(WatchlistItem)
+        .join(Watchlist, Watchlist.id == WatchlistItem.watchlist_id)
+        .where(Watchlist.fm_save_id == save_id, WatchlistItem.player_instance_id == instance_id)
     )
     if existing is not None:
-        raise ValueError("player already on the watchlist")
+        raise ValueError("该球员已在关注名单中，可直接在列表内移动名单")
     item = WatchlistItem(
         watchlist_id=watchlist.id,
         player_instance_id=instance_id,
         tag=tag,
         note=note,
+        status=status,
         source="manual",
     )
     session.add(item)
@@ -96,11 +200,37 @@ def add_item(session: Session, user_id: int, save_id: int, instance_id: int, tag
     return item
 
 
-def update_item(session: Session, item_id: int, tag: str | None, note: str | None) -> WatchlistItem:
-    """Update the tag or note of a watchlist item."""
+def update_item(
+    session: Session,
+    item_id: int,
+    tag: str | None = None,
+    note: str | None = None,
+    list_id: int | None = None,
+    status: str | None = None,
+    user_id: int | None = None,
+) -> WatchlistItem:
+    """Update the list, status, tag or note of a watchlist item."""
     item = session.get(WatchlistItem, item_id)
     if item is None:
         raise ValueError("watchlist item not found")
+    if status is not None:
+        if status not in WATCH_STATUSES:
+            raise ValueError("关注状态无效")
+        item.status = status
+    if list_id is not None and list_id != item.watchlist_id:
+        current = session.get(Watchlist, item.watchlist_id)
+        if current is None:
+            raise ValueError("关注名单不存在")
+        target = resolve_list(session, user_id if user_id is not None else current.user_id, current.fm_save_id, list_id)
+        duplicate = session.scalar(
+            select(WatchlistItem).where(
+                WatchlistItem.watchlist_id == target.id,
+                WatchlistItem.player_instance_id == item.player_instance_id,
+            )
+        )
+        if duplicate is not None:
+            raise ValueError("该球员已在目标名单中")
+        item.watchlist_id = target.id
     if tag is not None:
         item.tag = tag
     if note is not None:

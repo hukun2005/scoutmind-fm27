@@ -188,6 +188,21 @@ def ask(
     }
 
 
+@router.delete("/agent/conversations/{conversation_id}", status_code=204)
+def delete_conversation(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+    save: FmSave = Depends(get_active_save),
+) -> None:
+    """删除一个会话及其消息；已保存的报告保留，仅解除会话引用。"""
+    conversation = _conversation_for(db, conversation_id, user, save.id)
+    db.query(AgentMessage).filter(AgentMessage.conversation_id == conversation.id).delete()
+    db.query(AiReport).filter(AiReport.conversation_id == conversation.id).update({AiReport.conversation_id: None})
+    db.delete(conversation)
+    db.commit()
+
+
 @router.get("/agent/reports")
 def reports(
     save_id: int | None = Query(default=None),

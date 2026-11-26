@@ -60,7 +60,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: 'transfers', label: '转会情报', to: '/transfers', icon: 'transfers', hint: '交易状态与费用' },
       { key: 'development', label: '球员发展', to: '/development', icon: 'development', hint: '成长变化与建议' },
       { key: 'performance', label: '表现分析', to: '/performance', icon: 'performance', hint: '分位置产出与能力对比' },
-      { key: 'agent', label: 'AI 体育总监', to: '/agent', icon: 'agent', hint: '直接提问，获得带证据的回答' },
+      { key: 'agent', label: 'AI 球探助手', to: '/agent', icon: 'agent', hint: '用自然语言提问，获得带证据的回答' },
     ],
   },
   {

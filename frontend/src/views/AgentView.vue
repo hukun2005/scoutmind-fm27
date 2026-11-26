@@ -1,24 +1,30 @@
-/** AI 体育总监：会话、结构化回答、可靠性分类、工具引用与确定性模式提示。 */
+/** AI 球探助手：会话、结构化回答、可靠性分类、工具引用、球员卡片与确定性模式提示。 */
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRoute, useRouter } from 'vue-router'
 import { asApiError, type ApiError } from '../api/client'
 import {
   createConversation,
+  deleteConversation,
   listConversations,
   listMessages,
   sendMessage,
 } from '../api/agent'
+import { addWatchlistItem } from '../api/watchlist'
 import ConfidenceTag from '../components/ConfidenceTag.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
 import PageHeader from '../components/PageHeader.vue'
-import type { AgentAnswer, AgentMessage, AgentToolCall, Conversation } from '../types/agent'
+import type { AgentAnswer, AgentMessage, AgentPlayerCard, AgentToolCall, Conversation } from '../types/agent'
 import { useSessionStore } from '../stores/session'
 import { EMPTY, displayText, formatInt, formatTime } from '../utils/format'
-import { agentModeLabel } from '../utils/labels'
+import { agentModeLabel, positionLabel } from '../utils/labels'
 
 const session = useSessionStore()
+const router = useRouter()
+const route = useRoute()
 
 const conversations = ref<Conversation[]>([])
 const conversationsLoading = ref(false)
@@ -38,12 +44,12 @@ const thread = ref<HTMLElement | null>(null)
 
 /** Suggested questions from the product spec; they work in deterministic mode too. */
 const SUGGESTIONS = [
-  '我的球队目前最大的问题是什么？',
-  '哪个位置最需要补强？',
-  '帮我找一个 23 岁以下、适合高位逼抢的中锋，预算不超过 3000 万。',
-  '分析过去三个赛季我的转会策略。',
-  '一个 20 岁、CA 145、PA 175 的前锋，历史上类似球员通常卖多少钱？',
-  '最近已完成交易的中位数与 P25/P75 是多少？样本量够吗？',
+  '帮我分析目前球队阵容。',
+  '哪些位置需要补强？',
+  '帮我寻找年轻前锋。',
+  '哪些球员值得重点培养？',
+  '哪些球员可能需要出售？',
+  '帮我比较两名球员。',
 ]
 
 const activeConversation = computed(
@@ -160,6 +166,48 @@ function submit(): void {
   void ask(question.value)
 }
 
+/** Delete the active conversation and start a clean one. */
+async function clearConversation(): Promise<void> {
+  if (activeId.value === null) {
+    await startConversation()
+    return
+  }
+  try {
+    await ElMessageBox.confirm('清空后会删除当前会话及其消息（已保存的报告保留）。是否继续？', '清空对话', {
+      type: 'warning',
+      confirmButtonText: '清空',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  try {
+    await deleteConversation(activeId.value)
+    activeId.value = null
+    messages.value = []
+    await loadConversations()
+    ElMessage.success('对话已清空')
+  } catch (caught) {
+    ElMessage.error(`清空失败：${asApiError(caught).message}`)
+  }
+}
+
+/** Follow one player card; the backend rejects duplicates with a readable message. */
+async function followCard(card: AgentPlayerCard): Promise<void> {
+  try {
+    await addWatchlistItem({ instance_id: card.instance_id })
+    ElMessage.success(`已关注 ${card.name}`)
+  } catch (caught) {
+    const error = asApiError(caught)
+    ElMessage.warning(error.message)
+  }
+}
+
+/** Open the player detail page of one card. */
+function openCard(card: AgentPlayerCard): void {
+  void router.push(`/players/${card.instance_id}`)
+}
+
 /** Render a tool-call argument object as compact JSON. */
 function toolArguments(tool: AgentToolCall): string {
   try {
@@ -214,13 +262,30 @@ watch(
 watch(activeId, () => {
   void loadMessages()
 })
+
+/** Accept a preset question and player context from the player detail page. */
+async function applyRouteContext(): Promise<void> {
+  const rawInstance = route.query.instance_id
+  if (typeof rawInstance === 'string' && Number.isFinite(Number(rawInstance))) {
+    instanceContext.value = Number(rawInstance)
+  }
+  const preset = route.query.q
+  if (typeof preset === 'string' && preset.trim() !== '') {
+    await ask(preset)
+    void router.replace({ query: {} })
+  }
+}
+
+onMounted(() => {
+  void applyRouteContext()
+})
 </script>
 
 <template>
   <div class="sm-page agent-page">
     <PageHeader
-      title="AI 体育总监"
-      description="直接提出你的问题。回答中的数字都来自本地数据，工具调用与依据可以逐条核对。"
+      title="AI 球探助手"
+      description="用一句话提问，助手只基于本存档的真实数据回答；结论、依据、数据缺口与球员卡片都可核对。"
     >
       <template #meta>
         <el-tag size="small" :type="session.agentLlm ? 'success' : 'info'" disable-transitions>
@@ -233,6 +298,7 @@ watch(activeId, () => {
       </template>
       <template #actions>
         <el-button size="small" :loading="conversationsLoading" @click="startConversation">新建会话</el-button>
+        <el-button size="small" @click="clearConversation">清空对话</el-button>
         <el-button size="small" @click="loadConversations">刷新会话</el-button>
       </template>
     </PageHeader>
@@ -442,6 +508,33 @@ watch(activeId, () => {
                     </ul>
                   </div>
 
+                  <div v-if="(message.answer.player_cards ?? []).length > 0" class="answer__block">
+                    <span class="sm-label">相关球员</span>
+                    <div class="agent-cards">
+                      <article
+                        v-for="card in message.answer.player_cards ?? []"
+                        :key="`card-${message.id}-${card.instance_id}`"
+                        class="agent-card"
+                      >
+                        <button type="button" class="agent-card__name" @click="openCard(card)">
+                          {{ card.name }}
+                        </button>
+                        <p class="agent-card__meta">
+                          {{ positionLabel(card.position) }}
+                          <template v-if="card.age !== null"> · {{ card.age }} 岁</template>
+                          <template v-if="card.club"> · {{ card.club }}</template>
+                        </p>
+                        <p class="agent-card__stats">
+                          CA {{ card.ca ?? EMPTY }} · PA {{ card.pa ?? EMPTY }}
+                        </p>
+                        <div class="agent-card__actions">
+                          <el-button link size="small" @click="openCard(card)">查看详情</el-button>
+                          <el-button link size="small" type="primary" @click="followCard(card)">关注</el-button>
+                        </div>
+                      </article>
+                    </div>
+                  </div>
+
                   <el-collapse v-if="message.tool_calls.length > 0" class="answer__tools">
                     <el-collapse-item :name="`tools-${message.id}`">
                       <template #title>
@@ -480,7 +573,7 @@ watch(activeId, () => {
               resize="none"
               :disabled="inputDisabled || sending"
               :placeholder="inputDisabled ? '本地未配置 AI 模型：请使用下方推荐问题' : '输入问题，例如：20 岁 CA 145 PA 175 的前锋通常卖多少钱？'"
-              aria-label="向 AI 体育总监提问"
+              aria-label="向 AI 球探助手提问"
               @keydown.enter.exact.prevent="submit"
             />
             <div class="composer__side">
@@ -523,6 +616,50 @@ watch(activeId, () => {
 <style scoped>
 .agent-page {
   min-height: 0;
+}
+
+.agent-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--sm-space-2);
+  margin-top: var(--sm-space-2);
+}
+
+.agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sm-space-2) var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: var(--sm-surface-2);
+}
+
+.agent-card__name {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sm-accent);
+  font: inherit;
+  font-weight: var(--sm-fw-medium);
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-card__name:hover {
+  text-decoration: underline;
+}
+
+.agent-card__meta,
+.agent-card__stats {
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-2xs);
+}
+
+.agent-card__actions {
+  display: flex;
+  gap: var(--sm-space-2);
+  margin-top: var(--sm-space-1);
 }
 
 .agent-notice {

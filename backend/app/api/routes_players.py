@@ -13,7 +13,7 @@ from ..analytics.availability import player_status as player_availability_status
 from ..analytics.players import PlayerFilter, development, history, list_players, player_profile
 from ..db import get_db
 from ..models import FmSave, Watchlist
-from ..schemas import WatchItemCreate, WatchItemUpdate
+from ..schemas import WatchItemCreate, WatchItemUpdate, WatchlistCreate
 from ..services import watchlist as watch_service
 from .deps import (
     alert_owned_or_404,
@@ -128,12 +128,46 @@ def player_development(
 @router.get("/watchlist")
 def get_watchlist(
     save_id: int | None = Query(default=None),
+    list_id: int | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=64),
+    status: str | None = Query(default=None, pattern="^(watching|preparing|paused|done)$"),
     db: Session = Depends(get_db),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
-    """Watched players for the save."""
-    items = watch_service.list_items(db, save_id or save.id)
+    """Watched players for the save, optionally filtered by list, status or player name."""
+    target = save_id or save.id
+    items = watch_service.list_items(db, target, list_id=list_id, query=q, status=status)
+    lists = watch_service.list_groups(db, save.user_id, target)
+    db.commit()
+    return {"items": items, "total": len(items), "lists": lists}
+
+
+@router.get("/watchlist/lists")
+def get_watchlist_lists(
+    save_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    """Named watchlists of the save with item counts."""
+    items = watch_service.list_groups(db, save.user_id, save_id or save.id)
+    db.commit()
     return {"items": items, "total": len(items)}
+
+
+@router.post("/watchlist/lists", status_code=201)
+def create_watchlist(
+    body: WatchlistCreate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    """Create a named watchlist; names are unique inside one save."""
+    try:
+        created = watch_service.create_list(db, user.id, save.id, body.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"code": "watchlist_error", "message": str(exc)}) from exc
+    db.commit()
+    return {"id": created.id, "name": created.name}
 
 
 @router.post("/watchlist/items", status_code=201)
@@ -144,14 +178,23 @@ def add_watch_item(
     user=Depends(get_current_user),
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
-    """Follow a player instance."""
+    """Follow a player instance, optionally into a named list with a workflow status."""
     instance_in_save_or_404(db, body.instance_id, save)
     try:
-        item = watch_service.add_item(db, user.id, save.id, body.instance_id, body.tag, body.note)
+        item = watch_service.add_item(
+            db, user.id, save.id, body.instance_id, body.tag, body.note, list_id=body.list_id, status=body.status
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"code": "watchlist_error", "message": str(exc)}) from exc
     db.commit()
-    return {"id": item.id, "instance_id": item.player_instance_id, "tag": item.tag, "note": item.note}
+    return {
+        "id": item.id,
+        "instance_id": item.player_instance_id,
+        "list_id": item.watchlist_id,
+        "status": item.status,
+        "tag": item.tag,
+        "note": item.note,
+    }
 
 
 @router.patch("/watchlist/items/{item_id}")
@@ -161,14 +204,29 @@ def patch_watch_item(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Update the tag or note of a watchlist entry."""
+    """Update the list, status, tag or note of a watchlist entry."""
     watch_item_owned_or_404(db, item_id, user)
     try:
-        item = watch_service.update_item(db, item_id, body.tag, body.note)
+        item = watch_service.update_item(
+            db,
+            item_id,
+            tag=body.tag,
+            note=body.note,
+            list_id=body.list_id,
+            status=body.status,
+            user_id=user.id,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail={"code": "watchlist_error", "message": str(exc)}) from exc
     db.commit()
-    return {"id": item.id, "instance_id": item.player_instance_id, "tag": item.tag, "note": item.note}
+    return {
+        "id": item.id,
+        "instance_id": item.player_instance_id,
+        "list_id": item.watchlist_id,
+        "status": item.status,
+        "tag": item.tag,
+        "note": item.note,
+    }
 
 
 @router.delete("/watchlist/items/{item_id}", status_code=204)

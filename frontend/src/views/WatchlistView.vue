@@ -7,6 +7,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { asApiError, type ApiError } from '../api/client'
 import {
   addWatchlistItem,
+  createWatchlistGroup,
   deleteWatchlistItem,
   listAlerts,
   listWatchlist,
@@ -20,18 +21,38 @@ import ErrorState from '../components/ErrorState.vue'
 import NumberCell from '../components/NumberCell.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
-import type { Alert, WatchlistItem } from '../types/watchlist'
+import type { Alert, WatchStatus, WatchlistGroup, WatchlistItem } from '../types/watchlist'
 import type { TableColumn } from '../types/table'
 import { useSessionStore } from '../stores/session'
 import { EMPTY, displayText, formatDateTime, formatInt } from '../utils/format'
-import { alertTypeLabel, positionLabel, severityLabel, WATCHLIST_TAG_OPTIONS } from '../utils/labels'
+import {
+  alertTypeLabel,
+  positionLabel,
+  severityLabel,
+  WATCH_STATUS_OPTIONS,
+  WATCHLIST_LIST_PRESETS,
+  WATCHLIST_TAG_OPTIONS,
+  watchStatusLabel,
+} from '../utils/labels'
 
 const router = useRouter()
 const session = useSessionStore()
 
 const items = ref<WatchlistItem[]>([])
+const lists = ref<WatchlistGroup[]>([])
 const loading = ref(false)
 const error = ref<ApiError | null>(null)
+
+const activeListId = ref<number | null>(null)
+const searchText = ref('')
+const searchKeyword = ref('')
+const statusFilter = ref<'' | WatchStatus>('')
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+
+const createOpen = ref(false)
+const createSubmitting = ref(false)
+const createError = ref<ApiError | null>(null)
+const createName = ref('')
 
 const alerts = ref<Alert[]>([])
 const alertsLoading = ref(false)
@@ -41,17 +62,24 @@ const unreadOnly = ref(true)
 const addOpen = ref(false)
 const addSubmitting = ref(false)
 const addError = ref<ApiError | null>(null)
-const addForm = reactive<{ instanceId: number | undefined; tag: string; note: string }>({
+const addForm = reactive<{ instanceId: number | undefined; tag: string; note: string; listId: number | null; status: WatchStatus }>({
   instanceId: undefined,
   tag: '',
   note: '',
+  listId: null,
+  status: 'watching',
 })
 
 const editOpen = ref(false)
 const editSubmitting = ref(false)
 const editError = ref<ApiError | null>(null)
 const editTarget = ref<WatchlistItem | null>(null)
-const editForm = reactive<{ tag: string; note: string }>({ tag: '', note: '' })
+const editForm = reactive<{ tag: string; note: string; listId: number | null; status: WatchStatus }>({
+  tag: '',
+  note: '',
+  listId: null,
+  status: 'watching',
+})
 
 const refreshBusy = ref(false)
 
@@ -62,9 +90,11 @@ const columns: TableColumn<WatchlistItem>[] = [
   { prop: 'ca', label: 'CA', width: 66, align: 'right' },
   { prop: 'pa', label: 'PA', width: 66, align: 'right' },
   { prop: 'market_value', label: '身价（€）', width: 110, align: 'right' },
-  { prop: 'tag', label: '标签', width: 120 },
-  { prop: 'note', label: '备注', minWidth: 160, showOverflowTooltip: true },
-  { prop: 'added_at', label: '加入时间', width: 140 },
+  { prop: 'list_name', label: '名单', width: 110 },
+  { prop: 'status', label: '状态', width: 132 },
+  { prop: 'tag', label: '标签', width: 112 },
+  { prop: 'note', label: '备注', minWidth: 150, showOverflowTooltip: true },
+  { prop: 'added_at', label: '加入时间', width: 130 },
   { prop: 'actions', label: '操作', width: 132, align: 'right' },
 ]
 
@@ -76,22 +106,90 @@ const signature = computed(() =>
     saveId: session.activeSaveId,
     revision: session.dataRevision,
     unreadOnly: unreadOnly.value,
+    listId: activeListId.value,
+    keyword: searchKeyword.value,
+    status: statusFilter.value,
   }),
 )
 
-/** Load the watchlist rows. */
+/** Load the watchlist rows with the current list / keyword / status filters. */
 async function loadItems(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    const response = await listWatchlist(session.activeSaveId ?? undefined)
+    const response = await listWatchlist({
+      saveId: session.activeSaveId ?? undefined,
+      listId: activeListId.value ?? undefined,
+      q: searchKeyword.value.trim() === '' ? undefined : searchKeyword.value.trim(),
+      status: statusFilter.value === '' ? undefined : statusFilter.value,
+    })
     items.value = response.items ?? []
+    lists.value = response.lists ?? []
+    if (activeListId.value !== null && !lists.value.some((group) => group.id === activeListId.value)) {
+      activeListId.value = null
+    }
     session.markSources(items.value.map((item) => item.player?.source))
   } catch (caught) {
     error.value = asApiError(caught)
     items.value = []
   } finally {
     loading.value = false
+  }
+}
+
+/** Debounce free-text search so each keystroke does not hit the backend. */
+watch(searchText, (value) => {
+  if (searchTimer !== null) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    searchKeyword.value = value.trim()
+  }, 300)
+})
+
+/** Create one named watchlist and select it. */
+async function submitCreateList(): Promise<void> {
+  const name = createName.value.trim()
+  if (name === '') {
+    createError.value = asApiError(new Error('请填写名单名称'))
+    return
+  }
+  createSubmitting.value = true
+  createError.value = null
+  try {
+    const created = await createWatchlistGroup({ name })
+    createOpen.value = false
+    createName.value = ''
+    await loadItems()
+    activeListId.value = created.id
+    ElMessage.success(`已创建名单「${created.name}」`)
+  } catch (caught) {
+    createError.value = asApiError(caught)
+  } finally {
+    createSubmitting.value = false
+  }
+}
+
+/** Move one item to another list. */
+async function moveToList(item: WatchlistItem, listId: number): Promise<void> {
+  if (listId === item.list_id) return
+  try {
+    const updated = await patchWatchlistItem(item.id, { list_id: listId })
+    items.value = items.value.map((row) => (row.id === updated.id ? { ...row, ...updated } : row))
+    ElMessage.success('已移动名单')
+    await loadItems()
+  } catch (caught) {
+    ElMessage.error(`移动失败：${asApiError(caught).message}`)
+  }
+}
+
+/** Change the workflow status of one item. */
+async function changeStatus(item: WatchlistItem, status: WatchStatus): Promise<void> {
+  if (status === item.status) return
+  try {
+    const updated = await patchWatchlistItem(item.id, { status })
+    items.value = items.value.map((row) => (row.id === updated.id ? { ...row, ...updated } : row))
+    ElMessage.success(`状态已更新为「${watchStatusLabel(status)}」`)
+  } catch (caught) {
+    ElMessage.error(`状态更新失败：${asApiError(caught).message}`)
   }
 }
 
@@ -134,6 +232,8 @@ function openAdd(): void {
   addForm.instanceId = undefined
   addForm.tag = ''
   addForm.note = ''
+  addForm.listId = activeListId.value
+  addForm.status = 'watching'
   addError.value = null
   addOpen.value = true
 }
@@ -149,6 +249,8 @@ async function submitAdd(): Promise<void> {
   try {
     await addWatchlistItem({
       instance_id: addForm.instanceId,
+      list_id: addForm.listId ?? undefined,
+      status: addForm.status,
       tag: addForm.tag.trim() === '' ? undefined : addForm.tag.trim(),
       note: addForm.note.trim() === '' ? undefined : addForm.note.trim(),
     })
@@ -167,6 +269,8 @@ function openEdit(item: WatchlistItem): void {
   editTarget.value = item
   editForm.tag = item.tag ?? ''
   editForm.note = item.note ?? ''
+  editForm.listId = item.list_id
+  editForm.status = item.status
   editError.value = null
   editOpen.value = true
 }
@@ -179,12 +283,15 @@ async function submitEdit(): Promise<void> {
   editError.value = null
   try {
     const updated = await patchWatchlistItem(target.id, {
+      list_id: editForm.listId ?? undefined,
+      status: editForm.status,
       tag: editForm.tag.trim() === '' ? undefined : editForm.tag.trim(),
       note: editForm.note.trim() === '' ? undefined : editForm.note.trim(),
     })
-    items.value = items.value.map((item) => (item.id === updated.id ? updated : item))
+    items.value = items.value.map((item) => (item.id === updated.id ? { ...item, ...updated } : item))
     editOpen.value = false
-    ElMessage.success('标签已更新')
+    ElMessage.success('关注项已更新')
+    await loadItems()
   } catch (caught) {
     editError.value = asApiError(caught)
   } finally {
@@ -245,11 +352,45 @@ watch(signature, () => void reload(), { immediate: true })
       </template>
       <template #actions>
         <el-button size="small" :loading="refreshBusy" @click="runRefresh">按规则刷新</el-button>
+        <el-button size="small" @click="createOpen = true">新建名单</el-button>
         <el-button size="small" type="primary" @click="openAdd">按实例 ID 添加</el-button>
       </template>
     </PageHeader>
 
-    <SectionCard title="关注名单" subtitle="标签与备注保存在后端，可随时编辑" flush>
+    <section class="watch-filters sm-glass">
+      <div class="watch-filters__lists" role="tablist" aria-label="关注名单">
+        <el-button
+          size="small"
+          :type="activeListId === null ? 'primary' : 'default'"
+          @click="activeListId = null"
+        >
+          全部 · {{ formatInt(lists.reduce((sum, group) => sum + group.count, 0)) }}
+        </el-button>
+        <el-button
+          v-for="group in lists"
+          :key="group.id"
+          size="small"
+          :type="activeListId === group.id ? 'primary' : 'default'"
+          @click="activeListId = group.id"
+        >
+          {{ group.name }} · {{ formatInt(group.count) }}
+        </el-button>
+      </div>
+      <div class="watch-filters__search">
+        <el-input
+          v-model="searchText"
+          size="small"
+          clearable
+          placeholder="搜索关注球员姓名"
+          aria-label="搜索关注球员"
+        />
+        <el-select v-model="statusFilter" size="small" placeholder="全部状态" clearable aria-label="关注状态">
+          <el-option v-for="option in WATCH_STATUS_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+        </el-select>
+      </div>
+    </section>
+
+    <SectionCard title="关注名单" subtitle="名单、状态、标签与备注保存在后端，可随时编辑" flush>
       <DataTable
         :columns="columns"
         :rows="items"
@@ -277,6 +418,28 @@ watch(signature, () => void reload(), { immediate: true })
           </template>
           <template v-else-if="column.prop === 'market_value'">
             <NumberCell :value="row.player?.market_value ?? null" kind="money" />
+          </template>
+          <template v-else-if="column.prop === 'list_name'">
+            <el-select
+              :model-value="row.list_id"
+              size="small"
+              class="watch-list-select"
+              aria-label="移动名单"
+              @change="(value) => moveToList(row, Number(value))"
+            >
+              <el-option v-for="group in lists" :key="group.id" :label="group.name" :value="group.id" />
+            </el-select>
+          </template>
+          <template v-else-if="column.prop === 'status'">
+            <el-select
+              :model-value="row.status"
+              size="small"
+              class="watch-status-select"
+              aria-label="关注状态"
+              @change="(value) => changeStatus(row, value as WatchStatus)"
+            >
+              <el-option v-for="option in WATCH_STATUS_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+            </el-select>
           </template>
           <template v-else-if="column.prop === 'tag'">
             <el-tag v-if="row.tag" size="small" type="info" disable-transitions>{{ row.tag }}</el-tag>
@@ -377,6 +540,18 @@ watch(signature, () => void reload(), { immediate: true })
           </el-select>
         </label>
         <label class="dialog-field">
+          <span class="sm-label">名单</span>
+          <el-select v-model="addForm.listId" clearable placeholder="默认关注">
+            <el-option v-for="group in lists" :key="group.id" :label="group.name" :value="group.id" />
+          </el-select>
+        </label>
+        <label class="dialog-field">
+          <span class="sm-label">状态</span>
+          <el-select v-model="addForm.status">
+            <el-option v-for="option in WATCH_STATUS_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+          </el-select>
+        </label>
+        <label class="dialog-field">
           <span class="sm-label">备注（可选）</span>
           <el-input v-model="addForm.note" type="textarea" :rows="2" placeholder="记录观察理由" />
         </label>
@@ -398,6 +573,18 @@ watch(signature, () => void reload(), { immediate: true })
           <span class="sm-text-sm">{{ displayText(editTarget?.player?.name) }}</span>
         </label>
         <label class="dialog-field">
+          <span class="sm-label">名单</span>
+          <el-select v-model="editForm.listId" placeholder="默认关注">
+            <el-option v-for="group in lists" :key="group.id" :label="group.name" :value="group.id" />
+          </el-select>
+        </label>
+        <label class="dialog-field">
+          <span class="sm-label">状态</span>
+          <el-select v-model="editForm.status">
+            <el-option v-for="option in WATCH_STATUS_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+          </el-select>
+        </label>
+        <label class="dialog-field">
           <span class="sm-label">标签</span>
           <el-select v-model="editForm.tag" filterable allow-create default-first-option clearable placeholder="选择或输入标签">
             <el-option v-for="tag in WATCHLIST_TAG_OPTIONS" :key="tag" :label="tag" :value="tag" />
@@ -415,8 +602,34 @@ watch(signature, () => void reload(), { immediate: true })
       </template>
     </el-dialog>
 
+    <el-dialog v-model="createOpen" title="新建关注名单" width="420px">
+      <div class="dialog-form">
+        <label class="dialog-field">
+          <span class="sm-label">名单名称</span>
+          <el-input v-model="createName" maxlength="64" placeholder="例如：潜力新星" @keyup.enter="submitCreateList" />
+        </label>
+        <div class="watch-presets">
+          <span class="sm-text-2xs sm-text-faint">常用名单：</span>
+          <el-button
+            v-for="preset in WATCHLIST_LIST_PRESETS"
+            :key="preset"
+            size="small"
+            text
+            @click="createName = preset"
+          >
+            {{ preset }}
+          </el-button>
+        </div>
+        <ErrorState v-if="createError" :error="createError" compact />
+      </div>
+      <template #footer>
+        <el-button size="small" @click="createOpen = false">取消</el-button>
+        <el-button size="small" type="primary" :loading="createSubmitting" @click="submitCreateList">创建</el-button>
+      </template>
+    </el-dialog>
+
     <p class="page-note">
-      本页不计算派生指标：标签、提醒与关注规则均由后端生成。球员身价默认 EUR，数据完整度请查看球员详情。
+      本页不计算派生指标：名单、状态、标签、提醒与关注规则均由后端生成。球员身价默认 EUR，数据完整度请查看球员详情。
     </p>
   </div>
 </template>
@@ -533,6 +746,40 @@ watch(signature, () => void reload(), { immediate: true })
 
 .player-link:hover {
   text-decoration: underline;
+}
+
+.watch-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm-space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sm-space-3) var(--sm-space-4);
+  border-radius: var(--sm-radius-lg);
+}
+
+.watch-filters__lists {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm-space-1);
+}
+
+.watch-filters__search {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) 132px;
+  gap: var(--sm-space-2);
+}
+
+.watch-list-select,
+.watch-status-select {
+  width: 100%;
+}
+
+.watch-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm-space-1);
+  align-items: center;
 }
 
 .page-note {

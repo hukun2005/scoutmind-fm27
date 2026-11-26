@@ -5,6 +5,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 import { asApiError, type ApiError } from '../api/client'
 import { getSquadOverview, listSquadProfiles } from '../api/squad'
 import ChartCard from '../components/ChartCard.vue'
@@ -36,6 +37,7 @@ import { getUserClub, searchClubs, setUserClub } from '../api/clubResolution'
 import type { ClubOption, SquadComposition } from '../types/clubResolution'
 
 const session = useSessionStore()
+const router = useRouter()
 
 const overview = ref<SquadOverview | null>(null)
 const profiles = ref<SquadProfile[]>([])
@@ -207,6 +209,18 @@ const weaknessColumns: TableColumn<WeaknessRow>[] = [
   { prop: 'suggestion', label: '建议', minWidth: 240 },
   { prop: 'evidence', label: '依据', minWidth: 280, formatter: (row) => row.evidence.join('；') },
 ]
+
+/** Open one squad member's detail page. */
+function openPlayer(instanceId: number | null | undefined): void {
+  if (instanceId === null || instanceId === undefined) return
+  void router.push(`/players/${instanceId}`)
+}
+
+/** Send the weakest slot to the recruitment page as a preset filter. */
+function goRecruitment(slot: string | null | undefined): void {
+  if (!slot) return
+  void router.push({ path: '/recruitment', query: { slot } })
+}
 
 const memberColumns: TableColumn<SquadMember>[] = [
   { prop: 'name', label: '球员', minWidth: 150 },
@@ -590,6 +604,34 @@ onMounted(async () => {
         </el-alert>
       </SectionCard>
 
+      <SectionCard
+        title="补强优先级"
+        subtitle="按后端缺口评分排序；只给出分析与入口，不会修改你的球队"
+      >
+        <EmptyState
+          v-if="overview.weakness.length === 0"
+          title="没有需要补强的位置"
+          description="后端未返回短板，或当前阵容每个位置都达到最低人数要求。"
+          compact
+        />
+        <ol v-else class="priority-list">
+          <li v-for="(row, index) in overview.weakness.slice(0, 4)" :key="row.slot" class="priority">
+            <span class="priority__rank">{{ index + 1 }}</span>
+            <div class="priority__body">
+              <div class="priority__title">
+                {{ row.slot_name }}
+                <span class="sm-text-2xs sm-text-faint">缺口评分 {{ formatDecimal(row.severity, 1) }} · {{ row.count }}/{{ row.required }}</span>
+              </div>
+              <p class="priority__text">{{ row.suggestion }}</p>
+              <p v-if="row.evidence.length > 0" class="priority__evidence">依据：{{ row.evidence.join('；') }}</p>
+            </div>
+            <div class="priority__actions">
+              <el-button size="small" type="primary" @click="goRecruitment(row.slot)">去引援</el-button>
+            </div>
+          </li>
+        </ol>
+      </SectionCard>
+
       <SectionCard title="位置深度" subtitle="人数、替补质量与建议；位置映射把翼卫并入边后卫">
         <DataTable
           :columns="depthColumns"
@@ -600,7 +642,19 @@ onMounted(async () => {
           :empty-description="depthEmpty"
         >
           <template #expand="{ row }">
-            <DataTable :columns="memberColumns" :rows="row.players" row-key="instance_id" dense :show-pagination="false" />
+            <DataTable :columns="memberColumns" :rows="row.players" row-key="instance_id" dense :show-pagination="false">
+              <template #cell="{ row: member, column, value }">
+                <button
+                  v-if="column.prop === 'name'"
+                  type="button"
+                  class="player-link"
+                  @click="openPlayer(member.instance_id)"
+                >
+                  {{ value }}
+                </button>
+                <template v-else>{{ value }}</template>
+              </template>
+            </DataTable>
           </template>
         </DataTable>
       </SectionCard>
@@ -1282,5 +1336,78 @@ onMounted(async () => {
   .weights__fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+.priority-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.priority {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: var(--sm-space-3);
+  align-items: center;
+  padding: var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: var(--sm-surface-2);
+}
+
+.priority__rank {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--sm-accent-weak);
+  color: var(--sm-accent);
+  font-size: var(--sm-fs-xs);
+  font-weight: var(--sm-fw-medium);
+}
+
+.priority__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.priority__title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sm-space-2);
+  color: var(--sm-text);
+  font-weight: var(--sm-fw-medium);
+}
+
+.priority__text,
+.priority__evidence {
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-xs);
+}
+
+.priority__evidence {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+.player-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sm-accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.player-link:hover {
+  text-decoration: underline;
 }
 </style>

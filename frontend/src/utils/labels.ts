@@ -414,6 +414,25 @@ export function agentModeLabel(mode: string | null | undefined): string {
 /** Watchlist tag suggestions; free text is still allowed. */
 export const WATCHLIST_TAG_OPTIONS = ['核心培养', '待观察', '租借目标', '出售候选', '合同风险']
 
+/** Suggested named watchlists; free text is still allowed. */
+export const WATCHLIST_LIST_PRESETS = ['潜力新星', '引援候选', '重点培养', '出售观察', '普通关注']
+
+/** Workflow status options of a watched player. */
+export const WATCH_STATUS_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'watching', label: '正在关注' },
+  { value: 'preparing', label: '准备引进' },
+  { value: 'paused', label: '暂缓观察' },
+  { value: 'done', label: '已完成操作' },
+]
+
+/**
+ * Chinese label of one watch status.
+ * @param status Wire value (`watching` / `preparing` / `paused` / `done`).
+ */
+export function watchStatusLabel(status: string | null | undefined): string {
+  return WATCH_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? '正在关注'
+}
+
 /** Transfer sort options exposed by the transfers table. */
 export const TRANSFER_SORT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '-transfer_date', label: '日期 ↓' },

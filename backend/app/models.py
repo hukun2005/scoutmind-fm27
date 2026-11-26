@@ -465,6 +465,8 @@ class WatchlistItem(TimestampMixin, Base):
     player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
     tag: Mapped[str | None] = mapped_column(String(32))
     note: Mapped[str | None] = mapped_column(String(512))
+    # 关注状态：watching / preparing / paused / done；只描述用户的工作流，不参与任何能力计算。
+    status: Mapped[str] = mapped_column(String(16), default="watching", server_default="watching", nullable=False)
     source: Mapped[str] = mapped_column(String(16), default="manual", nullable=False)
 
 
