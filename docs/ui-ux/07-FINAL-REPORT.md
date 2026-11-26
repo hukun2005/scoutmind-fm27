@@ -148,5 +148,5 @@
 | 项 | 值 |
 | --- | --- |
 | 实现提交 | `0df1df0619689591fd38e467d199b979b63293c6` |
-| Phase 7 提交 | `3c015e2` |
+| Phase 7 提交 | `f35baa7`（本报告 SHA 行随后单独修正，代码在该提交中） |
 | PR | https://github.com/hukun2005/scoutmind-fm27/pull/15 |
