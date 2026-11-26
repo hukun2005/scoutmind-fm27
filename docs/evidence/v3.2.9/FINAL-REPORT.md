@@ -118,5 +118,6 @@ PRECONDITION、PHASE-0-DATA-AUDIT、UID-SCOPE-DESIGN、PLAYER-RECONCILIATION-DES
 ## 10. 合并建议
 
 - V3.2.9 分支达到**人工合并条件**（工程与自动化层面），但不是自动合并。
-- PR #11 仍未合并；建议先决定 PR #11，再决定 V3.2.9 的 PR 目标分支。
+- 已创建 PR #12：base `codex/v3.2.8.1-pr11-hardening`，head `codex/v3.2.9-player-identity`，状态 OPEN，mergeable。
+- PR #11 仍未合并；建议先决定 PR #11，再合并 PR #12。
 - 本 Agent 未合并、未发布、未删除任何分支。
