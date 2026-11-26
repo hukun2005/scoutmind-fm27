@@ -10,28 +10,36 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { asApiError, type ApiError } from '../api/client'
 import { listClubs } from '../api/clubs'
 import { listPlayers } from '../api/players'
 import DataTable from '../components/DataTable.vue'
+import EmptyState from '../components/EmptyState.vue'
 import FilterPanel from '../components/FilterPanel.vue'
 import KpiCard from '../components/KpiCard.vue'
 import NumberCell from '../components/NumberCell.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
-import EmptyState from '../components/EmptyState.vue'
+import ValueScatterCard from '../components/ValueScatterCard.vue'
+import { MAX_COMPARE, useCompareStore } from '../stores/compare'
+import { usePlayersStore } from '../stores/players'
+import { useSessionStore } from '../stores/session'
 import type { Club } from '../types/clubs'
 import type { PlayerSummary } from '../types/players'
 import type { TableColumn, TableSortPayload } from '../types/table'
-import { usePlayersStore } from '../stores/players'
-import { useSessionStore } from '../stores/session'
-import { EMPTY, displayText, formatInt, formatPercent } from '../utils/format'
+import { EMPTY, displayText, formatInt, formatMoney, formatPercent } from '../utils/format'
 import { POSITION_GROUPS, POSITION_LABELS, POSITION_OPTIONS, coverageLabel } from '../utils/labels'
 
+const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
 const players = usePlayersStore()
+const compare = useCompareStore()
+
+/** 列表形态：表格或卡片；只影响展示，不改变服务端分页与筛选。 */
+const viewMode = ref<'table' | 'cards'>('table')
 
 const clubs = ref<Club[]>([])
 const clubsError = ref<ApiError | null>(null)
@@ -66,6 +74,7 @@ const columns: TableColumn<PlayerSummary>[] = [
     title: 'PA（潜力）：球员可能达到的能力上限',
   },
   { prop: 'market_value', label: '身价', width: 96, align: 'right', sortable: 'custom', title: '按记录币种显示' },
+  { prop: 'compare', label: '对比', width: 92, align: 'center' },
 ]
 
 /** 是否存在任何生效中的筛选条件。 */
@@ -157,6 +166,36 @@ function openPlayer(row: PlayerSummary): void {
   void router.push(`/players/${row.instance_id}`)
 }
 
+/** 是否已在对比选择中。 */
+function inCompare(row: PlayerSummary): boolean {
+  return compare.ids.includes(row.instance_id)
+}
+
+/** 加入 / 移出对比。 */
+function toggleCompare(row: PlayerSummary): void {
+  compare.ensureSave(session.activeSaveId)
+  if (inCompare(row)) {
+    compare.remove(row.instance_id)
+    ElMessage.info(`已移出对比：${row.name}`)
+    return
+  }
+  const outcome = compare.add(row.instance_id)
+  if (outcome === 'added') ElMessage.success(`已加入对比：${row.name}`)
+  else if (outcome === 'full') ElMessage.warning(`对比最多 ${MAX_COMPARE} 名球员`)
+}
+
+/** 读取搜索或热力图带来的 URL 筛选，只应用一次。 */
+function applyQueryFilters(): void {
+  const { position_group: group, position, club_id: clubId, query } = route.query
+  if (typeof position === 'string' && position) players.setFilter('position', position.toUpperCase())
+  if (typeof group === 'string' && group) players.setFilter('position_group', group.toUpperCase())
+  if (typeof clubId === 'string' && clubId) {
+    const parsed = Number.parseInt(clubId, 10)
+    if (Number.isInteger(parsed) && parsed > 0) players.setFilter('club_id', parsed)
+  }
+  if (typeof query === 'string' && query) players.setFilter('query', query)
+}
+
 /** 去数据中心同步游戏数据。 */
 function goSync(): void {
   void router.push('/data')
@@ -174,8 +213,17 @@ function onSortChange(payload: TableSortPayload): void {
   players.setSort(payload.prop, payload.order)
 }
 
+applyQueryFilters()
+
 watch(querySignature, scheduleReload, { immediate: true })
-watch([() => session.activeSaveId, () => session.dataRevision], () => void loadWatchCount(), { immediate: true })
+watch(
+  [() => session.activeSaveId, () => session.dataRevision],
+  () => {
+    compare.ensureSave(session.activeSaveId)
+    void loadWatchCount()
+  },
+  { immediate: true },
+)
 
 onBeforeUnmount(() => {
   if (reloadTimer) clearTimeout(reloadTimer)
@@ -188,6 +236,9 @@ void loadClubs()
   <div class="sm-page">
     <PageHeader title="球员中心" description="寻找优秀球员，发现潜力新星。">
       <template #actions>
+        <el-button size="small" @click="router.push('/compare')">
+          球员对比（{{ compare.count }}/{{ MAX_COMPARE }}）
+        </el-button>
         <el-button size="small" :loading="players.loading" @click="players.load(session.activeSaveId)">刷新</el-button>
       </template>
     </PageHeader>
@@ -359,8 +410,18 @@ void loadClubs()
       />
     </div>
 
+    <ValueScatterCard :save-id="session.activeSaveId" :club-id="players.filters.club_id ?? null" />
+
     <SectionCard title="球员列表" flush>
+      <template #actions>
+        <el-radio-group v-model="viewMode" size="small" aria-label="列表显示方式">
+          <el-radio-button value="table">表格</el-radio-button>
+          <el-radio-button value="cards">卡片</el-radio-button>
+        </el-radio-group>
+      </template>
+
       <DataTable
+        v-if="viewMode === 'table'"
         :columns="columns"
         :rows="players.items"
         :loading="players.loading"
@@ -417,11 +478,74 @@ void loadClubs()
           <template v-else-if="column.prop === 'market_value'">
             <NumberCell :value="row.market_value" kind="money" />
           </template>
+          <template v-else-if="column.prop === 'compare'">
+            <button
+              type="button"
+              class="compare-btn"
+              :class="{ 'compare-btn--active': inCompare(row) }"
+              :aria-pressed="inCompare(row)"
+              @click.stop="toggleCompare(row)"
+            >
+              {{ inCompare(row) ? '已加入' : '加入对比' }}
+            </button>
+          </template>
           <template v-else>
             {{ column.formatter ? column.formatter(row) : EMPTY }}
           </template>
         </template>
       </DataTable>
+
+      <template v-else>
+        <EmptyState
+          v-if="players.items.length === 0 && !players.loading && !players.error"
+          :title="hasActiveFilters ? '没有找到符合条件的球员' : '还没有球员数据'"
+          :description="
+            hasActiveFilters
+              ? '当前筛选条件没有匹配结果。可以放宽条件，或清除筛选查看全部球员。'
+              : '同步 FM27 游戏数据后，球员就会显示在这里。'
+          "
+          compact
+        >
+          <el-button v-if="hasActiveFilters" size="small" type="primary" @click="resetFilters">清除筛选条件</el-button>
+          <el-button v-else size="small" type="primary" @click="goSync">同步游戏数据</el-button>
+        </EmptyState>
+
+        <div v-else class="player-cards">
+          <article v-for="row in players.items" :key="row.instance_id" class="player-card">
+            <header class="player-card__head">
+              <button type="button" class="player-link" @click="openPlayer(row)">{{ displayText(row.name) }}</button>
+              <span class="player-card__position">{{ shortPosition(row.position) }}</span>
+            </header>
+            <p class="player-card__meta">
+              {{ row.age === null ? '年龄未知' : `${row.age} 岁` }} · {{ displayText(row.club) }}
+            </p>
+            <dl class="player-card__stats">
+              <div><dt>CA</dt><dd>{{ formatInt(row.ca) }}</dd></div>
+              <div><dt>PA</dt><dd>{{ formatInt(row.pa) }}</dd></div>
+              <div><dt>身价</dt><dd>{{ formatMoney(row.market_value) }}</dd></div>
+            </dl>
+            <footer class="player-card__actions">
+              <el-button size="small" text @click="openPlayer(row)">查看详情</el-button>
+              <el-button size="small" text :type="inCompare(row) ? 'primary' : 'default'" @click="toggleCompare(row)">
+                {{ inCompare(row) ? '已加入对比' : '加入对比' }}
+              </el-button>
+            </footer>
+          </article>
+        </div>
+
+        <div v-if="players.items.length > 0" class="cards-pagination">
+          <el-pagination
+            :current-page="players.page"
+            :page-size="players.pageSize"
+            :page-sizes="[25, 50, 100, 200]"
+            :total="players.total"
+            layout="total, sizes, prev, pager, next"
+            background
+            @current-change="onPageChange"
+            @size-change="onPageSizeChange"
+          />
+        </div>
+      </template>
     </SectionCard>
 
     <p class="page-note">
@@ -488,5 +612,93 @@ void loadClubs()
 .page-note {
   color: var(--sm-text-3);
   font-size: var(--sm-fs-2xs);
+}
+
+.compare-btn {
+  padding: 2px 8px;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-pill);
+  background: transparent;
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-2xs);
+  cursor: pointer;
+}
+
+.compare-btn:hover {
+  border-color: var(--sm-border-glow);
+  color: var(--sm-text-primary);
+}
+
+.compare-btn--active {
+  border-color: rgba(34, 211, 238, 0.4);
+  background: rgba(34, 211, 238, 0.12);
+  color: var(--sm-accent-cyan);
+}
+
+.player-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--sm-space-3);
+  padding: var(--sm-space-3);
+}
+
+.player-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+  padding: var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: rgba(12, 23, 39, 0.55);
+}
+
+.player-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sm-space-2);
+}
+
+.player-card__position {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+.player-card__meta {
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-xs);
+}
+
+.player-card__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sm-space-2);
+  margin: 0;
+}
+
+.player-card__stats dt {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+.player-card__stats dd {
+  margin: 0;
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.player-card__actions {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sm-space-2);
+  border-top: 1px solid var(--sm-border);
+  padding-top: var(--sm-space-1);
+}
+
+.cards-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--sm-space-2) var(--sm-space-3) var(--sm-space-3);
 }
 </style>

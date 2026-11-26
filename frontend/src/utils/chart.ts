@@ -9,6 +9,7 @@ import type { EChartsOption } from 'echarts'
 import type { TrendPoint } from '../types/analytics'
 import type { PlayerHistoryPoint } from '../types/players'
 import type { DistributionBucket } from '../types/transfers'
+import type { TransferFlowBucket, ValueScatterPoint } from '../types/visualization'
 
 const TEXT_2 = '#9db0c9'
 const TEXT_3 = '#7689a3'
@@ -253,9 +254,10 @@ const RADAR_COLORS = ['#22d3ee', '#4d8dff', '#a78bfa', '#34d399', '#f5b544'] as 
  * Player comparison radar, the screen the recruitment report is built around.
  * @param dimensions Axis labels shared by every series (for example the six score dimensions).
  * @param series One entry per compared player; `null` values are drawn as zero and must be labelled by the caller.
+ * @param max Axis maximum; 100 for scores, 20 for raw attributes.
  * @returns Radar chart option sized for the dark canvas.
  */
-export function buildRadarChart(dimensions: string[], series: RadarSeries[]): EChartsOption {
+export function buildRadarChart(dimensions: string[], series: RadarSeries[], max = 100): EChartsOption {
   return {
     animationDuration: reducedMotion() ? 0 : 420,
     animationEasing: 'cubicOut',
@@ -269,7 +271,7 @@ export function buildRadarChart(dimensions: string[], series: RadarSeries[]): EC
       textStyle: { color: TEXT_2, fontSize: 11 },
     },
     radar: {
-      indicator: dimensions.map((name) => ({ name, max: 100 })),
+      indicator: dimensions.map((name) => ({ name, max })),
       radius: '62%',
       center: ['50%', '46%'],
       splitNumber: 4,
@@ -438,5 +440,126 @@ function formatBucketRange(start: number, end: number): string {
     return `${Number(scaled.toFixed(digits))}${unit}`
   }
   return `${format(start)}–${format(end)}`
+}
+
+/**
+ * 球员价值散点：年龄 × 身价，点大小与颜色反映能力档位。
+ * @param points 后端已排除身价缺失的球员。
+ * @returns 深色主题散点图。
+ */
+export function buildValueScatter(points: ValueScatterPoint[]): EChartsOption {
+  const usable = points.filter(
+    (point): point is ValueScatterPoint & { age: number; market_value: number } =>
+      point.age !== null && point.market_value !== null,
+  )
+  return {
+    ...baseFrame(),
+    grid: { left: 8, right: 18, top: 18, bottom: 34, containLabel: true },
+    tooltip: {
+      trigger: 'item',
+      confine: true,
+      ...TOOLTIP_STYLE,
+      formatter: (params: any) => {
+        const data = Array.isArray(params.data) ? params.data : []
+        const [age, value, ca, pa, name, , club] = data
+        return [
+          `<strong>${name ?? '—'}</strong>`,
+          `${age ?? '—'} 岁 · ${club ?? '自由球员'}`,
+          `CA ${ca ?? '—'} · PA ${pa ?? '—'}`,
+          `身价 ${formatWan(value)}`,
+        ].join('<br/>')
+      },
+    },
+    xAxis: { ...valueAxis('年龄（岁）', { min: 14, max: 45 }), splitLine: { lineStyle: { color: SPLIT } } },
+    yAxis: { ...valueAxis('身价（万 €）'), type: 'value' as const },
+    series: [
+      {
+        name: '球员',
+        type: 'scatter' as const,
+        symbolSize: (value: unknown) => {
+          const data = Array.isArray(value) ? value : []
+          const ca = typeof data[2] === 'number' ? data[2] : 100
+          return Math.max(7, Math.min(26, 6 + (ca - 80) / 6))
+        },
+        data: usable.map((point) => [
+          point.age,
+          Math.round((point.market_value as number) / 10_000),
+          point.ca,
+          point.pa,
+          point.name,
+          point.instance_id,
+          point.club,
+        ]),
+        itemStyle: {
+          color: (params: any) => {
+            const ca = Array.isArray(params.data) ? params.data[2] : null
+            if (typeof ca !== 'number') return 'rgba(157, 176, 201, 0.55)'
+            if (ca >= 160) return CHART_COLORS.cyan
+            if (ca >= 135) return CHART_COLORS.blue
+            return CHART_COLORS.violet
+          },
+          opacity: 0.82,
+          borderColor: 'rgba(5, 10, 19, 0.55)',
+          borderWidth: 1,
+        },
+      },
+    ],
+  }
+}
+
+/** 万单位数字格式化，仅用于图表 tooltip。 */
+function formatWan(value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+  return value >= 10_000 ? `${(value / 10_000).toFixed(1)} 亿 €` : `${Math.round(value)} 万 €`
+}
+
+/**
+ * 单币种转会资金流向：买入、卖出、租借收支与净支出。
+ * @param bucket 后端按币种汇总的已完成交易。
+ * @returns 分组柱状图（单位：万）。
+ */
+export function buildTransferFlow(bucket: TransferFlowBucket): EChartsOption {
+  const toWan = (value: number): number => Number((value / 10_000).toFixed(1))
+  const labels = ['买入支出', '卖出收入', '租借收入', '租借支出', '净支出']
+  const values = [
+    toWan(bucket.buy_total),
+    toWan(bucket.sell_total),
+    toWan(bucket.loan_in_fee),
+    toWan(bucket.loan_out_fee),
+    toWan(bucket.net),
+  ]
+  return {
+    ...baseFrame(),
+    grid: { left: 4, right: 12, top: 18, bottom: 24, containLabel: true },
+    tooltip: {
+      trigger: 'axis',
+      confine: true,
+      ...TOOLTIP_STYLE,
+      valueFormatter: (value: unknown) => `${value} 万 ${bucket.currency}`,
+    },
+    xAxis: { ...categoryAxis(labels), boundaryGap: true },
+    yAxis: valueAxis(`金额（万 ${bucket.currency}）`),
+    series: [
+      {
+        name: '金额',
+        type: 'bar' as const,
+        barMaxWidth: 34,
+        data: values.map((value, index) => ({
+          value,
+          itemStyle: {
+            color:
+              index === 4
+                ? value > 0
+                  ? CHART_COLORS.violet
+                  : CHART_COLORS.value
+                : index === 0 || index === 3
+                  ? CHART_COLORS.blue
+                  : CHART_COLORS.cyan,
+            borderRadius: [4, 4, 0, 0] as [number, number, number, number],
+          },
+        })),
+      },
+    ],
+  }
 }
 

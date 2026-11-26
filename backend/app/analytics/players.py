@@ -438,6 +438,8 @@ def _snapshot_summary(
         "market_value": snapshot.market_value if snapshot else None,
         "wage": snapshot.wage if snapshot else None,
         "contract_end": snapshot.contract_end.isoformat() if snapshot and snapshot.contract_end else None,
+        "height_cm": snapshot.height_cm if snapshot else None,
+        "foot": snapshot.foot if snapshot else None,
         "observed_at": iso(snapshot.observed_at) if snapshot else None,
         "data_completeness": snapshot.data_completeness if snapshot else None,
         "source": snapshot.source if snapshot else None,

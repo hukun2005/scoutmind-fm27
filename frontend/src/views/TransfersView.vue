@@ -22,6 +22,7 @@ import NumberCell from '../components/NumberCell.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
 import StatHeader from '../components/StatHeader.vue'
+import TransferFlowCard from '../components/TransferFlowCard.vue'
 import type { Club, ClubTransferProfile } from '../types/clubs'
 import type { TableColumn } from '../types/table'
 import type {
@@ -513,6 +514,8 @@ if (activeTab.value === 'deals') void loadDealsOverview()
         <el-button size="small" :loading="transfers.loading" @click="scheduleReload">刷新</el-button>
       </template>
     </PageHeader>
+
+    <TransferFlowCard :save-id="session.activeSaveId" />
 
     <el-tabs v-model="activeTab" class="tabs">
       <el-tab-pane label="成交列表" name="list">

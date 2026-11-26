@@ -5,6 +5,8 @@ import * as echarts from 'echarts'
 import type { EChartsOption } from 'echarts'
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 
+const emit = defineEmits<{ (event: 'chart-click', payload: unknown): void }>()
+
 const props = withDefaults(
   defineProps<{
     /** Complete ECharts option; rebuilt by the caller from API data. */
@@ -32,6 +34,7 @@ function render(): void {
 onMounted(() => {
   if (!host.value) return
   chart.value = echarts.init(host.value, undefined, { renderer: 'canvas' })
+  chart.value.on('click', (params) => emit('chart-click', params))
   render()
   observer = new ResizeObserver(() => {
     chart.value?.resize()
