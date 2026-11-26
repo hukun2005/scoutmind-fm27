@@ -29,7 +29,7 @@
 | 套件 | 结果 |
 | --- | --- |
 | Backend pytest | `637 passed, 3 skipped`（640 collected） |
-| FMReader | `PASS 333 · FAIL 0` |
+| FMReader | `PASS 334 · FAIL 0` |
 | Reader | `57 / 57` |
 | Desktop Agent | `38 / 38` |
 | 解决方案构建 | 成功（0 error） |
@@ -37,7 +37,7 @@
 | 前端构建 | 成功 |
 | Migration 往返 | `b2c3d4e5f6a7`，downgrade→upgrade 通过 |
 
-新增测试 34 项（C# 22 + Backend 12），未删除测试、未降低断言。
+新增测试 35 项（C# 23 + Backend 12），未删除测试、未降低断言。
 
 ## 3. 真实 FM27
 

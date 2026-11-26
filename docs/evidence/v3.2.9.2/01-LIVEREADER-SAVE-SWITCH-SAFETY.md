@@ -82,7 +82,7 @@ FM27 独占锁定，解析器仍会命中旧文件，`save-identity` 继续输�
 dotnet run --project live-reader/tests/ScoutMind.FMReader.Tests -c Release
 ```
 
-结果：`PASS 333 · FAIL 0`（基线 311 + 阶段 1 新增 12 + 阶段 2 新增 10）。
+结果：`PASS 334 · FAIL 0`（基线 311 + 阶段 1 新增 12 + 阶段 2 新增 11）。
 
 ## 5. 限制
 

@@ -138,6 +138,7 @@ public sealed class VerifiedLifecycleLedger
     private readonly Func<DateTimeOffset> _now;
     private readonly List<VerifiedLifecycleRecord> _history = new();
     private readonly Dictionary<(string Fingerprint, uint Uid), VerifiedLifecycleRecord> _active = new();
+    private readonly object _gate = new();
     private long _sequence;
 
     /// <summary>创建台账。</summary>
@@ -151,21 +152,38 @@ public sealed class VerifiedLifecycleLedger
     public int CurrentGeneration { get; private set; }
 
     /// <summary>全部历史记录（只读快照）。</summary>
-    public IReadOnlyList<VerifiedLifecycleRecord> History => _history;
+    public IReadOnlyList<VerifiedLifecycleRecord> History
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _history.ToArray();
+            }
+        }
+    }
 
     /// <summary>取得当前有效的 Verified 记录；没有时为 <c>null</c>。</summary>
     /// <param name="fingerprint">存档身份指纹。</param>
     /// <param name="uid">球员 UID。</param>
     /// <returns>当前有效记录。</returns>
-    public VerifiedLifecycleRecord? Active(string fingerprint, uint uid) =>
-        _active.TryGetValue((fingerprint, uid), out var record) ? record : null;
+    public VerifiedLifecycleRecord? Active(string fingerprint, uint uid)
+    {
+        lock (_gate)
+        {
+            return _active.TryGetValue((fingerprint, uid), out var record) ? record : null;
+        }
+    }
 
     /// <summary>开始一次验证，记录当前 generation。</summary>
     /// <returns>验证令牌。</returns>
     public VerificationAttempt Begin()
     {
-        CurrentGeneration = Math.Max(CurrentGeneration, 1);
-        return new VerificationAttempt(CurrentGeneration, _now());
+        lock (_gate)
+        {
+            CurrentGeneration = Math.Max(CurrentGeneration, 1);
+            return new VerificationAttempt(CurrentGeneration, _now());
+        }
     }
 
     /// <summary>推进身份代次，并使所有当前 Verified 失效。</summary>
@@ -178,16 +196,19 @@ public sealed class VerifiedLifecycleLedger
             throw new ArgumentException("失效原因不能为空。", nameof(reason));
         }
 
-        foreach (var record in _active.Values.ToArray())
+        lock (_gate)
         {
-            Append(record.SaveIdentityFingerprint, record.PersonUid, VerificationState.Invalidated,
-                VerifiedAt: record.VerifiedAt, ValidatorVersion: record.ValidatorVersion,
-                EvidenceDigest: record.EvidenceDigest, reason: reason);
-        }
+            foreach (var record in _active.Values.ToArray())
+            {
+                Append(record.SaveIdentityFingerprint, record.PersonUid, VerificationState.Invalidated,
+                    VerifiedAt: record.VerifiedAt, ValidatorVersion: record.ValidatorVersion,
+                    EvidenceDigest: record.EvidenceDigest, reason: reason);
+            }
 
-        _active.Clear();
-        CurrentGeneration++;
-        return CurrentGeneration;
+            _active.Clear();
+            CurrentGeneration++;
+            return CurrentGeneration;
+        }
     }
 
     /// <summary>管理员/审核显式撤销某个 Verified；同时推进代次，旧任务无法恢复。</summary>
@@ -197,15 +218,18 @@ public sealed class VerifiedLifecycleLedger
     /// <returns>是否真的撤销了一条有效记录。</returns>
     public bool Revoke(string fingerprint, uint uid, string reason)
     {
-        if (!_active.Remove((fingerprint, uid), out var record))
+        lock (_gate)
         {
-            return false;
-        }
+            if (!_active.Remove((fingerprint, uid), out var record))
+            {
+                return false;
+            }
 
-        Append(record.SaveIdentityFingerprint, record.PersonUid, VerificationState.Invalidated,
-            record.VerifiedAt, record.ValidatorVersion, record.EvidenceDigest, reason);
-        CurrentGeneration++;
-        return true;
+            Append(record.SaveIdentityFingerprint, record.PersonUid, VerificationState.Invalidated,
+                record.VerifiedAt, record.ValidatorVersion, record.EvidenceDigest, reason);
+            CurrentGeneration++;
+            return true;
+        }
     }
 
     /// <summary>提交一次验证结果。</summary>
@@ -229,45 +253,48 @@ public sealed class VerifiedLifecycleLedger
                 "证据不完整：不允许写入 Verified。");
         }
 
-        if (attempt.Generation != CurrentGeneration)
+        lock (_gate)
         {
-            return new VerificationCommitResult(
-                VerificationCommitOutcome.StaleGeneration,
-                null,
-                $"generation 已过期（任务 {attempt.Generation} / 当前 {CurrentGeneration}），结果被丢弃。");
+            if (attempt.Generation != CurrentGeneration)
+            {
+                return new VerificationCommitResult(
+                    VerificationCommitOutcome.StaleGeneration,
+                    null,
+                    $"generation 已过期（任务 {attempt.Generation} / 当前 {CurrentGeneration}），结果被丢弃。");
+            }
+
+            var key = (evidence.SaveIdentityFingerprint, evidence.PersonUid);
+            if (_active.TryGetValue(key, out var existing)
+                && existing.Generation == attempt.Generation
+                && string.Equals(existing.EvidenceDigest, evidence.EvidenceDigest, StringComparison.Ordinal)
+                && existing.ValidatorVersion == evidence.ValidatorVersion)
+            {
+                return new VerificationCommitResult(
+                    VerificationCommitOutcome.Duplicate,
+                    existing,
+                    "同一作用域、同一证据重复验证：幂等返回既有记录。");
+            }
+
+            if (existing is not null)
+            {
+                Append(existing.SaveIdentityFingerprint, existing.PersonUid, VerificationState.RevalidationRequired,
+                    existing.VerifiedAt, existing.ValidatorVersion, existing.EvidenceDigest,
+                    reason: "evidence_changed");
+            }
+
+            var record = Append(
+                evidence.SaveIdentityFingerprint,
+                evidence.PersonUid,
+                VerificationState.Verified,
+                VerifiedAt: _now(),
+                ValidatorVersion: evidence.ValidatorVersion,
+                EvidenceDigest: evidence.EvidenceDigest,
+                reason: null,
+                generation: attempt.Generation);
+
+            _active[key] = record;
+            return new VerificationCommitResult(VerificationCommitOutcome.Applied, record, "已写入新的 Verified 记录。");
         }
-
-        var key = (evidence.SaveIdentityFingerprint, evidence.PersonUid);
-        if (_active.TryGetValue(key, out var existing)
-            && existing.Generation == attempt.Generation
-            && string.Equals(existing.EvidenceDigest, evidence.EvidenceDigest, StringComparison.Ordinal)
-            && existing.ValidatorVersion == evidence.ValidatorVersion)
-        {
-            return new VerificationCommitResult(
-                VerificationCommitOutcome.Duplicate,
-                existing,
-                "同一作用域、同一证据重复验证：幂等返回既有记录。");
-        }
-
-        if (existing is not null)
-        {
-            Append(existing.SaveIdentityFingerprint, existing.PersonUid, VerificationState.RevalidationRequired,
-                existing.VerifiedAt, existing.ValidatorVersion, existing.EvidenceDigest,
-                reason: "evidence_changed");
-        }
-
-        var record = Append(
-            evidence.SaveIdentityFingerprint,
-            evidence.PersonUid,
-            VerificationState.Verified,
-            VerifiedAt: _now(),
-            ValidatorVersion: evidence.ValidatorVersion,
-            EvidenceDigest: evidence.EvidenceDigest,
-            reason: null,
-            generation: attempt.Generation);
-
-        _active[key] = record;
-        return new VerificationCommitResult(VerificationCommitOutcome.Applied, record, "已写入新的 Verified 记录。");
     }
 
     /// <summary>使某个 Verified 进入重新确认状态（不推进代次，用于证据变化）。</summary>
@@ -277,14 +304,17 @@ public sealed class VerifiedLifecycleLedger
     /// <returns>是否处理了有效记录。</returns>
     public bool RequireRevalidation(string fingerprint, uint uid, string reason)
     {
-        if (!_active.Remove((fingerprint, uid), out var record))
+        lock (_gate)
         {
-            return false;
-        }
+            if (!_active.Remove((fingerprint, uid), out var record))
+            {
+                return false;
+            }
 
-        Append(record.SaveIdentityFingerprint, record.PersonUid, VerificationState.RevalidationRequired,
-            record.VerifiedAt, record.ValidatorVersion, record.EvidenceDigest, reason);
-        return true;
+            Append(record.SaveIdentityFingerprint, record.PersonUid, VerificationState.RevalidationRequired,
+                record.VerifiedAt, record.ValidatorVersion, record.EvidenceDigest, reason);
+            return true;
+        }
     }
 
     private VerifiedLifecycleRecord Append(

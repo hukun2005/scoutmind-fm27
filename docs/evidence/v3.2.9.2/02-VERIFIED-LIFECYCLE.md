@@ -24,12 +24,13 @@ V3.2.9.1 的 `PersonVerificationGate` 只能比较“当次观测”和 `Verifie
 | 互不覆盖 | 台账按（指纹, UID）分键，A 存档与 B 存档各自有效 |
 | 证据不足 | `VerificationEvidence.IsComplete == false` → `InsufficientEvidence`，绝不写 Verified |
 | 只追加 | 所有状态变化都追加 `VerifiedLifecycleRecord`，序号唯一，不 update/delete |
+| 并发安全 | 所有读写都在同一互斥锁内，避免两个验证任务同时写入 |
 | 未知状态 | `VerificationStateText.IsSuccess()` 只认 `"verified"`；未知序列化为 `"unknown"` |
 
 `PersonVerificationGate` 与 `VerifiedIdentityScopeValidator` 保持原有门控职责，
 台账负责“持久化生命周期 + 并发/代次仲裁”，两者不重复。
 
-## 3. 新增测试（10 项）
+## 3. 新增测试（11 项）
 
 `live-reader/tests/ScoutMind.FMReader.Tests/VerifiedLifecycleTests.cs`
 
@@ -42,11 +43,12 @@ V3.2.9.1 的 `PersonVerificationGate` 只能比较“当次观测”和 `Verifie
 7. 无证据不能 Verified；
 8. 已撤销 Verified 不能被旧任务恢复；
 9. 未知状态不得显示为成功；
-10. 历史记录可追溯（Verified + Invalidated + 新 Verified）。
+10. 其余并发提交保持幂等（并发测试）；
+11. 历史记录可追溯（Verified + Invalidated + 新 Verified）。
 
 ## 4. 实际结果
 
-`PASS 333 · FAIL 0`（与阶段 1 同一次运行），其中本阶段 10 项全部通过。
+`PASS 334 · FAIL 0`（与阶段 1 同一次运行），其中本阶段 11 项全部通过。
 
 ## 5. 语义边界
 

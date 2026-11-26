@@ -130,6 +130,26 @@ public static class VerifiedLifecycleTests
             TestHarness.Equal("unknown", VerificationStateText.ToApiText((VerificationState)999), "未知状态必须序列化为 unknown");
         });
 
+        harness.Run("生命周期：并发提交同一作用域只产生一条 Verified", () =>
+        {
+            var ledger = new VerifiedLifecycleLedger(() => Now);
+            var attempt = ledger.Begin();
+            var evidence = Evidence("si:v1:file:A", 101, "digest-1");
+            var results = new VerificationCommitResult[32];
+
+            Parallel.For(0, results.Length, index => results[index] = ledger.Commit(attempt, evidence));
+
+            TestHarness.Equal(
+                1,
+                results.Count(result => result.Outcome == VerificationCommitOutcome.Applied),
+                "并发下只能有一个写入者");
+            TestHarness.Equal(
+                results.Length - 1,
+                results.Count(result => result.Outcome == VerificationCommitOutcome.Duplicate),
+                "其余并发提交必须幂等");
+            TestHarness.Equal(1, ledger.History.Count, "不得产生重复历史");
+        });
+
         harness.Run("生命周期：历史记录可追溯", () =>
         {
             var ledger = new VerifiedLifecycleLedger(() => Now);

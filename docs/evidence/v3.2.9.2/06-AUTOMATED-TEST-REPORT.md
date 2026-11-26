@@ -8,7 +8,7 @@
 | 套件 | 命令 | 结果 |
 | --- | --- | --- |
 | Backend pytest | `cd backend; python -m pytest -q` | `637 passed, 3 skipped`（共 640） |
-| FMReader（含阶段 1/2 新增） | `dotnet run --project live-reader/tests/ScoutMind.FMReader.Tests -c Release` | `PASS 333 · FAIL 0` |
+| FMReader（含阶段 1/2 新增） | `dotnet run --project live-reader/tests/ScoutMind.FMReader.Tests -c Release` | `PASS 334 · FAIL 0` |
 | Reader 集成 | `dotnet run --project live-reader/tests/ScoutMind.Reader.Tests -c Release` | `57 / 57 通过` |
 | Desktop Agent | `dotnet test -c Release --no-build` | `38 passed, 0 failed` |
 | 解决方案构建 | `dotnet build ScoutMind.sln -c Release` | 成功（0 error；仅 third_party 既有 warning） |
@@ -18,10 +18,10 @@
 
 ## 2. 新增测试清单
 
-### C#（22 项）
+### C#（23 项）
 
 `live-reader/tests/ScoutMind.FMReader.Tests/LiveReaderSaveSwitchSafetyTests.cs`（12）
-与 `VerifiedLifecycleTests.cs`（10），见 01/02 文档。
+与 `VerifiedLifecycleTests.cs`（11），见 01/02 文档。
 
 ### Backend（12 项）
 
@@ -45,7 +45,7 @@
 | 项目 | 基线 24beaba | 本分支 |
 | --- | --- | --- |
 | Backend 测试 | 628 collected | 640 collected |
-| FMReader | 311 PASS | 333 PASS |
+| FMReader | 311 PASS | 334 PASS |
 | Reader | 57 PASS | 57 PASS |
 | Agent | 38 PASS | 38 PASS |
 | 前端构建 | PASS | PASS |
