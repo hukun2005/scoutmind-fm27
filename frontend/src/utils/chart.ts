@@ -10,19 +10,39 @@ import type { TrendPoint } from '../types/analytics'
 import type { PlayerHistoryPoint } from '../types/players'
 import type { DistributionBucket } from '../types/transfers'
 
-const TEXT_2 = '#a6b2c4'
-const TEXT_3 = '#7a8698'
-const BORDER = '#232d3c'
+const TEXT_2 = '#9db0c9'
+const TEXT_3 = '#7689a3'
+const BORDER = 'rgba(122, 162, 220, 0.18)'
+const SPLIT = 'rgba(122, 162, 220, 0.1)'
 
-/** Series colours reused across screens; chosen for contrast on the dark canvas. */
+/** 系统是否要求减少动态效果；图表据此关闭入场动画。 */
+function reducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+/** 系列颜色：与设计 Token 的强调色一致，保证跨页面可识别。 */
 export const CHART_COLORS = {
   ca: '#4d8dff',
-  pa: '#7a8698',
-  value: '#35c98a',
+  pa: '#6b7f9b',
+  value: '#34d399',
   minutes: '#4d8dff',
-  appearances: '#e6a93c',
+  appearances: '#f5b544',
   fee: '#4d8dff',
+  blue: '#4d8dff',
+  cyan: '#22d3ee',
+  violet: '#a78bfa',
 } as const
+
+/** 深色画布上的统一 tooltip 外观。 */
+const TOOLTIP_STYLE = {
+  backgroundColor: 'rgba(8, 16, 28, 0.96)',
+  borderColor: 'rgba(122, 162, 220, 0.28)',
+  borderWidth: 1,
+  padding: [8, 10] as [number, number],
+  textStyle: { color: '#eef5ff', fontSize: 12 },
+  extraCssText: 'border-radius:10px;box-shadow:0 18px 40px -24px rgba(2,7,16,.9);',
+}
 
 /** Date label of a history point: game date when present, otherwise the observation date. */
 function pointLabel(point: PlayerHistoryPoint): string {
@@ -30,8 +50,8 @@ function pointLabel(point: PlayerHistoryPoint): string {
   return raw ? raw.slice(0, 10) : '—'
 }
 
-/** Shared axis/grid furniture. */
-function baseFrame(): Pick<EChartsOption, 'grid' | 'legend' | 'tooltip' | 'animationDuration'> {
+/** 共享的坐标轴 / 图例 / 提示框外观。 */
+function baseFrame(): Pick<EChartsOption, 'grid' | 'legend' | 'tooltip' | 'animationDuration' | 'animationEasing'> {
   return {
     grid: { left: 4, right: 12, top: 30, bottom: 26, containLabel: true },
     legend: {
@@ -42,8 +62,9 @@ function baseFrame(): Pick<EChartsOption, 'grid' | 'legend' | 'tooltip' | 'anima
       itemGap: 12,
       textStyle: { color: TEXT_2, fontSize: 11 },
     },
-    tooltip: { trigger: 'axis', confine: true },
-    animationDuration: 240,
+    tooltip: { trigger: 'axis', confine: true, ...TOOLTIP_STYLE },
+    animationDuration: reducedMotion() ? 0 : 320,
+    animationEasing: 'cubicOut',
   }
 }
 
@@ -68,7 +89,7 @@ function valueAxis(name: string, options?: { min?: number; max?: number }) {
     min: options?.min,
     max: options?.max,
     axisLabel: { color: TEXT_3, fontSize: 11 },
-    splitLine: { lineStyle: { color: '#1d2632' } },
+    splitLine: { lineStyle: { color: SPLIT } },
     axisLine: { show: false },
   }
 }
@@ -225,8 +246,8 @@ export interface RadarSeries {
   values: (number | null)[]
 }
 
-/** Radar palette; cycles when more players are compared than colours. */
-const RADAR_COLORS = ['#4d8dff', '#35c98a', '#e6a93c', '#f06a63', '#a97bff'] as const
+/** 雷达图配色；比较人数超过颜色数时循环使用。 */
+const RADAR_COLORS = ['#22d3ee', '#4d8dff', '#a78bfa', '#34d399', '#f5b544'] as const
 
 /**
  * Player comparison radar, the screen the recruitment report is built around.
@@ -236,8 +257,9 @@ const RADAR_COLORS = ['#4d8dff', '#35c98a', '#e6a93c', '#f06a63', '#a97bff'] as 
  */
 export function buildRadarChart(dimensions: string[], series: RadarSeries[]): EChartsOption {
   return {
-    animationDuration: 240,
-    tooltip: { trigger: 'item', confine: true },
+    animationDuration: reducedMotion() ? 0 : 420,
+    animationEasing: 'cubicOut',
+    tooltip: { trigger: 'item', confine: true, ...TOOLTIP_STYLE },
     legend: {
       bottom: 0,
       left: 'center',
@@ -273,8 +295,136 @@ export function buildRadarChart(dimensions: string[], series: RadarSeries[]): EC
 }
 
 /**
- * Format one histogram bucket as a single-unit range so both bounds share the same
- * unit (`0–916 万`, not `0–915.86 万`).
+ * 阵容六维雷达：只绘制后端给出数值的维度，`null` 维度由调用方在脚注中说明。
+ * @param components `GET /squad/overview` → `components`。
+ * @returns 0–100 单系列雷达图。
+ */
+export function buildSquadRadar(components: Array<{ label: string; value: number | null }>): EChartsOption {
+  const usable = components.filter((entry): entry is { label: string; value: number } => entry.value !== null)
+  return {
+    animationDuration: reducedMotion() ? 0 : 420,
+    animationEasing: 'cubicOut',
+    tooltip: { trigger: 'item', confine: true, ...TOOLTIP_STYLE },
+    radar: {
+      indicator: usable.map((entry) => ({ name: entry.label, max: 100 })),
+      radius: '64%',
+      center: ['50%', '50%'],
+      splitNumber: 4,
+      axisName: { color: TEXT_2, fontSize: 11 },
+      splitLine: { lineStyle: { color: BORDER } },
+      splitArea: { areaStyle: { color: ['rgba(255,255,255,0.015)', 'rgba(34,211,238,0.035)'] } },
+      axisLine: { lineStyle: { color: BORDER } },
+    },
+    series: [
+      {
+        type: 'radar',
+        symbolSize: 4,
+        data: [
+          {
+            name: '阵容评分',
+            value: usable.map((entry) => Number(entry.value.toFixed(1))),
+            lineStyle: { width: 2, color: CHART_COLORS.cyan },
+            itemStyle: { color: CHART_COLORS.cyan },
+            areaStyle: { color: 'rgba(34, 211, 238, 0.16)' },
+          },
+        ],
+      },
+    ],
+  }
+}
+
+/**
+ * 阵容年龄结构：实际占比柱 + 后端给出的理想占比参考线。
+ * @param buckets `GET /squad/overview` → `age_structure.buckets`。
+ * @returns 百分比柱线组合图。
+ */
+export function buildAgeDistribution(
+  buckets: Array<{ bucket: string; count: number; share: number; ideal_share: number }>,
+): EChartsOption {
+  return {
+    ...baseFrame(),
+    tooltip: {
+      trigger: 'axis',
+      confine: true,
+      ...TOOLTIP_STYLE,
+      valueFormatter: (value: unknown) => `${value}%`,
+    },
+    xAxis: { ...categoryAxis(buckets.map((bucket) => bucket.bucket)), boundaryGap: true },
+    yAxis: valueAxis('占比 %', { min: 0 }),
+    series: [
+      {
+        name: '实际占比',
+        type: 'bar' as const,
+        barMaxWidth: 34,
+        data: buckets.map((bucket) => Number((bucket.share * 100).toFixed(1))),
+        itemStyle: {
+          borderRadius: [4, 4, 0, 0] as [number, number, number, number],
+          color: {
+            type: 'linear' as const,
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: '#22d3ee' },
+              { offset: 1, color: 'rgba(37, 99, 235, 0.35)' },
+            ],
+          },
+        },
+      },
+      {
+        name: '理想占比',
+        type: 'line' as const,
+        symbol: 'circle' as const,
+        symbolSize: 5,
+        data: buckets.map((bucket) => Number((bucket.ideal_share * 100).toFixed(1))),
+        lineStyle: { width: 1.5, type: 'dashed' as const, color: CHART_COLORS.violet },
+        itemStyle: { color: CHART_COLORS.violet },
+      },
+    ],
+  }
+}
+
+/**
+ * 位置结构：各位置现有球员数与模板需求人数。
+ * @param rows `GET /squad/overview` → `depth`。
+ * @returns 横向双系列条形图。
+ */
+export function buildPositionDistribution(rows: Array<{ slot: string; slot_name: string; count: number; required: number }>): EChartsOption {
+  const items = rows.filter((row) => row.slot !== 'UNKNOWN')
+  return {
+    ...baseFrame(),
+    grid: { left: 4, right: 16, top: 12, bottom: 30, containLabel: true },
+    xAxis: valueAxis('人数', { min: 0 }),
+    yAxis: {
+      type: 'category' as const,
+      data: items.map((row) => row.slot_name || row.slot),
+      axisLabel: { color: TEXT_3, fontSize: 11 },
+      axisTick: { show: false },
+      axisLine: { lineStyle: { color: BORDER } },
+    },
+    series: [
+      {
+        name: '现有',
+        type: 'bar' as const,
+        barMaxWidth: 11,
+        data: items.map((row) => row.count),
+        itemStyle: { color: CHART_COLORS.blue, borderRadius: [0, 4, 4, 0] as [number, number, number, number] },
+      },
+      {
+        name: '需求',
+        type: 'bar' as const,
+        barMaxWidth: 11,
+        data: items.map((row) => row.required),
+        itemStyle: { color: 'rgba(167, 139, 250, 0.5)', borderRadius: [0, 4, 4, 0] as [number, number, number, number] },
+      },
+    ],
+  }
+}
+
+
+/**
+ * 把一个直方图区间格式化为同一单位的范围（`0–916 万`，而不是 `0–915.86 万`）。
  * @param start Lower bound in the record currency.
  * @param end Upper bound in the record currency.
  * @returns Readable range label.

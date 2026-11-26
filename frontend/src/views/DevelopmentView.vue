@@ -7,6 +7,7 @@ import { computed, onMounted, ref } from 'vue'
 import type { EChartsOption } from 'echarts'
 import { asApiError, type ApiError } from '../api/client'
 import { getDevelopmentBoard, getGrowthProfile } from '../api/development'
+import ChartCard from '../components/ChartCard.vue'
 import DataTable from '../components/DataTable.vue'
 import EChart from '../components/EChart.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -15,6 +16,7 @@ import KpiCard from '../components/KpiCard.vue'
 import LoadingBlock from '../components/LoadingBlock.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
+import StatHeader from '../components/StatHeader.vue'
 import { useSessionStore } from '../stores/session'
 import type { DevelopmentBoardRow, GrowthPoint, GrowthProfile } from '../types/development'
 import type { TableColumn } from '../types/table'
@@ -47,22 +49,22 @@ const growthOption = computed<EChartsOption | null>(() => {
       icon: 'roundRect',
       itemWidth: 10,
       itemHeight: 10,
-      textStyle: { color: '#a6b2c4', fontSize: 11 },
+      textStyle: { color: '#9db0c9', fontSize: 11 },
     },
     tooltip: { trigger: 'axis', confine: true },
     xAxis: {
       type: 'category',
       data: labels,
-      axisLabel: { color: '#7a8698', fontSize: 11 },
-      axisLine: { lineStyle: { color: '#232d3c' } },
+      axisLabel: { color: '#7689a3', fontSize: 11 },
+      axisLine: { lineStyle: { color: 'rgba(122, 162, 220, 0.18)' } },
       axisTick: { show: false },
     },
     yAxis: {
       type: 'value',
       name: 'CA / PA',
-      nameTextStyle: { color: '#7a8698', fontSize: 11 },
-      axisLabel: { color: '#7a8698', fontSize: 11 },
-      splitLine: { lineStyle: { color: '#1d2632' } },
+      nameTextStyle: { color: '#7689a3', fontSize: 11 },
+      axisLabel: { color: '#7689a3', fontSize: 11 },
+      splitLine: { lineStyle: { color: 'rgba(122, 162, 220, 0.1)' } },
     },
     series: [
       {
@@ -121,6 +123,15 @@ const pointColumns: TableColumn<GrowthPoint>[] = [
   { prop: 'change_label', label: '主要变化', minWidth: 140 },
 ]
 
+/** 区间变化：仅重排后端返回的成长区间字段，不做重新计算。 */
+const intervalItems = computed(() =>
+  (profile.value?.rates.intervals ?? []).map((interval) => ({
+    label: `${interval.from} → ${interval.to}`,
+    value: interval.per_month === null ? EMPTY : formatDecimal(interval.per_month, 2),
+    hint: `${interval.months ?? EMPTY} 个月 · CA ${displayText(interval.ca_delta)}`,
+  })),
+)
+
 /** Load the development board. */
 async function loadBoard(): Promise<void> {
   boardLoading.value = true
@@ -172,7 +183,8 @@ onMounted(() => void loadBoard())
 <template>
   <div class="sm-page">
     <PageHeader
-      title="Player Development · 球员发展"
+      eyebrow="PLAYER DEVELOPMENT"
+      title="球员发展"
       description="成长速率来自快照之间的真实变化；潜力判断是区间与等级，产品不承诺精确预测未来 CA。"
     >
       <template #actions>
@@ -223,12 +235,12 @@ onMounted(() => void loadBoard())
       </section>
 
       <div class="sm-grid sm-grid--wide-left">
-        <SectionCard :title="`${profile.player.name} 成长曲线`" subtitle="CA 与 PA 随快照的变化">
+        <ChartCard :title="`${profile.player.name} 成长曲线`" subtitle="CA 与 PA 随快照的变化">
           <ErrorState v-if="profileError" :error="profileError" title="球员成长加载失败" @retry="loadProfile(selectedId as number)" />
           <LoadingBlock v-else-if="profileLoading" :rows="3" />
-          <EChart v-else-if="growthOption" :option="growthOption" height="300px" />
+          <EChart v-else-if="growthOption" :option="growthOption" height="300px" aria-label="球员 CA 与 PA 成长曲线" />
           <EmptyState v-else title="没有快照" description="该球员没有任何历史快照" />
-        </SectionCard>
+        </ChartCard>
 
         <SectionCard title="发展建议" subtitle="每条建议都给出依据与置信度">
           <ul class="dev__advice">
@@ -246,6 +258,12 @@ onMounted(() => void loadBoard())
       </div>
 
       <SectionCard title="成长记录" subtitle="每次快照的年龄、能力、身价与主要变化">
+        <StatHeader
+          v-if="intervalItems.length > 0"
+          class="dev__deltas"
+          :items="intervalItems"
+          :footnote="profile.rates.formula ?? ''"
+        />
         <DataTable :columns="pointColumns" :rows="profile.points" row-key="snapshot_id" dense :show-pagination="false" />
         <el-alert
           v-if="profile.data_gaps.length > 0"
@@ -283,8 +301,20 @@ onMounted(() => void loadBoard())
 .dev__advice li {
   padding: var(--sm-space-2) var(--sm-space-3);
   border: 1px solid var(--sm-border);
+  border-left: 2px solid rgba(34, 211, 238, 0.35);
   border-radius: var(--sm-radius-md);
-  background: var(--sm-surface-2);
+  background:
+    linear-gradient(140deg, rgba(34, 211, 238, 0.05), transparent 60%),
+    var(--sm-surface-2);
+}
+
+.dev__advice strong {
+  color: var(--sm-text);
+  font-weight: var(--sm-fw-semibold);
+}
+
+.dev__deltas {
+  margin-bottom: var(--sm-space-4);
 }
 
 .dev__rationale {

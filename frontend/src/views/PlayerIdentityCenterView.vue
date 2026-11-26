@@ -1,40 +1,90 @@
 <template>
-  <section class="identity-center">
+  <section class="sm-page identity-center">
     <PageHeader
+      eyebrow="PLAYER IDENTITY CENTER"
       title="球员身份中心"
       subtitle="UID 只在存档内有效；同名、重复 UID 与跨存档候选都只作为待审核项，系统绝不自动合并"
     >
       <template #actions>
-        <el-button size="small" :loading="loading" @click="reloadAll">刷新</el-button>
+        <el-button size="small" type="primary" :loading="loading" @click="reloadAll">刷新</el-button>
       </template>
     </PageHeader>
 
-    <div class="identity-center__kpis">
-      <KpiCard label="球员实例" :value="formatInt(summary?.player_instances ?? 0)" hint="当前存档" />
-      <KpiCard label="唯一 UID" :value="formatInt(summary?.uid.distinct_save_local_uids ?? 0)" hint="存档内关联键" />
-      <KpiCard label="重复 UID" :value="formatInt(summary?.uid.duplicate_uid_count ?? 0)" hint="不自动合并" />
-      <KpiCard label="待人工审核" :value="formatInt(summary?.reviews.PendingHumanReview ?? 0)" hint="同名 / UID / 转会" />
-      <KpiCard label="已验证关联" :value="formatInt(summary?.identity_links.ConfirmedByHuman ?? 0)" hint="人工确认，非 Verified" />
+    <el-alert
+      v-if="error"
+      type="error"
+      show-icon
+      :closable="false"
+      :title="error.isNetworkError ? '无法连接后端' : '身份中心请求失败'"
+    >
+      <p class="idc-alert-text">{{ error.message }}</p>
+    </el-alert>
+
+    <div class="sm-grid sm-grid--kpi">
+      <KpiCard
+        label="球员实例"
+        :value="formatInt(summary?.player_instances ?? 0)"
+        hint="当前存档"
+        :loading="loading && !summary"
+      />
+      <KpiCard
+        label="唯一 UID"
+        :value="formatInt(summary?.uid.distinct_save_local_uids ?? 0)"
+        hint="存档内关联键"
+        :loading="loading && !summary"
+      />
+      <KpiCard
+        label="重复 UID"
+        :value="formatInt(summary?.uid.duplicate_uid_count ?? 0)"
+        hint="不自动合并"
+        :tone="(summary?.uid.duplicate_uid_count ?? 0) > 0 ? 'warn' : 'default'"
+        :loading="loading && !summary"
+      />
+      <KpiCard
+        label="待人工审核"
+        :value="formatInt(summary?.reviews.PendingHumanReview ?? 0)"
+        hint="同名 / UID / 转会"
+        :tone="(summary?.reviews.PendingHumanReview ?? 0) > 0 ? 'warn' : 'default'"
+        :loading="loading && !summary"
+      />
+      <KpiCard
+        label="已验证关联"
+        :value="formatInt(summary?.identity_links.ConfirmedByHuman ?? 0)"
+        hint="人工确认，非 Verified"
+        tone="accent"
+        :loading="loading && !summary"
+      />
     </div>
 
-    <SectionCard title="全库身份扫描" dense>
-      <div class="identity-center__scanbar">
-        <el-input v-model="scanId" size="small" placeholder="scan_id（幂等）" style="width: 220px" />
-        <el-input-number v-model="batchSize" size="small" :min="1" :max="1000" controls-position="right" />
+    <SectionCard title="全库身份扫描" subtitle="幂等扫描：同一 scan_id 重复执行不会产生重复记录" accent>
+      <div class="idc-console">
+        <label class="idc-field">
+          <span class="idc-field__label">scan_id</span>
+          <el-input v-model="scanId" size="small" placeholder="scan_id（幂等）" style="width: 220px" />
+        </label>
+        <label class="idc-field">
+          <span class="idc-field__label">批次大小</span>
+          <el-input-number v-model="batchSize" size="small" :min="1" :max="1000" controls-position="right" />
+        </label>
         <el-button type="primary" size="small" :loading="scanning" @click="startScanNow">开始扫描</el-button>
-        <span class="identity-center__hint">
-          指纹：{{ displayText(summary?.current_save_identity_fingerprint) }}
+        <span class="idc-hint">
+          指纹：<span class="sm-mono">{{ displayText(summary?.current_save_identity_fingerprint) }}</span>
         </span>
       </div>
+
       <el-table :data="scans" size="small" empty-text="还没有扫描记录">
-        <el-table-column prop="scan_id" label="scan_id" min-width="140" />
-        <el-table-column prop="status" label="状态" width="110" />
-        <el-table-column prop="processed_count" label="已处理" width="90" />
-        <el-table-column prop="matched_count" label="匹配" width="80" />
-        <el-table-column prop="conflict_count" label="冲突" width="80" />
-        <el-table-column prop="failed_count" label="失败" width="80" />
-        <el-table-column prop="error_code" label="错误码" width="180">
-          <template #default="{ row }">{{ displayText(row.error_code) }}</template>
+        <el-table-column prop="scan_id" label="scan_id" min-width="150" />
+        <el-table-column label="状态" width="120">
+          <template #default="{ row }">
+            <span class="idc-status" :class="statusClass(row.status)">{{ row.status }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="processed_count" label="已处理" width="90" align="right" />
+        <el-table-column prop="matched_count" label="匹配" width="80" align="right" />
+        <el-table-column prop="conflict_count" label="冲突" width="80" align="right" />
+        <el-table-column prop="failed_count" label="失败" width="80" align="right" />
+        <el-table-column label="错误码" width="180">
+          <template #default="{ row }"><span class="sm-mono">{{ displayText(row.error_code) }}</span></template>
         </el-table-column>
         <el-table-column label="操作" width="200">
           <template #default="{ row }">
@@ -48,20 +98,34 @@
 
     <div class="identity-center__layout">
       <SectionCard title="人工审核队列" dense class="identity-center__list">
-        <div class="identity-center__filters">
-          <el-select v-model="statusFilter" size="small" style="width: 170px" @change="loadQueue">
-            <el-option label="待处理" value="PendingHumanReview" />
-            <el-option label="已确认" value="Confirmed" />
-            <el-option label="已拒绝" value="Rejected" />
-            <el-option label="保留独立" value="KeptIndependent" />
-            <el-option label="暂缓" value="Deferred" />
-            <el-option label="全部" value="all" />
-          </el-select>
-          <el-select v-model="typeFilter" size="small" style="width: 170px" @change="loadQueue" clearable placeholder="全部类型">
-            <el-option label="同名" value="same_name" />
-            <el-option label="UID 重复" value="uid_duplicate" />
-            <el-option label="转会身份" value="transfer_identity" />
-          </el-select>
+        <div class="idc-console idc-console--filters">
+          <label class="idc-field">
+            <span class="idc-field__label">状态</span>
+            <el-select v-model="statusFilter" size="small" style="width: 170px" @change="loadQueue">
+              <el-option label="待处理" value="PendingHumanReview" />
+              <el-option label="已确认" value="Confirmed" />
+              <el-option label="已拒绝" value="Rejected" />
+              <el-option label="保留独立" value="KeptIndependent" />
+              <el-option label="暂缓" value="Deferred" />
+              <el-option label="全部" value="all" />
+            </el-select>
+          </label>
+          <label class="idc-field">
+            <span class="idc-field__label">类型</span>
+            <el-select
+              v-model="typeFilter"
+              size="small"
+              style="width: 170px"
+              @change="loadQueue"
+              clearable
+              placeholder="全部类型"
+            >
+              <el-option label="同名" value="same_name" />
+              <el-option label="UID 重复" value="uid_duplicate" />
+              <el-option label="转会身份" value="transfer_identity" />
+            </el-select>
+          </label>
+          <span class="idc-hint idc-hint--push">当前筛选 {{ queue.length }} 条</span>
         </div>
         <el-table
           :data="queue"
@@ -71,14 +135,18 @@
           @row-click="selectItem"
         >
           <el-table-column prop="id" label="#" width="60" />
-          <el-table-column prop="item_type" label="类型" width="130" />
+          <el-table-column prop="item_type" label="类型" width="140" />
           <el-table-column label="UID" width="110">
-            <template #default="{ row }">{{ displayText(row.subject_uid) }}</template>
+            <template #default="{ row }"><span class="sm-mono">{{ displayText(row.subject_uid) }}</span></template>
           </el-table-column>
           <el-table-column label="原因" min-width="200">
             <template #default="{ row }">{{ displayText(row.conflict_reason) }}</template>
           </el-table-column>
-          <el-table-column prop="status" label="状态" width="140" />
+          <el-table-column label="状态" width="150">
+            <template #default="{ row }">
+              <span class="idc-status" :class="statusClass(row.status)">{{ row.status }}</span>
+            </template>
+          </el-table-column>
           <el-table-column label="时间" width="160">
             <template #default="{ row }">{{ formatDateTime(row.detected_at) }}</template>
           </el-table-column>
@@ -86,55 +154,92 @@
       </SectionCard>
 
       <SectionCard v-if="detail" :title="`审核条目 #${detail.id}`" dense class="identity-center__detail">
-        <div class="identity-center__detail-body">
-          <el-alert :title="`${detail.item_type} · ${displayText(detail.conflict_reason)}`" type="info" :closable="false" show-icon />
+        <div class="idc-detail">
+          <div class="idc-detail__meta">
+            <span class="idc-chip">{{ detail.item_type }}</span>
+            <span class="idc-status" :class="statusClass(detail.status)">{{ detail.status }}</span>
+            <span class="idc-chip idc-chip--mono">{{ displayText(detail.subject_uid) }}</span>
+            <span class="idc-hint">{{ formatDateTime(detail.detected_at) }}</span>
+          </div>
+
+          <el-alert
+            :title="`${detail.item_type} · ${displayText(detail.conflict_reason)}`"
+            type="info"
+            :closable="false"
+            show-icon
+          />
+
           <el-table :data="detail.instances" size="small" empty-text="没有实例">
             <el-table-column prop="instance_id" label="实例" width="80" />
             <el-table-column prop="player_id" label="球员" width="80" />
-            <el-table-column prop="save_local_uid" label="UID" width="120" />
-            <el-table-column prop="uid_occurrence" label="出现次数" width="90" />
+            <el-table-column label="UID" width="130">
+              <template #default="{ row }"><span class="sm-mono">{{ row.save_local_uid }}</span></template>
+            </el-table-column>
+            <el-table-column prop="uid_occurrence" label="出现次数" width="90" align="right" />
             <el-table-column prop="position" label="位置" width="80" />
           </el-table>
 
-          <pre class="identity-center__payload">{{ JSON.stringify(detail.payload, null, 2) }}</pre>
+          <details class="idc-payload">
+            <summary>原始 payload（证据，不做修改）</summary>
+            <pre class="idc-payload__body">{{ JSON.stringify(detail.payload, null, 2) }}</pre>
+          </details>
 
-          <el-input v-model="note" size="small" placeholder="处理备注（写入审计）" />
-          <div class="identity-center__buttons">
+          <label class="idc-field idc-field--block">
+            <span class="idc-field__label">处理备注（写入审计）</span>
+            <el-input v-model="note" size="small" placeholder="写明判断依据，例如生日或合同证据" />
+          </label>
+
+          <div class="idc-actions">
             <el-button type="primary" size="small" :loading="resolving" @click="decide('same')">确认同一人</el-button>
             <el-button size="small" :loading="resolving" @click="decide('different')">确认不同人</el-button>
             <el-button size="small" :loading="resolving" @click="decide('independent')">保留为独立身份</el-button>
-            <el-button size="small" :loading="resolving" @click="decide('defer')">暂缓</el-button>
+            <el-button size="small" plain :loading="resolving" @click="decide('defer')">暂缓</el-button>
           </div>
 
-          <div class="identity-center__history">
-            <h4>审核历史</h4>
-            <p v-if="!detail.history.length" class="identity-center__muted">还没有人工操作记录。</p>
-            <ul v-else>
-              <li v-for="entry in detail.history" :key="entry.id">
-                {{ formatDateTime(entry.created_at) }} · {{ entry.decision }} · {{ entry.note || '无备注' }}
+          <div class="idc-history">
+            <h4 class="idc-history__title">审核历史</h4>
+            <p v-if="!detail.history.length" class="idc-hint">还没有人工操作记录。</p>
+            <ul v-else class="idc-history__list">
+              <li v-for="entry in detail.history" :key="entry.id" class="idc-history__item">
+                <span class="idc-history__dot" aria-hidden="true" />
+                <span class="idc-history__time">{{ formatDateTime(entry.created_at) }}</span>
+                <span class="idc-history__decision">{{ entry.decision }}</span>
+                <span class="idc-history__note">{{ entry.note || '无备注' }}</span>
               </li>
             </ul>
           </div>
-          <p class="identity-center__muted">{{ detail.retention }}</p>
+          <p class="idc-hint">{{ detail.retention }}</p>
         </div>
       </SectionCard>
-      <EmptyState v-else title="选择一条审核条目" hint="左侧列表来自当前存档的扫描结果" class="identity-center__detail" />
+      <EmptyState
+        v-else
+        title="选择一条审核条目"
+        description="左侧列表来自当前存档的扫描结果；审核决定会写入审计历史。"
+        class="identity-center__detail"
+      />
     </div>
 
-    <SectionCard title="跨存档身份候选" dense>
-      <div class="identity-center__scanbar">
-        <el-input v-model="otherSaveId" size="small" placeholder="另一个存档 ID" style="width: 180px" />
+    <SectionCard title="跨存档身份候选" subtitle="相同 UID 只是证据，不会自动认定为同一球员" dense>
+      <div class="idc-console">
+        <label class="idc-field">
+          <span class="idc-field__label">另一个存档 ID</span>
+          <el-input v-model="otherSaveId" size="small" placeholder="例如 2" style="width: 180px" />
+        </label>
         <el-button size="small" :loading="crossLoading" @click="loadCrossSave(true)">生成并查看</el-button>
-        <span class="identity-center__hint">相同 UID 只是证据，不会自动认定为同一球员</span>
+        <span class="idc-hint idc-hint--push">跨存档只是候选，最终判断仍需人工确认</span>
       </div>
       <el-table :data="crossSave" size="small" empty-text="还没有跨存档候选">
         <el-table-column prop="normalized_name" label="姓名（规范化）" min-width="180" />
         <el-table-column label="生日" width="120">
           <template #default="{ row }">{{ displayText(row.birth_date) }}</template>
         </el-table-column>
-        <el-table-column prop="match_score" label="匹配度" width="90" />
-        <el-table-column prop="status" label="状态" width="190" />
-        <el-table-column label="UID 相同" width="100">
+        <el-table-column prop="match_score" label="匹配度" width="90" align="right" />
+        <el-table-column label="状态" width="190">
+          <template #default="{ row }">
+            <span class="idc-status" :class="statusClass(row.status)">{{ row.status }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="UID 相同" width="110">
           <template #default="{ row }">{{ row.uid_equal ? '是（仅证据）' : '否' }}</template>
         </el-table-column>
       </el-table>
@@ -190,6 +295,25 @@ const typeFilter = ref('')
 const note = ref('')
 const otherSaveId = ref('')
 
+/**
+ * 状态色调只影响徽标外观，不改变状态文案与业务含义。
+ * Pending / 冲突类 → 警告；失败/拒绝 → 危险；完成/确认 → 成功。
+ */
+function statusClass(status: string): string {
+  const normalized = status.toLowerCase()
+  if (normalized.includes('fail') || normalized.includes('cancel') || normalized.includes('reject')) {
+    return 'idc-status--danger'
+  }
+  if (normalized.includes('pending') || normalized.includes('conflict') || normalized.includes('defer')) {
+    return 'idc-status--warn'
+  }
+  if (normalized.includes('complete') || normalized.includes('confirm') || normalized.includes('resolve')) {
+    return 'idc-status--ok'
+  }
+  if (normalized.includes('pause')) return 'idc-status--muted'
+  return 'idc-status--info'
+}
+
 function reportError(caught: unknown): void {
   const apiError = asApiError(caught)
   error.value = apiError
@@ -215,6 +339,7 @@ async function loadQueue(): Promise<void> {
 
 async function reloadAll(): Promise<void> {
   loading.value = true
+  error.value = null
   try {
     await Promise.all([loadSummary(), loadScans(), loadQueue()])
   } catch (caught) {
@@ -332,64 +457,284 @@ onMounted(() => {
   gap: var(--sm-space-4);
 }
 
-.identity-center__kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: var(--sm-space-3);
-}
-
-.identity-center__scanbar,
-.identity-center__filters,
-.identity-center__buttons {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sm-space-2);
-  margin-bottom: var(--sm-space-2);
-}
-
 .identity-center__layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
+  grid-template-columns: minmax(0, 1.5fr) minmax(360px, 1fr);
   gap: var(--sm-space-4);
   align-items: start;
+}
+
+/* 详情列在桌面端跟随滚动，审核时不必反复上下移动。 */
+.identity-center__detail {
+  position: sticky;
+  top: var(--sm-space-4);
 }
 
 @media (max-width: 1100px) {
   .identity-center__layout {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .identity-center__detail {
+    position: static;
+  }
 }
 
-.identity-center__detail-body {
+/* ---------- 控制台行 ---------- */
+
+.idc-console {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sm-space-3);
+  margin-bottom: var(--sm-space-4);
+  padding: var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background:
+    linear-gradient(120deg, rgba(34, 211, 238, 0.06), rgba(167, 139, 250, 0.05)),
+    rgba(9, 18, 32, 0.7);
+}
+
+.idc-console--filters {
+  margin-bottom: var(--sm-space-2);
+  padding: var(--sm-space-2) var(--sm-space-3);
+}
+
+.idc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.idc-field--block {
+  width: 100%;
+}
+
+.idc-field__label {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  font-weight: var(--sm-fw-medium);
+  letter-spacing: var(--sm-tracking-label);
+  text-transform: uppercase;
+}
+
+.idc-hint {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.6;
+}
+
+.idc-hint--push {
+  margin-left: auto;
+}
+
+.idc-alert-text {
+  font-size: var(--sm-fs-xs);
+  line-height: 1.6;
+}
+
+/* ---------- 状态徽标 ---------- */
+
+.idc-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid var(--sm-border-strong);
+  border-radius: var(--sm-radius-pill);
+  background: rgba(18, 32, 52, 0.7);
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-2xs);
+  font-family: var(--sm-font-mono);
+  white-space: nowrap;
+}
+
+.idc-status--ok {
+  border-color: rgba(52, 211, 153, 0.34);
+  background: var(--sm-success-weak);
+  color: #6ee7b7;
+}
+
+.idc-status--warn {
+  border-color: rgba(245, 181, 68, 0.34);
+  background: var(--sm-warn-weak);
+  color: #fcd34d;
+}
+
+.idc-status--danger {
+  border-color: rgba(251, 113, 133, 0.34);
+  background: var(--sm-danger-weak);
+  color: #fda4af;
+}
+
+.idc-status--info {
+  border-color: rgba(77, 141, 255, 0.3);
+  background: var(--sm-accent-weak);
+  color: #93c5fd;
+}
+
+.idc-status--muted {
+  color: var(--sm-text-3);
+}
+
+/* ---------- 详情 ---------- */
+
+.idc-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-3);
+}
+
+.idc-detail__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sm-space-2);
+}
+
+.idc-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-pill);
+  background: rgba(12, 23, 39, 0.8);
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-2xs);
+}
+
+.idc-chip--mono {
+  font-family: var(--sm-font-mono);
+}
+
+.idc-payload {
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: rgba(6, 16, 29, 0.7);
+  overflow: hidden;
+}
+
+.idc-payload summary {
+  padding: var(--sm-space-2) var(--sm-space-3);
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-xs);
+  cursor: pointer;
+  list-style: none;
+}
+
+.idc-payload summary::before {
+  content: '▸ ';
+  color: var(--sm-accent-cyan);
+}
+
+.idc-payload[open] summary::before {
+  content: '▾ ';
+}
+
+.idc-payload summary:hover {
+  color: var(--sm-text);
+  background: rgba(34, 211, 238, 0.05);
+}
+
+.idc-payload__body {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: var(--sm-space-3);
+  border-top: 1px solid var(--sm-border);
+  color: var(--sm-text-2);
+  font-family: var(--sm-font-mono);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.6;
+}
+
+.idc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm-space-2);
+}
+
+/* ---------- 审计历史 ---------- */
+
+.idc-history {
   display: flex;
   flex-direction: column;
   gap: var(--sm-space-2);
 }
 
-.identity-center__payload {
-  max-height: 180px;
-  overflow: auto;
-  margin: 0;
-  padding: var(--sm-space-2);
-  border-radius: var(--sm-radius-md);
-  background: var(--sm-surface-3);
-  color: var(--sm-text-2);
-  font-family: var(--sm-font-mono);
-  font-size: var(--sm-fs-2xs);
-}
-
-.identity-center__history ul {
-  margin: 0;
-  padding-left: var(--sm-space-4);
+.idc-history__title {
   color: var(--sm-text-2);
   font-size: var(--sm-fs-xs);
-  line-height: 1.8;
+  font-weight: var(--sm-fw-semibold);
 }
 
-.identity-center__hint,
-.identity-center__muted {
-  color: var(--sm-text-3);
+.idc-history__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.idc-history__item {
+  display: grid;
+  grid-template-columns: 6px auto auto 1fr;
+  align-items: baseline;
+  gap: var(--sm-space-2);
+  padding: var(--sm-space-2) var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-sm);
+  background: rgba(12, 23, 39, 0.5);
   font-size: var(--sm-fs-2xs);
+}
+
+.idc-history__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--sm-accent-cyan);
+}
+
+.idc-history__time {
+  color: var(--sm-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.idc-history__decision {
+  color: var(--sm-text);
+  font-weight: var(--sm-fw-medium);
+}
+
+.idc-history__note {
+  color: var(--sm-text-2);
+}
+
+@media (max-width: 640px) {
+  .idc-console {
+    align-items: stretch;
+  }
+
+  .idc-console > * {
+    width: 100%;
+  }
+
+  .idc-console :deep(.el-input),
+  .idc-console :deep(.el-select),
+  .idc-console :deep(.el-input-number) {
+    width: 100% !important;
+  }
+
+  .idc-hint--push {
+    margin-left: 0;
+  }
+
+  .idc-history__item {
+    grid-template-columns: 6px 1fr;
+  }
+
+  .idc-history__note {
+    grid-column: 2;
+  }
 }
 </style>

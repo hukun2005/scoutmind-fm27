@@ -9,13 +9,14 @@ import DataTable from '../components/DataTable.vue'
 import NumberCell from '../components/NumberCell.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
+import StatHeader from '../components/StatHeader.vue'
 import type { Club } from '../types/clubs'
 import type { PlayerSummary } from '../types/players'
 import type { TableColumn, TableSortPayload } from '../types/table'
 import { usePlayersStore } from '../stores/players'
 import { useSessionStore } from '../stores/session'
 import { EMPTY, displayText, formatDate, formatInt, formatPercent } from '../utils/format'
-import { POSITION_GROUPS, POSITION_OPTIONS, positionGroupLabel, positionLabel } from '../utils/labels'
+import { POSITION_GROUPS, POSITION_OPTIONS, coverageLabel, positionGroupLabel, positionLabel } from '../utils/labels'
 
 const router = useRouter()
 const session = useSessionStore()
@@ -51,6 +52,15 @@ const columns: TableColumn<PlayerSummary>[] = [
 
 /** Coverage chips shown under the table header. */
 const coverageItems = computed(() => Object.entries(players.coverage))
+
+/** Compact summary strip: total instances plus every coverage field the backend returned. */
+const summaryItems = computed(() => [
+  { label: '球员实例', value: formatInt(players.total), hint: `当前第 ${formatInt(players.page)} 页` },
+  ...coverageItems.value.map(([key, value]) => ({
+    label: `${coverageLabel(key)} 覆盖`,
+    value: formatPercent(value),
+  })),
+])
 
 /** Signature that decides when to refetch (filters, paging, save, token). */
 const querySignature = computed(() =>
@@ -131,20 +141,15 @@ void loadClubs()
 <template>
   <div class="sm-page">
     <PageHeader
+      eyebrow="PLAYER INTELLIGENCE"
       title="球员中心"
       description="服务端分页与排序。筛选条件全部按 API 契约发送，缺失字段显示为 —；点击行进入球员详情。"
     >
       <template #meta>
         <span class="sm-text-xs sm-text-faint">共 {{ formatInt(players.total) }} 条球员实例</span>
-        <el-tag
-          v-for="[key, value] in coverageItems"
-          :key="key"
-          size="small"
-          type="info"
-          disable-transitions
-        >
-          {{ key }} 覆盖 {{ formatPercent(value) }}
-        </el-tag>
+        <span class="sm-text-xs sm-text-faint">
+          覆盖 {{ coverageItems.length }} 个字段 · 明细见下方概览
+        </span>
         <span v-if="clubsError" class="sm-text-2xs sm-text-faint">俱乐部筛选项加载失败：{{ clubsError.message }}</span>
       </template>
       <template #actions>
@@ -152,7 +157,13 @@ void loadClubs()
       </template>
     </PageHeader>
 
-    <SectionCard title="筛选" subtitle="条件变更后自动查询，输入框有 220ms 防抖" dense>
+    <section class="console sm-glass" aria-label="球员筛选控制台">
+      <header class="console__head">
+        <div class="console__titles">
+          <span class="sm-eyebrow">FILTER CONSOLE</span>
+          <p class="console__hint">条件变更后自动查询，输入框有 220ms 防抖；全部参数按 API 契约发送。</p>
+        </div>
+      </header>
       <div class="filter-grid">
         <label class="filter-field">
           <span class="sm-label">姓名搜索</span>
@@ -284,10 +295,14 @@ void loadClubs()
           <el-button size="small" @click="resetFilters">重置条件</el-button>
         </div>
       </div>
-      <template #footer>
+      <p class="console__foot">
         契约参数说明：CA 只有下限（min_ca）、PA 只有上限（max_pa）；身价上限按万输入后换算为游戏货币单位发送（max_value）。
-      </template>
-    </SectionCard>
+      </p>
+    </section>
+
+    <section class="summary sm-glass" aria-label="球员概览">
+      <StatHeader :items="summaryItems" />
+    </section>
 
     <SectionCard title="球员列表" flush>
       <DataTable
@@ -352,6 +367,48 @@ void loadClubs()
 </template>
 
 <style scoped>
+.console {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-3);
+  padding: var(--sm-space-3) var(--sm-space-4);
+  border-radius: var(--sm-radius-lg);
+  box-shadow: var(--sm-shadow-1);
+}
+
+.console__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sm-space-3);
+  flex-wrap: wrap;
+}
+
+.console__titles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+  min-width: 0;
+}
+
+.console__hint {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-xs);
+  line-height: 1.6;
+}
+
+.console__foot {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.5;
+}
+
+.summary {
+  padding: var(--sm-space-3) var(--sm-space-4);
+  border-radius: var(--sm-radius-lg);
+  box-shadow: var(--sm-shadow-1);
+}
+
 .filter-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));

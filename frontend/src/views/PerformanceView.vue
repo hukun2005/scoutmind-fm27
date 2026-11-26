@@ -7,6 +7,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { asApiError, type ApiError } from '../api/client'
 import { getPerformanceBoard, getPerformanceMetrics, getPerformanceProfile } from '../api/performance'
+import CoverageBar from '../components/CoverageBar.vue'
 import DataTable from '../components/DataTable.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
@@ -14,6 +15,7 @@ import KpiCard from '../components/KpiCard.vue'
 import LoadingBlock from '../components/LoadingBlock.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
+import StatHeader from '../components/StatHeader.vue'
 import { useSessionStore } from '../stores/session'
 import type { PerformanceBoardRow, PerformanceMetric, PerformanceMetricSpec, PerformanceProfile } from '../types/performance'
 import type { TableColumn } from '../types/table'
@@ -90,6 +92,22 @@ const metricColumns: TableColumn<PerformanceMetric>[] = [
 /** Whether the tracked metrics carry any percentile, i.e. whether a ranking is meaningful. */
 const hasPercentiles = computed(() => (profile.value?.metrics ?? []).some((metric) => metric.percentile !== null))
 
+/** 分位置产出概况：只汇总后端字段，不重新计算百分位。 */
+const metricStats = computed(() => {
+  const metrics = profile.value?.metrics ?? []
+  const available = metrics.filter((metric) => metric.percentile !== null).length
+  const samples = metrics.map((metric) => metric.peer_sample)
+  return [
+    { label: '跟踪指标', value: formatInt(metrics.length) },
+    { label: '有百分位', value: formatInt(available) },
+    {
+      label: '最小同位置样本',
+      value: samples.length === 0 ? EMPTY : formatInt(Math.min(...samples)),
+      hint: 'peer_sample 最小值',
+    },
+  ]
+})
+
 /** Load the performance board. */
 async function loadBoard(): Promise<void> {
   boardLoading.value = true
@@ -149,7 +167,8 @@ onMounted(async () => {
 <template>
   <div class="sm-page">
     <PageHeader
-      title="Performance Analytics · 比赛表现分析"
+      eyebrow="PERFORMANCE ANALYTICS"
+      title="比赛表现分析"
       description="属性强不等于表现出色：按位置比较每 90 分钟产出与同位置百分位，再把产出和能力放在一起看。缺失的统计字段会明确标注。"
     >
       <template #actions>
@@ -215,10 +234,17 @@ onMounted(async () => {
         <SectionCard :title="`${profile.player.name} 分位置产出`" subtitle="每 90 分钟与同位置百分位；百分位为空表示样本不足">
           <ErrorState v-if="profileError" :error="profileError" title="球员表现加载失败" @retry="loadProfile(selectedId as number)" />
           <LoadingBlock v-else-if="profileLoading" :rows="3" />
-          <DataTable v-else :columns="metricColumns" :rows="profile.metrics" row-key="key" dense :show-pagination="false" />
-          <p v-if="!hasPercentiles" class="sm-text-2xs sm-text-faint perf__note">
-            当前没有可用的同位置百分位：需要至少 5 名同位置且有统计的球员。
-          </p>
+          <template v-else>
+            <StatHeader
+              class="perf__stats"
+              :items="metricStats"
+              footnote="同位置样本取各指标 peer_sample 的最小值；百分位为空表示样本不足。"
+            />
+            <DataTable :columns="metricColumns" :rows="profile.metrics" row-key="key" dense :show-pagination="false" />
+            <p v-if="!hasPercentiles" class="sm-text-2xs sm-text-faint perf__note">
+              当前没有可用的同位置百分位：需要至少 5 名同位置且有统计的球员。
+            </p>
+          </template>
         </SectionCard>
 
         <SectionCard title="趋势" subtitle="赛季之间可以直接比较；逐场窗口需要逐场统计">
@@ -246,18 +272,12 @@ onMounted(async () => {
       </div>
 
       <SectionCard title="能力与表现" subtitle="属性预期与实际产出的差距">
-        <ul class="perf__compare">
-          <li>
-            <span>能力百分位</span>
-            <strong>{{ profile.ability_vs_output.ability_percentile === null ? EMPTY : formatPercent(profile.ability_vs_output.ability_percentile, 0) }}</strong>
-          </li>
-          <li>
-            <span>产出百分位</span>
-            <strong>{{ profile.ability_vs_output.output_percentile === null ? EMPTY : formatPercent(profile.ability_vs_output.output_percentile, 0) }}</strong>
-          </li>
-          <li v-for="line in profile.ability_vs_output.evidence ?? []" :key="line" class="sm-text-xs sm-text-2">
-            {{ line }}
-          </li>
+        <div class="perf__bars">
+          <CoverageBar label="能力百分位" :value="profile.ability_vs_output.ability_percentile" />
+          <CoverageBar label="产出百分位" :value="profile.ability_vs_output.output_percentile" />
+        </div>
+        <ul v-if="(profile.ability_vs_output.evidence ?? []).length > 0" class="perf__evidence">
+          <li v-for="line in profile.ability_vs_output.evidence ?? []" :key="line">{{ line }}</li>
         </ul>
         <el-alert
           v-if="profile.data_gaps.length > 0"
@@ -316,6 +336,13 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   gap: var(--sm-space-2);
+  padding-bottom: var(--sm-space-1);
+  border-bottom: 1px solid var(--sm-border);
+}
+
+.perf__trend li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 
 .perf__up {
@@ -336,25 +363,25 @@ onMounted(async () => {
   color: var(--sm-text-2);
 }
 
-.perf__compare {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sm-space-5);
-  font-size: var(--sm-fs-sm);
+.perf__stats {
+  margin-bottom: var(--sm-space-3);
 }
 
-.perf__compare li {
+.perf__bars {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--sm-space-4);
+}
+
+.perf__evidence {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-}
-
-.perf__compare span {
-  font-size: var(--sm-fs-2xs);
-  color: var(--sm-text-3);
+  gap: var(--sm-space-1);
+  margin: var(--sm-space-3) 0 0;
+  padding-left: var(--sm-space-4);
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-xs);
+  line-height: 1.7;
 }
 
 .perf__alert {

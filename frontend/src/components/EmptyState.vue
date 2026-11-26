@@ -1,27 +1,36 @@
-/** Empty / insufficient / error placeholder. Never leaves a blank region. */
+/** 空 / 样本不足 / 错误占位。任何区域都不留空白。 */
 
 <script setup lang="ts">
-withDefaults(
+import { computed } from 'vue'
+
+const props = withDefaults(
   defineProps<{
-    /** Primary message, for example `没有符合筛选条件的球员`. */
+    /** 主信息，例如「没有符合筛选条件的球员」。 */
     title: string
-    /** Why the region is empty and what the user can do next. */
+    /** 为什么为空、下一步可以做什么。 */
     description?: string
-    /** Visual tone; `insufficient` marks an explicit sample-size refusal. */
+    /** 兼容旧调用：与 description 同义，description 优先。 */
+    hint?: string
+    /** 视觉语气；`insufficient` 表示样本量不足的明确拒绝。 */
     variant?: 'empty' | 'error' | 'insufficient'
-    /** Compact variant for use inside tables. */
+    /** 表格内使用的紧凑形态。 */
     compact?: boolean
   }>(),
-  { description: '', variant: 'empty', compact: false },
+  { description: '', hint: '', variant: 'empty', compact: false },
 )
+
+/** 说明文案：新代码用 description，旧页面用 hint。 */
+const descriptionText = computed(() => props.description || props.hint)
 </script>
 
 <template>
   <div class="empty-state" :class="[`empty-state--${variant}`, { 'empty-state--compact': compact }]">
-    <div class="empty-state__marker" aria-hidden="true" />
+    <span class="empty-state__orb" aria-hidden="true">
+      <i />
+    </span>
     <div class="empty-state__body">
       <p class="empty-state__title">{{ title }}</p>
-      <p v-if="description" class="empty-state__description">{{ description }}</p>
+      <p v-if="descriptionText" class="empty-state__description">{{ descriptionText }}</p>
       <div v-if="$slots.default" class="empty-state__actions">
         <slot />
       </div>
@@ -37,36 +46,66 @@ withDefaults(
   padding: var(--sm-space-5) var(--sm-space-4);
   border: 1px dashed var(--sm-border-strong);
   border-radius: var(--sm-radius-md);
-  background: var(--sm-surface-2);
+  background:
+    radial-gradient(320px 120px at 0% 0%, rgba(34, 211, 238, 0.07), transparent 70%),
+    rgba(10, 20, 34, 0.55);
 }
 
 .empty-state--compact {
   padding: var(--sm-space-3);
-  border-style: dashed;
 }
 
 .empty-state--error {
-  border-color: rgba(240, 106, 99, 0.45);
+  border-color: rgba(251, 113, 133, 0.4);
   background: var(--sm-danger-weak);
 }
 
 .empty-state--insufficient {
-  border-color: rgba(230, 169, 60, 0.45);
+  border-color: rgba(245, 181, 68, 0.4);
   background: var(--sm-warn-weak);
 }
 
-.empty-state__marker {
-  width: 3px;
-  align-self: stretch;
-  border-radius: 2px;
-  background: var(--sm-border-strong);
+/* 空心圆环 + 中心点：比纯色竖条更像「信号缺失」而不是报错。 */
+.empty-state__orb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border: 1px solid var(--sm-border-strong);
+  border-radius: 50%;
+  background: rgba(18, 32, 52, 0.8);
 }
 
-.empty-state--error .empty-state__marker {
+.empty-state__orb::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px dashed var(--sm-border-strong);
+  border-radius: 50%;
+}
+
+.empty-state__orb i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--sm-text-3);
+}
+
+.empty-state--error .empty-state__orb {
+  border-color: rgba(251, 113, 133, 0.5);
+}
+
+.empty-state--error .empty-state__orb i {
   background: var(--sm-danger);
 }
 
-.empty-state--insufficient .empty-state__marker {
+.empty-state--insufficient .empty-state__orb {
+  border-color: rgba(245, 181, 68, 0.5);
+}
+
+.empty-state--insufficient .empty-state__orb i {
   background: var(--sm-warn);
 }
 

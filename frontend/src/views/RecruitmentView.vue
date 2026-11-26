@@ -17,8 +17,10 @@ import DataTable from '../components/DataTable.vue'
 import EChart from '../components/EChart.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
+import KpiCard from '../components/KpiCard.vue'
 import LoadingBlock from '../components/LoadingBlock.vue'
 import PageHeader from '../components/PageHeader.vue'
+import ScoreBadge from '../components/ScoreBadge.vue'
 import SectionCard from '../components/SectionCard.vue'
 import { useSessionStore } from '../stores/session'
 import type {
@@ -78,6 +80,21 @@ const generating = ref(false)
 const selected = ref<number[]>([])
 
 const selectedPlayers = computed(() => candidates.value.filter((item) => selected.value.includes(item.player.instance_id)))
+
+/** Scores actually returned by the search; drives the summary tiles only. */
+const scoreValues = computed(() =>
+  candidates.value.map((item) => item.score).filter((value): value is number => value !== null),
+)
+
+/** Highest returned score, or `null` when no candidate carries one. */
+const topScore = computed(() => (scoreValues.value.length > 0 ? Math.max(...scoreValues.value) : null))
+
+/** Mean of the returned scores, or `null` when no candidate carries one. */
+const averageScore = computed(() => {
+  const values = scoreValues.value
+  if (values.length === 0) return null
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+})
 
 /** Radar axes: the six score dimensions, shared by every compared player. */
 const radarOption = computed(() => {
@@ -232,29 +249,59 @@ onMounted(() => {
 <template>
   <div class="sm-page">
     <PageHeader
-      title="Recruitment Engine · 智能球探引擎"
+      eyebrow="RECRUITMENT ENGINE"
+      title="智能球探引擎"
       description="不是寻找能力最高的球员，而是寻找最合适当前阵容、预算与发展计划的球员：六维评分、位置模板、隐藏价值与可执行候选名单。"
     />
 
-    <SectionCard title="筛选条件" subtitle="位置、年龄与预算来自请求本身，不做隐式猜测">
-      <template #actions>
+    <section class="console sm-glass" aria-label="球探筛选控制台">
+      <header class="console__head">
+        <div class="console__titles">
+          <span class="sm-eyebrow">SCOUTING CONSOLE</span>
+          <p class="console__hint">位置、年龄与预算来自请求本身，不做隐式猜测。</p>
+        </div>
         <el-button size="small" type="primary" :loading="loading" @click="search">开始搜索</el-button>
-      </template>
-      <div class="recruit__filters">
-        <el-select v-model="form.slot" size="small" class="recruit__field" aria-label="位置">
-          <el-option v-for="item in SLOT_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
-        </el-select>
-        <el-input-number v-model="form.minAge" :min="14" :max="45" size="small" placeholder="最小年龄" controls-position="right" />
-        <el-input-number v-model="form.maxAge" :min="14" :max="45" size="small" placeholder="最大年龄" controls-position="right" />
-        <el-input-number
-          v-model="form.budgetWan"
-          :min="0"
-          :step="500"
-          size="small"
-          placeholder="预算（万）"
-          controls-position="right"
-        />
-        <span class="sm-text-2xs sm-text-faint">预算单位：万 €</span>
+      </header>
+      <div class="console__grid">
+        <label class="console__field">
+          <span class="sm-label">位置</span>
+          <el-select v-model="form.slot" size="small" aria-label="位置">
+            <el-option v-for="item in SLOT_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </label>
+        <label class="console__field">
+          <span class="sm-label">最小年龄</span>
+          <el-input-number
+            v-model="form.minAge"
+            :min="14"
+            :max="45"
+            size="small"
+            placeholder="不限"
+            controls-position="right"
+          />
+        </label>
+        <label class="console__field">
+          <span class="sm-label">最大年龄</span>
+          <el-input-number
+            v-model="form.maxAge"
+            :min="14"
+            :max="45"
+            size="small"
+            placeholder="不限"
+            controls-position="right"
+          />
+        </label>
+        <label class="console__field">
+          <span class="sm-label">预算上限（万 €）</span>
+          <el-input-number
+            v-model="form.budgetWan"
+            :min="0"
+            :step="500"
+            size="small"
+            placeholder="不限"
+            controls-position="right"
+          />
+        </label>
       </div>
       <el-alert
         v-if="dataGaps.length > 0"
@@ -268,10 +315,37 @@ onMounted(() => {
           <li v-for="gap in dataGaps" :key="gap">{{ gap }}</li>
         </ul>
       </el-alert>
-    </SectionCard>
+    </section>
 
     <ErrorState v-if="error" :error="error" title="候选搜索失败" @retry="search" />
     <SectionCard v-else title="候选球员" :subtitle="`命中 ${formatInt(total)} 名，勾选最多 3 人做雷达对比`">
+      <div v-if="searched" class="candidate-tiles">
+        <KpiCard
+          label="命中候选"
+          :value="formatInt(total)"
+          hint="后端返回的匹配总数"
+          :loading="loading && candidates.length === 0"
+        />
+        <KpiCard
+          label="本次返回"
+          :value="formatInt(candidates.length)"
+          hint="当前结果条数"
+          :loading="loading && candidates.length === 0"
+        />
+        <KpiCard
+          label="最高评分"
+          :value="topScore === null ? EMPTY : formatDecimal(topScore, 1)"
+          hint="返回结果中的最高分"
+          tone="accent"
+          :loading="loading && candidates.length === 0"
+        />
+        <KpiCard
+          label="平均评分"
+          :value="averageScore === null ? EMPTY : formatDecimal(averageScore, 1)"
+          :hint="`参与均值 ${formatInt(scoreValues.length)} 名，缺失不计入`"
+          :loading="loading && candidates.length === 0"
+        />
+      </div>
       <LoadingBlock v-if="loading && candidates.length === 0" :rows="3" />
       <DataTable
         v-else
@@ -316,6 +390,11 @@ onMounted(() => {
             </div>
           </div>
         </template>
+
+        <template #cell="{ row, column, value }">
+          <ScoreBadge v-if="column.prop === 'score'" :score="row.score" size="sm" />
+          <template v-else>{{ value }}</template>
+        </template>
       </DataTable>
     </SectionCard>
 
@@ -324,8 +403,11 @@ onMounted(() => {
       title="雷达对比"
       :subtitle="`${selectedPlayers.length} 名球员按同一套六维权重对比；缺失维度记 0，需要看展开行的缺口说明`"
     >
-      <EChart :option="radarOption" height="320px" />
+      <div class="recruit__radar">
+        <EChart :option="radarOption" height="320px" />
+      </div>
       <div class="sm-row sm-row--wrap recruit__chips">
+        <span class="sm-label">对比中</span>
         <el-tag
           v-for="item in selectedPlayers"
           :key="item.player.instance_id"
@@ -416,19 +498,73 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.recruit__filters {
+/* ---------- 球探控制台 ---------- */
+
+.console {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--sm-space-2);
+  flex-direction: column;
+  gap: var(--sm-space-3);
+  padding: var(--sm-space-3) var(--sm-space-4);
+  border-radius: var(--sm-radius-lg);
+  box-shadow: var(--sm-shadow-1);
 }
 
-.recruit__field {
-  width: 140px;
+.console__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sm-space-3);
+  flex-wrap: wrap;
+}
+
+.console__titles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+  min-width: 0;
+}
+
+.console__hint {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-xs);
+}
+
+.console__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: var(--sm-space-3);
+  align-items: end;
+}
+
+.console__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+  min-width: 0;
+}
+
+.console__field :deep(.el-select),
+.console__field :deep(.el-input-number) {
+  width: 100%;
+}
+
+.candidate-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: var(--sm-space-3);
+  margin-bottom: var(--sm-space-3);
+}
+
+.recruit__radar {
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background:
+    radial-gradient(520px 220px at 50% 0%, rgba(34, 211, 238, 0.06), transparent 70%),
+    rgba(8, 17, 30, 0.5);
 }
 
 .recruit__gaps {
-  margin-top: var(--sm-space-3);
+  margin-top: var(--sm-space-1);
 }
 
 .recruit__list {
@@ -446,7 +582,9 @@ onMounted(() => {
 }
 
 .recruit__chips {
-  margin-top: var(--sm-space-2);
+  margin-top: var(--sm-space-3);
+  padding-top: var(--sm-space-3);
+  border-top: 1px solid var(--sm-border);
 }
 
 .recruit__rules {
@@ -455,6 +593,10 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: var(--sm-space-2);
   margin-bottom: var(--sm-space-3);
+  padding: var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: rgba(12, 23, 39, 0.55);
 }
 
 .recruit__name {
@@ -494,5 +636,11 @@ onMounted(() => {
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
   background: var(--sm-surface-2);
+}
+
+@media (max-width: 640px) {
+  .console {
+    padding: var(--sm-space-3);
+  }
 }
 </style>

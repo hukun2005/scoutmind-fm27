@@ -219,7 +219,8 @@ watch(activeId, () => {
 <template>
   <div class="sm-page agent-page">
     <PageHeader
-      title="AI Sporting Director · AI 体育总监"
+      eyebrow="AI SPORTING DIRECTOR"
+      title="AI 体育总监"
       description="回答中的每个数字都必须来自工具结果；样本不足时后端会拒绝精确估值。工具调用与置信度完整展示，可逐条核对。"
     >
       <template #meta>
@@ -244,9 +245,10 @@ watch(activeId, () => {
     </el-alert>
 
     <div class="agent-layout">
-      <aside class="conversations">
+      <aside class="conversations" aria-label="会话列表">
         <div class="conversations__head">
-          <span class="sm-label">会话</span>
+          <span class="sm-label">会话记录</span>
+          <span class="conversations__count sm-num">{{ formatInt(conversations.length) }}</span>
         </div>
         <ErrorState v-if="conversationsError" :error="conversationsError" compact @retry="loadConversations" />
         <div v-else-if="conversationsLoading && conversations.length === 0" class="sm-stack">
@@ -281,7 +283,7 @@ watch(activeId, () => {
       <section class="chat">
         <header class="chat__head">
           <div class="chat__title">{{ activeConversation ? displayText(activeConversation.title) : '新会话' }}</div>
-          <span class="sm-text-2xs sm-text-faint">
+          <span class="chat__context">
             上下文：存档 {{ session.activeSaveId ?? EMPTY
             }}<template v-if="instanceContext !== undefined"> · 实例 {{ instanceContext }}</template>
           </span>
@@ -323,7 +325,26 @@ watch(activeId, () => {
             >
               <div class="message__meta">
                 <span class="message__role">{{ message.role === 'user' ? '你' : 'ScoutMind' }}</span>
-                <span class="sm-text-2xs sm-text-faint">{{ formatTime(message.created_at) }}</span>
+                <span class="message__time">{{ formatTime(message.created_at) }}</span>
+                <template v-if="message.role !== 'user' && message.answer">
+                  <ConfidenceTag :confidence="message.answer.confidence" />
+                  <span class="chip">样本量 {{ formatInt(message.answer.sample_size) }}</span>
+                  <span class="chip">模式 {{ agentModeLabel(message.answer.mode) }}</span>
+                  <span v-for="filter in answerFilters(message.answer)" :key="filter.key" class="chip">
+                    {{ filter.key }}={{ filter.value }}
+                  </span>
+                  <span v-if="(message.answer.citations ?? []).length > 0" class="meta-cites">
+                    <span class="meta-cites__label">引用</span>
+                    <span
+                      v-for="(citation, index) in message.answer.citations ?? []"
+                      :key="`${citation.tool}-meta-${index}`"
+                      class="chip chip--cite"
+                      :title="citation.summary"
+                    >
+                      <span class="sm-mono">{{ citation.tool }}</span>
+                    </span>
+                  </span>
+                </template>
               </div>
 
               <div v-if="message.role === 'user'" class="message__bubble">{{ message.content }}</div>
@@ -331,19 +352,6 @@ watch(activeId, () => {
               <div v-else class="answer">
                 <template v-if="message.answer">
                   <p class="answer__conclusion">{{ message.answer.conclusion }}</p>
-
-                  <div class="answer__meta">
-                    <ConfidenceTag :confidence="message.answer.confidence" />
-                    <el-tag size="small" type="info" disable-transitions>
-                      样本量 {{ formatInt(message.answer.sample_size) }}
-                    </el-tag>
-                    <el-tag size="small" type="info" disable-transitions>
-                      模式 {{ agentModeLabel(message.answer.mode) }}
-                    </el-tag>
-                    <span v-for="filter in answerFilters(message.answer)" :key="filter.key" class="chip">
-                      {{ filter.key }}={{ filter.value }}
-                    </span>
-                  </div>
 
                   <el-alert
                     v-if="(message.answer.warnings ?? []).length > 0"
@@ -455,7 +463,8 @@ watch(activeId, () => {
             </article>
           </template>
 
-          <div v-if="sending" class="chat__pending">
+          <div v-if="sending" class="chat__pending" role="status">
+            <span class="chat__pending-dot" aria-hidden="true" />
             <span class="sm-text-xs sm-text-faint">正在等待后端工具结果…</span>
           </div>
 
@@ -519,33 +528,44 @@ watch(activeId, () => {
 
 .agent-notice {
   margin-bottom: 0;
+  border-radius: var(--sm-radius-md);
 }
 
 .agent-layout {
   display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
+  grid-template-columns: 272px minmax(0, 1fr);
   gap: var(--sm-space-4);
   min-height: 0;
 }
+
+/* ---------- 会话面板 ---------- */
 
 .conversations {
   display: flex;
   flex-direction: column;
   gap: var(--sm-space-2);
   min-width: 0;
+  max-height: 720px;
   padding: var(--sm-space-3);
-  background: var(--sm-surface);
+  overflow-y: auto;
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-lg);
+  background:
+    linear-gradient(168deg, rgba(20, 35, 56, 0.55) 0%, rgba(9, 18, 32, 0.94) 62%),
+    var(--sm-surface);
   box-shadow: var(--sm-shadow-1);
-  max-height: 720px;
-  overflow-y: auto;
 }
 
 .conversations__head {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--sm-space-1);
+}
+
+.conversations__count {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
 }
 
 .conversation-list {
@@ -570,6 +590,9 @@ watch(activeId, () => {
   color: inherit;
   text-align: left;
   cursor: pointer;
+  transition:
+    background-color var(--sm-dur-1) var(--sm-ease-out),
+    border-color var(--sm-dur-1) var(--sm-ease-out);
 }
 
 .conversation:hover {
@@ -577,8 +600,9 @@ watch(activeId, () => {
 }
 
 .conversation--active {
-  background: var(--sm-accent-weak);
-  border-left-color: var(--sm-accent);
+  border-color: var(--sm-border);
+  border-left-color: var(--sm-accent-cyan);
+  background: linear-gradient(90deg, rgba(34, 211, 238, 0.12), rgba(77, 141, 255, 0.04));
 }
 
 .conversation__title {
@@ -594,15 +618,20 @@ watch(activeId, () => {
   font-size: var(--sm-fs-2xs);
 }
 
+/* ---------- 对话面板 ---------- */
+
 .chat {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--sm-surface);
-  border: 1px solid var(--sm-border);
-  border-radius: var(--sm-radius-lg);
-  box-shadow: var(--sm-shadow-1);
+  height: clamp(520px, calc(100vh - 300px), 900px);
   overflow: hidden;
+  border: 1px solid var(--sm-border-strong);
+  border-radius: var(--sm-radius-lg);
+  background:
+    linear-gradient(168deg, rgba(18, 33, 54, 0.55) 0%, rgba(8, 16, 29, 0.96) 60%),
+    var(--sm-surface);
+  box-shadow: var(--sm-shadow-2);
 }
 
 .chat__head {
@@ -618,17 +647,30 @@ watch(activeId, () => {
   color: var(--sm-text);
   font-size: var(--sm-fs-md);
   font-weight: var(--sm-fw-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat__context {
+  flex: 0 0 auto;
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .chat__thread {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  gap: var(--sm-space-3);
+  gap: var(--sm-space-4);
+  min-height: 0;
   padding: var(--sm-space-4);
-  min-height: 320px;
-  max-height: 560px;
   overflow-y: auto;
+  background: radial-gradient(720px 260px at 12% 0%, rgba(34, 211, 238, 0.05), transparent 72%);
 }
+
+/* ---------- 消息 ---------- */
 
 .message {
   display: flex;
@@ -639,14 +681,42 @@ watch(activeId, () => {
 
 .message__meta {
   display: flex;
-  align-items: baseline;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--sm-space-2);
+  min-width: 0;
 }
 
 .message__role {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--sm-text-2);
   font-size: var(--sm-fs-2xs);
   font-weight: var(--sm-fw-medium);
+}
+
+.message__role::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--sm-text-3);
+}
+
+.message--assistant .message__role {
+  color: var(--sm-text);
+}
+
+.message--assistant .message__role::before {
+  background: var(--sm-accent-cyan);
+  box-shadow: 0 0 6px rgba(34, 211, 238, 0.85);
+}
+
+.message__time {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .message--user {
@@ -658,47 +728,76 @@ watch(activeId, () => {
 }
 
 .message__bubble {
-  max-width: 72ch;
+  max-width: min(68ch, 100%);
   padding: var(--sm-space-2) var(--sm-space-3);
-  border-radius: var(--sm-radius-md);
-  background: var(--sm-accent-weak);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-lg);
+  background: var(--sm-surface-2);
   color: var(--sm-text);
   font-size: var(--sm-fs-sm);
-  line-height: 1.7;
+  line-height: 1.75;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
+
+/* 助手没有结构化回答时，内容直接落在 .answer 面板里，不再套一层气泡。 */
+.answer > .message__bubble {
+  max-width: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-pill);
+  background: var(--sm-surface);
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-2xs);
+}
+
+.chip--cite {
+  border-color: var(--sm-border-strong);
+}
+
+.meta-cites {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sm-space-1);
+  min-width: 0;
+}
+
+.meta-cites__label {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+/* ---------- 结构化回答 ---------- */
 
 .answer {
   display: flex;
   flex-direction: column;
   gap: var(--sm-space-3);
   width: 100%;
-  padding: var(--sm-space-3);
+  max-width: 96ch;
+  padding: var(--sm-space-3) var(--sm-space-4) var(--sm-space-4);
   border: 1px solid var(--sm-border);
-  border-radius: var(--sm-radius-md);
-  background: var(--sm-surface-2);
+  border-left: 2px solid rgba(34, 211, 238, 0.4);
+  border-radius: var(--sm-radius-lg);
+  background:
+    linear-gradient(150deg, rgba(34, 211, 238, 0.06) 0%, rgba(167, 139, 250, 0.04) 42%, transparent 72%),
+    var(--sm-surface-2);
 }
 
 .answer__conclusion {
   color: var(--sm-text);
   font-size: var(--sm-fs-sm);
-  line-height: 1.75;
-}
-
-.answer__meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sm-space-2);
-}
-
-.chip {
-  padding: 1px 6px;
-  border: 1px solid var(--sm-border);
-  border-radius: var(--sm-radius-sm);
-  background: var(--sm-surface);
-  color: var(--sm-text-2);
-  font-size: var(--sm-fs-2xs);
+  line-height: 1.8;
 }
 
 .answer__section {
@@ -708,6 +807,10 @@ watch(activeId, () => {
 }
 
 .answer__section-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sm-space-2);
   color: var(--sm-text);
   font-size: var(--sm-fs-sm);
   font-weight: var(--sm-fw-semibold);
@@ -789,8 +892,8 @@ watch(activeId, () => {
 }
 
 .answer__tools {
-  border-top: 1px solid var(--sm-border);
   padding-top: var(--sm-space-1);
+  border-top: 1px solid var(--sm-border);
 }
 
 .tool {
@@ -802,26 +905,62 @@ watch(activeId, () => {
 
 .tool__head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: var(--sm-space-2);
 }
 
+/* ---------- 等待状态 ---------- */
+
 .chat__pending {
+  display: flex;
+  align-items: center;
+  gap: var(--sm-space-2);
   padding: var(--sm-space-1) 0;
 }
+
+.chat__pending-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sm-accent-cyan);
+  animation: agent-pulse 1.4s var(--sm-ease-out) infinite;
+}
+
+@keyframes agent-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat__pending-dot {
+    animation: none;
+  }
+}
+
+/* ---------- 输入区 ---------- */
 
 .chat__composer {
   display: flex;
   flex-direction: column;
   gap: var(--sm-space-2);
-  padding: var(--sm-space-3) var(--sm-space-4);
+  padding: var(--sm-space-3) var(--sm-space-4) var(--sm-space-4);
   border-top: 1px solid var(--sm-border);
-  background: var(--sm-surface-2);
+  background: linear-gradient(180deg, rgba(16, 29, 48, 0.55), var(--sm-surface-2));
 }
 
 .composer__notice {
   color: var(--sm-warn);
   font-size: var(--sm-fs-2xs);
+  line-height: 1.6;
 }
 
 .composer__row {
@@ -854,17 +993,20 @@ watch(activeId, () => {
 .suggestion {
   padding: 2px 8px;
   border: 1px solid var(--sm-border);
-  border-radius: 999px;
+  border-radius: var(--sm-radius-pill);
   background: var(--sm-surface);
   color: var(--sm-text-2);
   font-size: var(--sm-fs-2xs);
   text-align: left;
   cursor: pointer;
+  transition:
+    border-color var(--sm-dur-1) var(--sm-ease-out),
+    color var(--sm-dur-1) var(--sm-ease-out);
 }
 
 .suggestion:hover:enabled {
-  border-color: var(--sm-accent);
-  color: var(--sm-accent);
+  border-color: var(--sm-accent-cyan);
+  color: var(--sm-accent-cyan);
 }
 
 .suggestion:disabled {
@@ -878,9 +1020,64 @@ watch(activeId, () => {
   line-height: 1.6;
 }
 
+/* ---------- 响应式 ---------- */
+
 @media (max-width: 1180px) {
   .agent-layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .conversations {
+    max-height: 264px;
+  }
+
+  .chat {
+    height: auto;
+  }
+
+  .chat__thread {
+    min-height: 320px;
+    max-height: 60vh;
+  }
+}
+
+@media (max-width: 640px) {
+  .chat__head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: var(--sm-space-3);
+  }
+
+  .chat__thread {
+    min-height: 280px;
+    max-height: 54vh;
+    padding: var(--sm-space-3);
+    gap: var(--sm-space-3);
+  }
+
+  .chat__composer {
+    padding: var(--sm-space-3);
+  }
+
+  .composer__row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .composer__side {
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+  }
+
+  .composer__instance {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
+  .answer {
+    max-width: 100%;
   }
 }
 </style>
