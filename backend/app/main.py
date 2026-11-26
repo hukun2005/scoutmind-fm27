@@ -38,8 +38,10 @@ from .api import (
     routes_players,
     routes_recruitment,
     routes_scouting,
+    routes_search,
     routes_squad,
     routes_transfers,
+    routes_visualization,
 )
 from .api.deps import require_token
 from .config import settings
@@ -169,6 +171,8 @@ def create_app() -> FastAPI:
         routes_capture.router,
         routes_field_evidence.router,
         routes_quality.router,
+        routes_search.router,
+        routes_visualization.router,
     ):
         app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(require_token)])
 
