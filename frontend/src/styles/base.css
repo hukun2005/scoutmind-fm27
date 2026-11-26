@@ -1,4 +1,4 @@
-/* Base reset plus the layout and typography utilities shared by every view. */
+/* 基础重置、环境光背景、布局与排版工具类。所有页面共享这一层。 */
 
 *,
 *::before,
@@ -14,7 +14,13 @@ body,
 }
 
 body {
-  background: var(--sm-bg);
+  background-color: var(--sm-bg);
+  /* 环境光：两团低饱和冷色光晕 + 顶部网格，避免大面积纯黑显得扁平。 */
+  background-image:
+    radial-gradient(1100px 620px at 12% -12%, rgba(34, 211, 238, 0.11), transparent 62%),
+    radial-gradient(900px 560px at 92% -6%, rgba(167, 139, 250, 0.1), transparent 60%),
+    radial-gradient(1200px 800px at 50% 118%, rgba(77, 141, 255, 0.08), transparent 65%);
+  background-attachment: fixed;
   color: var(--sm-text);
   font-family: var(--sm-font-sans);
   font-size: var(--sm-fs-md);
@@ -32,11 +38,13 @@ p {
 }
 
 a {
-  color: var(--sm-accent);
+  color: var(--sm-accent-cyan);
   text-decoration: none;
+  transition: color var(--sm-dur-1) var(--sm-ease-out);
 }
 
 a:hover {
+  color: var(--sm-accent-hover);
   text-decoration: underline;
 }
 
@@ -44,12 +52,18 @@ button {
   font-family: inherit;
 }
 
-:focus-visible {
-  outline: 2px solid var(--sm-accent);
-  outline-offset: 2px;
+::selection {
+  background: rgba(34, 211, 238, 0.28);
+  color: #ffffff;
 }
 
-/* Scrollbars: thin, neutral, no layout shift. */
+:focus-visible {
+  outline: 2px solid var(--sm-accent-cyan);
+  outline-offset: 2px;
+  border-radius: var(--sm-radius-xs);
+}
+
+/* 滚动条：细、低对比，不占布局。 */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--sm-border-strong) transparent;
@@ -60,6 +74,10 @@ button {
   height: 10px;
 }
 
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 *::-webkit-scrollbar-thumb {
   background: var(--sm-border-strong);
   border: 3px solid transparent;
@@ -67,7 +85,12 @@ button {
   border-radius: 8px;
 }
 
-/* ---------- Layout primitives ---------- */
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(122, 162, 220, 0.4);
+  background-clip: content-box;
+}
+
+/* ---------- 布局原语 ---------- */
 
 .sm-page {
   display: flex;
@@ -76,6 +99,7 @@ button {
   max-width: var(--sm-page-max);
   padding: var(--sm-space-5);
   margin: 0 auto;
+  animation: sm-page-in var(--sm-dur-3) var(--sm-ease-out) both;
 }
 
 .sm-stack {
@@ -144,7 +168,75 @@ button {
   }
 }
 
-/* ---------- Typography helpers ---------- */
+/* ---------- 视觉原语 ---------- */
+
+/* 玻璃面板：仅用于外壳、悬浮层与首屏重点卡片，避免大量 backdrop-filter 造成滚动卡顿。 */
+.sm-glass {
+  background: var(--sm-surface-glass);
+  border: 1px solid var(--sm-border-subtle);
+  backdrop-filter: blur(var(--sm-blur-glass)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--sm-blur-glass)) saturate(140%);
+}
+
+/* 顶部渐变描边：用于强调「当前关注」的卡片。 */
+.sm-topline {
+  position: relative;
+  overflow: hidden;
+}
+
+.sm-topline::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: var(--sm-gradient-accent);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.sm-gradient-text {
+  background: var(--sm-gradient-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* 小号全大写标签，用于模块眉标（COMMAND CENTER / SQUAD INTELLIGENCE）。 */
+.sm-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sm-space-2);
+  color: var(--sm-accent-cyan);
+  font-size: var(--sm-fs-2xs);
+  font-weight: var(--sm-fw-semibold);
+  letter-spacing: var(--sm-tracking-wide);
+  text-transform: uppercase;
+}
+
+.sm-eyebrow::before {
+  content: '';
+  width: 18px;
+  height: 1px;
+  background: var(--sm-gradient-accent);
+}
+
+/* 悬停抬升：桌面端指针设备才启用，触摸屏不触发位移。 */
+@media (hover: hover) and (pointer: fine) {
+  .sm-hover-lift {
+    transition:
+      transform var(--sm-dur-2) var(--sm-ease-out),
+      border-color var(--sm-dur-2) var(--sm-ease-out),
+      box-shadow var(--sm-dur-2) var(--sm-ease-out);
+  }
+
+  .sm-hover-lift:hover {
+    transform: translateY(-2px);
+    border-color: var(--sm-border-strong-2);
+    box-shadow: var(--sm-shadow-2);
+  }
+}
+
+/* ---------- 排版工具 ---------- */
 
 .sm-text-muted {
   color: var(--sm-text-2);
@@ -174,7 +266,7 @@ button {
   color: var(--sm-text-3);
   font-size: var(--sm-fs-xs);
   font-weight: var(--sm-fw-medium);
-  letter-spacing: 0.02em;
+  letter-spacing: var(--sm-tracking-label);
 }
 
 .sm-strong {
@@ -214,13 +306,13 @@ button {
   margin: var(--sm-space-3) 0;
 }
 
-/* Inline code / CLI snippet */
+/* 行内代码 / CLI 片段 */
 .sm-code {
   display: block;
   padding: var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
-  background: var(--sm-surface-3);
+  background: #06101d;
   color: var(--sm-text);
   font-family: var(--sm-font-mono);
   font-size: var(--sm-fs-xs);
@@ -239,4 +331,68 @@ button {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ---------- 动效 ---------- */
+
+@keyframes sm-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sm-pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.45);
+  }
+
+  50% {
+    opacity: 0.85;
+    box-shadow: 0 0 0 4px rgba(52, 211, 153, 0);
+  }
+}
+
+@keyframes sm-shimmer {
+  0% {
+    background-position: 160% 0;
+  }
+
+  100% {
+    background-position: -60% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .sm-page {
+    animation: none;
+  }
+}
+
+/* 移动端放宽页面内边距，避免 390px 下内容被挤压。 */
+@media (max-width: 640px) {
+  .sm-page {
+    padding: var(--sm-space-4) var(--sm-space-3) calc(var(--sm-space-5) + var(--sm-safe-bottom));
+    gap: var(--sm-space-3);
+  }
+
+  .sm-grid {
+    gap: var(--sm-space-3);
+  }
 }

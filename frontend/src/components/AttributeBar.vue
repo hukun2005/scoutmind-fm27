@@ -85,24 +85,25 @@ const band = computed(() => {
 .attr-bar__segment {
   flex: 1 1 auto;
   height: 5px;
-  border-radius: 1px;
-  background: var(--sm-surface-3);
+  border-radius: 2px;
+  background: rgba(22, 37, 59, 0.9);
 }
 
 .attr-bar--elite .attr-bar__segment--on {
-  background: var(--sm-success);
+  background: linear-gradient(90deg, #10b981, #34d399);
+  box-shadow: 0 0 6px -2px rgba(52, 211, 153, 0.8);
 }
 
 .attr-bar--good .attr-bar__segment--on {
-  background: var(--sm-accent);
+  background: linear-gradient(90deg, #2563eb, #38bdf8);
 }
 
 .attr-bar--average .attr-bar__segment--on {
-  background: var(--sm-warn);
+  background: linear-gradient(90deg, #b45309, #f5b544);
 }
 
 .attr-bar--weak .attr-bar__segment--on {
-  background: var(--sm-danger);
+  background: linear-gradient(90deg, #9f1239, #fb7185);
 }
 
 .attr-bar--absent .attr-bar__segments {

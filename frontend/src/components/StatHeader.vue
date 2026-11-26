@@ -1,13 +1,13 @@
-/** Statistics header: sample size and quantiles, always with their provenance. */
+/** 统计头：样本量与分位数，始终附带口径说明。 */
 
 <script setup lang="ts">
 withDefaults(
   defineProps<{
-    /** Statistic cells rendered left to right. */
+    /** 左到右渲染的统计单元格。 */
     items: Array<{ label: string; value: string; hint?: string }>
-    /** Footnote covering sample size, coverage, algorithm version and exclusions. */
+    /** 样本量、覆盖率、算法版本与排除项的脚注。 */
     footnote?: string
-    /** Show skeletons while statistics load. */
+    /** 统计加载中显示骨架。 */
     loading?: boolean
   }>(),
   { footnote: '', loading: false },
@@ -47,26 +47,28 @@ withDefaults(
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  padding-right: var(--sm-space-3);
-  border-right: 1px solid var(--sm-border);
+  padding: 0 var(--sm-space-3);
+  border-left: 1px solid var(--sm-border);
 }
 
-.stat-header__cell:last-child {
-  border-right: 0;
-  padding-right: 0;
+.stat-header__cell:first-child {
+  padding-left: 0;
+  border-left: 0;
 }
 
 .stat-header__label {
   color: var(--sm-text-3);
   font-size: var(--sm-fs-2xs);
+  letter-spacing: 0.01em;
 }
 
 .stat-header__value {
-  color: var(--sm-text);
+  color: var(--sm-text-primary);
   font-size: var(--sm-fs-xl);
   font-weight: var(--sm-fw-semibold);
   text-align: right;
   line-height: var(--sm-lh-tight);
+  letter-spacing: -0.01em;
 }
 
 .stat-header__hint {
@@ -83,5 +85,17 @@ withDefaults(
   color: var(--sm-text-3);
   font-size: var(--sm-fs-2xs);
   line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .stat-header__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: var(--sm-space-3);
+  }
+
+  .stat-header__cell:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
 }
 </style>

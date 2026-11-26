@@ -8,7 +8,7 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'overview',
     component: () => import('../views/DashboardView.vue'),
-    meta: { title: '概览' },
+    meta: { title: '指挥中心' },
   },
   {
     path: '/players',

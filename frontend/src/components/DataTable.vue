@@ -326,7 +326,7 @@ watch(
 .sm-table__grid th,
 .sm-table__grid td {
   padding: 7px var(--sm-space-3);
-  border-bottom: 1px solid var(--sm-border);
+  border-bottom: 1px solid rgba(122, 162, 220, 0.09);
   vertical-align: middle;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -342,11 +342,12 @@ watch(
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--sm-surface-2);
+  background: rgba(16, 29, 48, 0.96);
   color: var(--sm-text-2);
-  font-size: var(--sm-fs-xs);
+  font-size: var(--sm-fs-2xs);
   font-weight: var(--sm-fw-semibold);
-  letter-spacing: 0.02em;
+  letter-spacing: var(--sm-tracking-label);
+  text-transform: uppercase;
   white-space: nowrap;
   border-bottom-color: var(--sm-border-strong);
 }
@@ -355,8 +356,12 @@ watch(
   border-bottom: 0;
 }
 
+.sm-table__row {
+  transition: background-color var(--sm-dur-1) var(--sm-ease-out);
+}
+
 .sm-table__row:hover td {
-  background: var(--sm-accent-weak);
+  background: rgba(34, 211, 238, 0.06);
 }
 
 .sm-table__row--clickable {
@@ -364,7 +369,7 @@ watch(
 }
 
 .sm-table__row:focus-visible {
-  outline: 2px solid var(--sm-accent);
+  outline: 2px solid var(--sm-accent-cyan);
   outline-offset: -2px;
 }
 
@@ -394,7 +399,7 @@ watch(
 }
 
 .sm-table__sort--active .sm-table__sort-glyph {
-  color: var(--sm-accent);
+  color: var(--sm-accent-cyan);
 }
 
 .sm-table__expand-head,
@@ -407,9 +412,9 @@ watch(
   width: 20px;
   height: 20px;
   padding: 0;
-  border: 1px solid var(--sm-border);
-  border-radius: var(--sm-radius-sm);
-  background: var(--sm-surface);
+  border: 1px solid var(--sm-border-strong);
+  border-radius: var(--sm-radius-xs);
+  background: rgba(16, 29, 48, 0.9);
   color: var(--sm-text-2);
   font-size: 10px;
   line-height: 1;
@@ -417,13 +422,13 @@ watch(
 }
 
 .sm-table__expand:hover {
-  border-color: var(--sm-accent);
-  color: var(--sm-accent);
+  border-color: var(--sm-accent-cyan);
+  color: var(--sm-accent-cyan);
 }
 
 .sm-table__expansion > td {
   padding: var(--sm-space-3) var(--sm-space-4);
-  background: var(--sm-surface-2);
+  background: rgba(9, 18, 32, 0.72);
   white-space: normal;
 }
 

@@ -7,12 +7,15 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { asApiError, type ApiError } from '../api/client'
 import { getSquadOverview, listSquadProfiles } from '../api/squad'
+import ChartCard from '../components/ChartCard.vue'
 import DataTable from '../components/DataTable.vue'
+import EChart from '../components/EChart.vue'
+import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
-import KpiCard from '../components/KpiCard.vue'
 import LoadingBlock from '../components/LoadingBlock.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
+import StatHeader from '../components/StatHeader.vue'
 import { useSessionStore } from '../stores/session'
 import type {
   ContractEntry,
@@ -25,6 +28,7 @@ import type {
   WeaknessRow,
 } from '../types/squad'
 import type { TableColumn } from '../types/table'
+import { buildAgeDistribution, buildSquadRadar } from '../utils/chart'
 import { EMPTY, displayText, formatDecimal, formatInt, formatMoney, formatPercent } from '../utils/format'
 import { positionLabel } from '../utils/labels'
 import { getUserClub, searchClubs, setUserClub } from '../api/clubResolution'
@@ -122,6 +126,46 @@ const components = computed<SquadComponent[]>(() => {
 const profileOptions = computed(() =>
   profiles.value.map((profile) => ({ value: profile.key, label: profile.name })),
 )
+
+/** 仪表环角度：仅把 0–100 评分映射成 CSS 百分比，不改变分值含义。 */
+const scorePercent = computed(() => {
+  const score = overview.value?.score
+  if (score === null || score === undefined || !Number.isFinite(score)) return 0
+  return Math.max(0, Math.min(100, score))
+})
+
+/** 至少三个维度有数值时，雷达图才有可读形状。 */
+const radarReady = computed(() => components.value.filter((component) => component.value !== null).length >= 3)
+
+const radarOption = computed(() => buildSquadRadar(components.value.map(({ label, value }) => ({ label, value }))))
+
+const radarFootnote = computed(() => {
+  const base = '0–100 为加权前的归一化分值；缺失维度不计为 0。'
+  const missing = components.value.filter((component) => component.value === null).map((component) => component.label)
+  return missing.length > 0 ? `${base}缺失：${missing.join('、')}。` : base
+})
+
+const ageBuckets = computed(() => overview.value?.age_structure.buckets ?? [])
+
+const ageOption = computed(() => buildAgeDistribution(ageBuckets.value))
+
+const ageStats = computed(() => [
+  { label: '平均年龄', value: formatDecimal(overview.value?.age_structure.average_age ?? null, 1) },
+  { label: '中位年龄', value: formatDecimal(overview.value?.age_structure.median_age ?? null, 1) },
+  { label: '区间数', value: String(ageBuckets.value.length) },
+])
+
+const wageStats = computed(() => [
+  { label: '工资总额', value: formatMoney(overview.value?.wage_structure.total ?? null) },
+  { label: '中位数', value: formatMoney(overview.value?.wage_structure.median ?? null) },
+  { label: '前 3 名占比', value: formatPercent(overview.value?.wage_structure.top3_share ?? null, 0) },
+])
+
+/** 维度条宽度：0–100 直接作为百分比。 */
+function dimWidth(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return '0%'
+  return `${Math.max(0, Math.min(100, value))}%`
+}
 
 /** Depth table without the synthetic "unknown position" row. */
 const depthRows = computed<DepthRow[]>(() => (overview.value?.depth ?? []).filter((row) => row.slot !== 'UNKNOWN'))
@@ -297,7 +341,8 @@ onMounted(async () => {
 <template>
   <div class="sm-page">
     <PageHeader
-      title="Squad Intelligence · 阵容智能"
+      eyebrow="SQUAD INTELLIGENCE"
+      title="阵容智能"
       description="阵容评分拆成位置覆盖、深度、年龄、战术适配、工资结构与潜力储备六个维度；每个维度都给出数据依据，缺少数据时明确标注而不是记零。"
     >
       <template #actions>
@@ -312,138 +357,218 @@ onMounted(async () => {
     <LoadingBlock v-else-if="loading && !overview" :rows="4" />
 
     <template v-else-if="overview">
-      <section class="sm-grid sm-grid--kpi">
-        <KpiCard
-          label="阵容评分"
-          :value="overview.score === null ? EMPTY : formatDecimal(overview.score, 1)"
-          :hint="`模板：${overview.profile.name}${overview.profile.overridden ? '（自定义权重）' : ''}`"
-          :tone="overview.score !== null && overview.score < 55 ? 'warn' : 'accent'"
-        />
-        <KpiCard label="阵容人数" :value="formatInt(overview.squad_size)" hint="来自最近一次快照" />
-        <KpiCard
-          label="平均年龄"
-          :value="overview.age_structure.average_age === null ? EMPTY : formatDecimal(overview.age_structure.average_age, 1)"
-          hint="与基线年龄分布对比"
-        />
-        <KpiCard
-          label="12 个月内到期"
-          :value="formatInt(overview.contracts.at_risk_count)"
-          :hint="overview.contracts.at_risk_names.slice(0, 3).join('、') || '没有即将到期的主力'"
-          :tone="overview.contracts.at_risk_count > 0 ? 'warn' : 'default'"
-        />
+      <section class="squad-hero" aria-label="阵容指挥条">
+        <div class="squad-hero__glow" aria-hidden="true" />
+        <div class="squad-hero__grid" aria-hidden="true" />
+
+        <div class="squad-hero__identity">
+          <span class="sm-eyebrow">Squad Command</span>
+          <h2 class="squad-hero__club">{{ overview.club ? overview.club.name : '未指定本队' }}</h2>
+          <p class="squad-hero__meta">
+            {{ overview.club
+              ? `${overview.club.league ?? '联赛未知'} · ${overview.club.nation ?? '国家未知'}`
+              : '数据源没有标记「我的俱乐部」，阵容评分无法覆盖本队' }}
+          </p>
+          <div class="squad-hero__chips">
+            <span class="hero-chip">阵容人数 <strong>{{ formatInt(overview.squad_size) }}</strong></span>
+            <span class="hero-chip">
+              平均年龄
+              <strong>{{ overview.age_structure.average_age === null ? EMPTY : formatDecimal(overview.age_structure.average_age, 1) }}</strong>
+            </span>
+            <span class="hero-chip" :class="{ 'hero-chip--warn': overview.contracts.at_risk_count > 0 }">
+              12 个月内到期 <strong>{{ formatInt(overview.contracts.at_risk_count) }}</strong>
+            </span>
+          </div>
+          <p class="squad-hero__hint">
+            {{ overview.contracts.at_risk_names.slice(0, 3).join('、') || '没有即将到期的主力' }}
+          </p>
+        </div>
+
+        <div class="squad-hero__gauge">
+          <div
+            class="gauge"
+            :class="{ 'gauge--muted': overview.score === null }"
+            :style="{ '--score': scorePercent }"
+            role="img"
+            :aria-label="overview.score === null
+              ? '六维综合评分不可计算'
+              : `六维综合评分 ${formatDecimal(overview.score, 1)} 分，满分 100`"
+          >
+            <span class="gauge__value sm-num">{{ overview.score === null ? EMPTY : formatDecimal(overview.score, 1) }}</span>
+            <span class="gauge__label">六维综合评分</span>
+          </div>
+          <p class="gauge__hint">
+            模板：{{ overview.profile.name }}{{ overview.profile.overridden ? '（自定义权重）' : '' }}
+          </p>
+        </div>
+
+        <ul class="squad-hero__dims" aria-label="六维评分明细">
+          <li v-for="component in components" :key="component.key" class="hero-dim">
+            <div class="hero-dim__head">
+              <span class="hero-dim__label">{{ component.label }}</span>
+              <span class="hero-dim__value" :class="`hero-dim__value--${componentTone(component)}`">
+                {{ component.value === null ? '缺失' : formatDecimal(component.value, 1) }}
+              </span>
+            </div>
+            <div class="hero-dim__track" aria-hidden="true">
+              <i :style="{ width: dimWidth(component.value) }" />
+            </div>
+            <span v-if="component.value === null" class="hero-dim__missing">
+              缺失：{{ component.missing.join('；') || '数据源未提供' }}
+            </span>
+          </li>
+        </ul>
       </section>
 
-      <SectionCard title="主执教俱乐部" subtitle="阵容分析以它作为「本队」；手动指定不会改变任何球员的所属俱乐部">
-        <div class="squad__club">
-          <div class="squad__club-current">
-            <div class="squad__club-name">
-              {{ userClub ? userClub.name : '尚未指定' }}
-              <el-tag v-if="userClubMeta.source_label" size="small" type="info" effect="plain">
-                来源：{{ userClubMeta.source_label }}
-              </el-tag>
-              <el-tag
-                v-if="userClubMeta.confidence !== null"
-                size="small"
-                :type="userClubMeta.confidence >= 0.9 ? 'success' : 'warning'"
-                effect="plain"
-              >
-                记录可信度 {{ formatDecimal(userClubMeta.confidence, 1) }}
-              </el-tag>
-              <el-tag v-if="userClubMeta.assignment_source" size="small" effect="plain">
-                {{ userClubMeta.assignment_source === 'manual' ? '你手动指定' : '报文声明' }}
-              </el-tag>
-            </div>
-            <p class="squad__club-hint">
-              {{ userClub
-                ? `${userClub.league ?? '联赛未知'} · ${userClub.nation ?? '国家未知'}`
-                : '数据源没有提供主执教俱乐部，需要你手动选择；在此之前阵容分析无法进行' }}
-            </p>
-          </div>
-          <el-select
-            class="squad__club-select"
-            filterable
-            remote
-            clearable
-            :remote-method="searchClubOptions"
-            :loading="clubSearching"
-            placeholder="搜索俱乐部名称"
-            size="small"
-            @change="(value: number) => value && applyUserClub(value)"
-          >
-            <el-option
-              v-for="item in clubOptions"
-              :key="item.id"
-              :value="item.id"
-              :label="`${item.name}（${item.players} 人）`"
-            >
-              <span>{{ item.name }}</span>
-              <span class="squad__club-option">
-                {{ item.players }} 人 · {{ item.source_label ?? '来源未知' }}
-                <template v-if="item.confidence !== null"> · 可信度 {{ formatDecimal(item.confidence, 1) }}</template>
-              </span>
-            </el-option>
-          </el-select>
-          <el-button size="small" :loading="selectingClub" @click="searchClubOptions('')">刷新列表</el-button>
-        </div>
-      </SectionCard>
+      <div class="sm-grid sm-grid--2">
+        <ChartCard
+          title="六维雷达"
+          subtitle="至少三个维度有数值时绘制，缺失维度不按 0 计入"
+          :empty="!radarReady"
+          empty-title="六维数据不足"
+          empty-description="后端返回的有效维度少于 3 个，无法画出可读的雷达形状；补齐覆盖、深度、年龄、适配、工资或潜力数据后会重新绘制。"
+          :footnote="radarFootnote"
+        >
+          <EChart :option="radarOption" height="260px" aria-label="阵容六维评分雷达图" />
+        </ChartCard>
 
-      <SectionCard title="阵容构成" subtitle="一线队 / 预备队 / 青年队 / 外租 / 租入；没有名单依据的球员标为未知，不当成自由球员">
-        <template v-if="composition && composition.available">
-          <div class="squad__composition">
-            <div v-for="(count, key) in composition.counts" :key="key" class="squad__composition-item">
-              <span class="squad__composition-count">{{ count }}</span>
-              <span class="squad__composition-label">{{ compositionLabel(String(key)) }}</span>
+        <ChartCard
+          title="年龄分布"
+          subtitle="实际占比与后端给出的理想占比"
+          :empty="ageBuckets.length === 0"
+          empty-title="没有年龄区间"
+          empty-description="后端未返回 age_structure.buckets，无法绘制年龄分布；下方年龄结构区块仍会列出可用字段。"
+          :footnote="`共 ${ageBuckets.length} 个区间 · 平均 ${formatDecimal(overview.age_structure.average_age ?? null, 1)} 岁 · 中位 ${formatDecimal(overview.age_structure.median_age ?? null, 1)} 岁`"
+        >
+          <EChart :option="ageOption" height="260px" aria-label="阵容年龄分布与理想占比" />
+        </ChartCard>
+      </div>
+
+      <div class="sm-grid sm-grid--wide-left">
+        <SectionCard title="主执教俱乐部" subtitle="阵容分析以它作为「本队」；手动指定不会改变任何球员的所属俱乐部">
+          <div class="club">
+            <div class="club__current">
+              <span class="sm-label">当前本队</span>
+              <div class="club__name">
+                {{ userClub ? userClub.name : '尚未指定' }}
+                <el-tag v-if="userClubMeta.source_label" size="small" type="info" effect="plain">
+                  来源：{{ userClubMeta.source_label }}
+                </el-tag>
+                <el-tag
+                  v-if="userClubMeta.confidence !== null"
+                  size="small"
+                  :type="userClubMeta.confidence >= 0.9 ? 'success' : 'warning'"
+                  effect="plain"
+                >
+                  记录可信度 {{ formatDecimal(userClubMeta.confidence, 1) }}
+                </el-tag>
+                <el-tag v-if="userClubMeta.assignment_source" size="small" effect="plain">
+                  {{ userClubMeta.assignment_source === 'manual' ? '你手动指定' : '报文声明' }}
+                </el-tag>
+              </div>
+              <p class="club__hint">
+                {{ userClub
+                  ? `${userClub.league ?? '联赛未知'} · ${userClub.nation ?? '国家未知'}`
+                  : '数据源没有提供主执教俱乐部，需要你手动选择；在此之前阵容分析无法进行' }}
+              </p>
             </div>
+            <label class="club__field">
+              <span class="sm-label">搜索并切换</span>
+              <el-select
+                filterable
+                remote
+                clearable
+                :remote-method="searchClubOptions"
+                :loading="clubSearching"
+                placeholder="搜索俱乐部名称"
+                size="small"
+                aria-label="主执教俱乐部"
+                @change="(value: number) => value && applyUserClub(value)"
+              >
+                <el-option
+                  v-for="item in clubOptions"
+                  :key="item.id"
+                  :value="item.id"
+                  :label="`${item.name}（${item.players} 人）`"
+                >
+                  <span>{{ item.name }}</span>
+                  <span class="club__option">
+                    {{ item.players }} 人 · {{ item.source_label ?? '来源未知' }}
+                    <template v-if="item.confidence !== null"> · 可信度 {{ formatDecimal(item.confidence, 1) }}</template>
+                  </span>
+                </el-option>
+              </el-select>
+            </label>
+            <el-button size="small" :loading="selectingClub" @click="searchClubOptions('')">刷新列表</el-button>
           </div>
-          <ul v-if="composition.gaps && composition.gaps.length" class="squad__gaps">
-            <li v-for="gap in composition.gaps" :key="gap">{{ gap }}</li>
-          </ul>
-        </template>
-        <EmptyState
-          v-else
-          title="没有阵容名单"
-          :description="
-            (composition?.missing ?? []).join('；') ||
-            '数据源不提供一线队/预备队/青年队与租借状态，请到数据中心导入阵容 CSV'
-          "
-        />
-      </SectionCard>
+        </SectionCard>
+
+        <SectionCard title="阵容构成" subtitle="一线队 / 预备队 / 青年队 / 外租 / 租入；没有名单依据的球员标为未知，不当成自由球员">
+          <template v-if="composition && composition.available">
+            <div class="composition">
+              <div v-for="(count, key) in composition.counts" :key="key" class="composition__item">
+                <span class="composition__count">{{ count }}</span>
+                <span class="composition__label">{{ compositionLabel(String(key)) }}</span>
+              </div>
+            </div>
+            <ul v-if="composition.gaps && composition.gaps.length" class="composition__gaps">
+              <li v-for="gap in composition.gaps" :key="gap">{{ gap }}</li>
+            </ul>
+          </template>
+          <EmptyState
+            v-else
+            title="没有阵容名单"
+            :description="
+              (composition?.missing ?? []).join('；') ||
+              '数据源不提供一线队/预备队/青年队与租借状态，请到数据中心导入阵容 CSV'
+            "
+          />
+        </SectionCard>
+      </div>
 
       <SectionCard title="六个维度" subtitle="权重可在下方调整后重算；缺数据的维度会重新分配权重">
-        <div class="sm-grid sm-grid--3 squad__components">
-          <div v-for="component in components" :key="component.key" class="squad__component">
-            <div class="squad__component-head">
-              <span class="squad__component-label">{{ component.label }}</span>
-              <span class="squad__component-score" :class="`squad__component-score--${componentTone(component)}`">
+        <div class="dims">
+          <article v-for="component in components" :key="component.key" class="dim-card">
+            <header class="dim-card__head">
+              <span class="dim-card__label">{{ component.label }}</span>
+              <span class="dim-card__score" :class="`dim-card__score--${componentTone(component)}`">
                 {{ component.value === null ? '不可计算' : formatDecimal(component.value, 1) }}
               </span>
+            </header>
+            <div class="dim-card__weight">权重 {{ formatPercent(component.weight, 0) }}</div>
+            <div class="dim-card__track" aria-hidden="true">
+              <i :style="{ width: dimWidth(component.value) }" />
             </div>
-            <div class="squad__component-weight">权重 {{ formatPercent(component.weight, 0) }}</div>
-            <ul class="squad__evidence">
+            <ul class="dim-card__evidence">
               <li v-for="line in component.evidence" :key="line">{{ line }}</li>
             </ul>
-            <ul v-if="component.missing.length > 0" class="squad__missing">
+            <ul v-if="component.missing.length > 0" class="dim-card__missing">
               <li v-for="line in component.missing" :key="line">{{ line }}</li>
             </ul>
-          </div>
+          </article>
         </div>
 
-        <div class="squad__weights">
-          <span class="sm-label">自定义权重</span>
-          <label v-for="component in components" :key="component.key" class="squad__weight-input">
-            <span>{{ component.label.split('（')[0] }}</span>
-            <el-input-number
-              v-model="weightDraft[component.key]"
-              :min="0"
-              :max="1"
-              :step="0.05"
-              :precision="2"
-              size="small"
-              controls-position="right"
-            />
-          </label>
-          <div class="sm-row">
-            <span class="sm-text-2xs sm-text-faint">合计 {{ formatDecimal(weightTotal, 2) }}</span>
+        <div class="weights sm-glass">
+          <div class="weights__head">
+            <span class="sm-label">自定义权重</span>
+            <span class="weights__total">合计 {{ formatDecimal(weightTotal, 2) }}</span>
+          </div>
+          <div class="weights__fields">
+            <label v-for="component in components" :key="component.key" class="weights__field">
+              <span>{{ component.label.split('（')[0] }}</span>
+              <el-input-number
+                v-model="weightDraft[component.key]"
+                :min="0"
+                :max="1"
+                :step="0.05"
+                :precision="2"
+                size="small"
+                controls-position="right"
+                :aria-label="`${component.label.split('（')[0]} 权重`"
+              />
+            </label>
+          </div>
+          <div class="weights__actions">
             <el-button size="small" type="primary" :loading="loading" @click="applyWeights">按此权重重算</el-button>
             <el-button size="small" @click="resetWeights">恢复模板</el-button>
           </div>
@@ -451,13 +576,13 @@ onMounted(async () => {
 
         <el-alert
           v-if="overview.data_gaps && overview.data_gaps.length > 0"
-          class="squad__gaps"
+          class="dims__gaps"
           type="warning"
           :closable="false"
           show-icon
           title="数据缺口"
         >
-          <ul class="squad__evidence">
+          <ul class="dim-card__evidence">
             <li v-for="gap in overview.data_gaps" :key="gap">{{ gap }}</li>
           </ul>
         </el-alert>
@@ -489,34 +614,26 @@ onMounted(async () => {
         </SectionCard>
 
         <SectionCard title="年龄结构" subtitle="与基线分布对比，偏差越大扣分越多">
-          <div class="squad__age">
-            <div v-for="bucket in overview.age_structure.buckets" :key="bucket.bucket" class="squad__age-row">
-              <span class="squad__age-label">{{ bucket.bucket }}</span>
-              <div class="squad__age-track">
-                <div class="squad__age-bar" :style="{ width: `${Math.min(100, bucket.share * 100)}%` }" />
-                <div class="squad__age-ideal" :style="{ left: `${Math.min(100, bucket.ideal_share * 100)}%` }" />
+          <StatHeader :items="ageStats" />
+          <div v-if="ageBuckets.length > 0" class="age-list">
+            <div v-for="bucket in ageBuckets" :key="bucket.bucket" class="age-row">
+              <span class="age-row__label">{{ bucket.bucket }}</span>
+              <div class="age-row__track">
+                <div class="age-row__bar" :style="{ width: `${Math.min(100, bucket.share * 100)}%` }" />
+                <div class="age-row__ideal" :style="{ left: `${Math.min(100, bucket.ideal_share * 100)}%` }" />
               </div>
-              <span class="squad__age-value">{{ bucket.count }} 人 · {{ formatPercent(bucket.share, 0) }}</span>
+              <span class="age-row__value">{{ bucket.count }} 人 · {{ formatPercent(bucket.share, 0) }}</span>
             </div>
-            <p class="sm-text-2xs sm-text-faint">
-              竖线为基线占比；平均年龄 {{ overview.age_structure.average_age ?? EMPTY }}，中位
-              {{ overview.age_structure.median_age ?? EMPTY }}
-            </p>
           </div>
+          <p v-else class="sm-text-2xs sm-text-faint">后端未返回年龄区间。</p>
+          <template #footer>竖线为基线占比；平均年龄 {{ formatDecimal(overview.age_structure.average_age ?? null, 1) }}，中位 {{ formatDecimal(overview.age_structure.median_age ?? null, 1) }}</template>
         </SectionCard>
       </div>
 
       <div class="sm-grid sm-grid--2">
         <SectionCard title="工资结构" subtitle="集中度与低产出高薪球员共同决定工分">
-          <div class="squad__wage">
-            <div class="squad__wage-summary">
-              <div><span class="sm-label">工资总额</span><strong>{{ formatMoney(overview.wage_structure.total) }}</strong></div>
-              <div><span class="sm-label">中位数</span><strong>{{ formatMoney(overview.wage_structure.median) }}</strong></div>
-              <div>
-                <span class="sm-label">前 3 名占比</span>
-                <strong>{{ overview.wage_structure.top3_share === null ? EMPTY : formatPercent(overview.wage_structure.top3_share, 0) }}</strong>
-              </div>
-            </div>
+          <div class="wage">
+            <StatHeader :items="wageStats" />
             <DataTable
               :columns="[
                 { prop: 'name', label: '球员', minWidth: 140 },
@@ -535,7 +652,7 @@ onMounted(async () => {
         </SectionCard>
 
         <SectionCard title="合同预警" subtitle="按到期时间分桶，尽早处理即将自由身的主力">
-          <el-collapse v-if="contractBuckets.length > 0" class="squad__contracts">
+          <el-collapse v-if="contractBuckets.length > 0" class="contracts">
             <el-collapse-item
               v-for="bucket in contractBuckets"
               :key="bucket.key"
@@ -579,226 +696,589 @@ onMounted(async () => {
   width: 168px;
 }
 
-.squad__components {
-  margin-bottom: var(--sm-space-4);
+/* ---------- 阵容指挥条 ---------- */
+
+.squad-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) auto minmax(230px, 0.85fr);
+  align-items: center;
+  gap: var(--sm-space-5);
+  padding: var(--sm-space-5);
+  overflow: hidden;
+  border: 1px solid var(--sm-border-strong);
+  border-radius: var(--sm-radius-xl);
+  background:
+    linear-gradient(120deg, rgba(10, 34, 54, 0.92) 0%, rgba(9, 18, 34, 0.94) 48%, rgba(20, 16, 48, 0.9) 100%),
+    var(--sm-surface);
+  box-shadow: var(--sm-shadow-2);
 }
 
-.squad__component {
+.squad-hero__glow {
+  position: absolute;
+  top: -120px;
+  right: -40px;
+  width: 380px;
+  height: 300px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.2), transparent 70%);
+  filter: blur(4px);
+  pointer-events: none;
+}
+
+.squad-hero__grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(122, 162, 220, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(122, 162, 220, 0.07) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(520px 220px at 82% 10%, #000 0%, transparent 76%);
+  -webkit-mask-image: radial-gradient(520px 220px at 82% 10%, #000 0%, transparent 76%);
+  pointer-events: none;
+}
+
+.squad-hero__identity {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--sm-space-1);
-  padding: var(--sm-space-3);
-  border: 1px solid var(--sm-border);
-  border-radius: var(--sm-radius-md);
-  background: var(--sm-surface-2);
+  gap: var(--sm-space-2);
+  min-width: 0;
 }
 
-.squad__component-head {
+.squad-hero__club {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-2xl);
+  font-weight: var(--sm-fw-semibold);
+  letter-spacing: -0.015em;
+  line-height: var(--sm-lh-tight);
+  overflow-wrap: anywhere;
+}
+
+.squad-hero__meta {
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-sm);
+}
+
+.squad-hero__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm-space-2);
+  margin-top: var(--sm-space-1);
+}
+
+.hero-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px var(--sm-space-2);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-pill);
+  background: rgba(8, 17, 30, 0.72);
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  white-space: nowrap;
+}
+
+.hero-chip strong {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-sm);
+  font-weight: var(--sm-fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.hero-chip--warn {
+  border-color: rgba(245, 181, 68, 0.4);
+}
+
+.hero-chip--warn strong {
+  color: var(--sm-status-warning);
+}
+
+.squad-hero__hint {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  overflow-wrap: anywhere;
+}
+
+.squad-hero__gauge {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sm-space-2);
+}
+
+.gauge {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 152px;
+  height: 152px;
+  border-radius: 50%;
+}
+
+.gauge::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from -90deg,
+    #22d3ee 0deg,
+    #4d8dff calc(var(--score) * 1.8deg),
+    #a78bfa calc(var(--score) * 3.6deg),
+    rgba(122, 162, 220, 0.14) calc(var(--score) * 3.6deg) 360deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 12px), #000 calc(100% - 11px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 12px), #000 calc(100% - 11px));
+}
+
+.gauge--muted::before {
+  background: rgba(122, 162, 220, 0.18);
+}
+
+.gauge__value {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-3xl);
+  font-weight: var(--sm-fw-semibold);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.gauge--muted .gauge__value {
+  color: var(--sm-text-3);
+}
+
+.gauge__label {
+  margin-top: var(--sm-space-1);
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  letter-spacing: var(--sm-tracking-label);
+}
+
+.gauge__hint {
+  max-width: 200px;
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  text-align: center;
+}
+
+.squad-hero__dims {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hero-dim {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.hero-dim__head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--sm-space-2);
 }
 
-.squad__component-label {
-  font-size: var(--sm-fs-sm);
-  font-weight: var(--sm-fw-medium);
-  color: var(--sm-text);
+.hero-dim__label {
+  overflow: hidden;
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.squad__component-score {
+.hero-dim__value {
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-xs);
+  font-weight: var(--sm-fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.hero-dim__value--accent {
+  color: var(--sm-accent-cyan);
+}
+
+.hero-dim__value--warn {
+  color: var(--sm-status-warning);
+}
+
+.hero-dim__value--danger {
+  color: var(--sm-status-danger);
+}
+
+.hero-dim__track {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(22, 37, 59, 0.9);
+}
+
+.hero-dim__track i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--sm-gradient-accent);
+}
+
+.hero-dim__missing {
+  overflow-wrap: anywhere;
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.5;
+}
+
+/* ---------- 六维卡片与权重面板 ---------- */
+
+.dims {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--sm-space-3);
+  margin-bottom: var(--sm-space-4);
+}
+
+.dim-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: var(--sm-surface-2);
+}
+
+.dim-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sm-space-2);
+}
+
+.dim-card__label {
+  color: var(--sm-text);
+  font-size: var(--sm-fs-sm);
+  font-weight: var(--sm-fw-medium);
+}
+
+.dim-card__score {
+  color: var(--sm-text-2);
   font-size: var(--sm-fs-xl);
   font-weight: var(--sm-fw-semibold);
   font-variant-numeric: tabular-nums;
 }
 
-.squad__component-score--accent {
-  color: var(--sm-accent);
+.dim-card__score--accent {
+  color: var(--sm-accent-cyan);
 }
 
-.squad__component-score--warn {
-  color: var(--sm-warn);
+.dim-card__score--warn {
+  color: var(--sm-status-warning);
 }
 
-.squad__component-score--danger {
-  color: var(--sm-danger);
+.dim-card__score--danger {
+  color: var(--sm-status-danger);
 }
 
-.squad__component-weight {
-  font-size: var(--sm-fs-2xs);
+.dim-card__weight {
   color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
 }
 
-.squad__evidence,
-.squad__missing {
+.dim-card__track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: rgba(22, 37, 59, 0.9);
+}
+
+.dim-card__track i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--sm-gradient-accent);
+}
+
+.dim-card__evidence,
+.dim-card__missing {
   margin: 0;
   padding-left: var(--sm-space-4);
+  color: var(--sm-text-2);
   font-size: var(--sm-fs-xs);
   line-height: 1.6;
-  color: var(--sm-text-2);
 }
 
-.squad__missing {
-  color: var(--sm-warn);
+.dim-card__missing {
+  color: var(--sm-status-warning);
 }
 
-.squad__weights {
+.weights {
   display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: var(--sm-space-3);
-  padding-top: var(--sm-space-3);
-  border-top: 1px solid var(--sm-border);
+  padding: var(--sm-space-3) var(--sm-space-4);
+  border-radius: var(--sm-radius-md);
 }
 
-.squad__weight-input {
+.weights__head {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: var(--sm-fs-2xs);
-  color: var(--sm-text-3);
-}
-
-.squad__weight-input :deep(.el-input-number) {
-  width: 96px;
-}
-
-.squad__gaps {
-  margin-top: var(--sm-space-3);
-}
-
-.squad__age {
-  display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
   gap: var(--sm-space-2);
 }
 
-.squad__age-row {
+.weights__total {
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.weights__fields {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) 120px;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: var(--sm-space-2) var(--sm-space-3);
+}
+
+.weights__field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+.weights__field :deep(.el-input-number) {
+  width: 100%;
+}
+
+.weights__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm-space-2);
+  padding-top: var(--sm-space-2);
+  border-top: 1px solid var(--sm-border);
+}
+
+.dims__gaps {
+  margin-top: var(--sm-space-3);
+}
+
+/* ---------- 俱乐部与阵容构成 ---------- */
+
+.club {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sm-space-3);
+}
+
+.club__current {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.club__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sm-space-2);
+  margin-top: 2px;
+  color: var(--sm-text);
+  font-size: var(--sm-fs-lg);
+  font-weight: var(--sm-fw-semibold);
+}
+
+.club__hint {
+  margin: var(--sm-space-1) 0 0;
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.6;
+}
+
+.club__field {
+  display: flex;
+  flex: 0 1 280px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.club__option {
+  float: right;
+  margin-left: var(--sm-space-3);
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+.composition {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: var(--sm-space-2);
+}
+
+.composition__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--sm-space-2) var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-sm);
+  background: var(--sm-surface-2);
+}
+
+.composition__count {
+  color: var(--sm-text);
+  font-size: var(--sm-fs-xl);
+  font-weight: var(--sm-fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.composition__label {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+.composition__gaps {
+  margin: var(--sm-space-3) 0 0;
+  padding-left: var(--sm-space-4);
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.6;
+}
+
+/* ---------- 年龄结构 / 工资 / 合同 ---------- */
+
+.age-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+  margin-top: var(--sm-space-3);
+}
+
+.age-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 110px;
   align-items: center;
   gap: var(--sm-space-2);
   font-size: var(--sm-fs-xs);
 }
 
-.squad__age-label {
+.age-row__label {
   color: var(--sm-text-2);
 }
 
-.squad__age-track {
+.age-row__track {
   position: relative;
-  height: 10px;
-  background: var(--sm-surface-3);
-  border-radius: 5px;
+  height: 8px;
   overflow: hidden;
+  border-radius: 4px;
+  background: var(--sm-surface-3);
 }
 
-.squad__age-bar {
+.age-row__bar {
   height: 100%;
-  background: var(--sm-accent);
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(34, 211, 238, 0.85), rgba(77, 141, 255, 0.85));
 }
 
-.squad__age-ideal {
+.age-row__ideal {
   position: absolute;
   top: -2px;
   bottom: -2px;
   width: 2px;
-  background: var(--sm-warn);
+  background: var(--sm-status-warning);
 }
 
-.squad__age-value {
-  text-align: right;
+.age-row__value {
   color: var(--sm-text-2);
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
-.squad__wage {
+.wage {
   display: flex;
   flex-direction: column;
   gap: var(--sm-space-3);
 }
 
-.squad__wage-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--sm-space-3);
+.contracts :deep(.el-collapse-item__header) {
   font-size: var(--sm-fs-sm);
 }
 
-.squad__wage-summary span {
-  display: block;
-  font-size: var(--sm-fs-2xs);
-  color: var(--sm-text-3);
+/* ---------- 响应式 ---------- */
+
+@media (max-width: 1180px) {
+  .squad-hero {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: flex-start;
+  }
+
+  .squad-hero__dims {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--sm-space-3) var(--sm-space-4);
+  }
 }
 
-.squad__contracts :deep(.el-collapse-item__header) {
-  font-size: var(--sm-fs-sm);
-}
-.squad__club {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: flex-end;
+@media (max-width: 768px) {
+  .squad-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sm-space-4);
+    padding: var(--sm-space-4);
+  }
+
+  .squad-hero__gauge {
+    align-items: flex-start;
+  }
+
+  .gauge {
+    width: 132px;
+    height: 132px;
+  }
+
+  .gauge__value {
+    font-size: var(--sm-fs-2xl);
+  }
+
+  .gauge__hint {
+    text-align: left;
+  }
+
+  .squad-hero__dims {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-.squad__club-current {
-  flex: 1 1 260px;
-  min-width: 220px;
-}
+@media (max-width: 480px) {
+  .squad-hero__dims {
+    grid-template-columns: minmax(0, 1fr);
+  }
 
-.squad__club-name {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-weight: 600;
-}
+  .age-row {
+    grid-template-columns: 56px minmax(0, 1fr) 92px;
+  }
 
-.squad__club-hint {
-  margin: 4px 0 0;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
+  .club__field {
+    flex: 1 1 100%;
+  }
 
-.squad__club-select {
-  flex: 0 1 320px;
-}
-
-.squad__club-option {
-  float: right;
-  margin-left: 12px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.squad__composition {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-
-.squad__composition-item {
-  display: flex;
-  flex-direction: column;
-  min-width: 84px;
-  padding: 10px 14px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 8px;
-}
-
-.squad__composition-count {
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.squad__composition-label {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.squad__gaps {
-  margin: 12px 0 0;
-  padding-left: 18px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
+  .weights__fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

@@ -250,6 +250,7 @@ void loadClubs()
 <template>
   <div class="sm-page">
     <PageHeader
+      eyebrow="ROLE SCOUTING"
       title="智能球探"
       description="按角色模板的权重对属性加权评分并排序。评分为规则计算结果，不代表球探主观判断；覆盖率不足时请谨慎比较。"
     >
@@ -271,7 +272,13 @@ void loadClubs()
 
     <ErrorState v-if="rolesError" :error="rolesError" title="角色模板加载失败" @retry="loadRoles" />
 
-    <SectionCard title="角色与筛选" subtitle="筛选参数与球员中心一致，均由后端执行" dense>
+    <section class="console sm-glass" aria-label="角色筛选控制台">
+      <header class="console__head">
+        <div class="console__titles">
+          <span class="sm-eyebrow">ROLE CONSOLE</span>
+          <p class="console__hint">筛选参数与球员中心一致，均由后端执行；角色模板决定加权规则。</p>
+        </div>
+      </header>
       <div class="filter-grid">
         <label class="filter-field filter-field--wide">
           <span class="sm-label">角色模板</span>
@@ -357,13 +364,11 @@ void loadClubs()
         </span>
         <span v-if="roleWeights.length === 0" class="sm-text-2xs sm-text-faint">该模板未返回权重字段</span>
       </div>
-      <template #footer>
+      <p class="console__foot">
         <span v-if="clubsError">俱乐部选项加载失败：{{ clubsError.message }}</span>
         <span v-else>评分 = 参与属性按权重加权（后端 /scouting/evaluate 与 /scouting/search 使用同一模板）。</span>
-      </template>
-    </SectionCard>
-
-    <SectionCard title="候选人" subtitle="按角色评分降序；展开行可查看优势与短板" flush>
+      </p>
+    </section>    <SectionCard title="候选人" subtitle="按角色评分降序；展开行可查看优势与短板" flush>
       <ErrorState v-if="error" :error="error" compact @retry="search" />
 
       <EmptyState
@@ -503,6 +508,42 @@ void loadClubs()
 </template>
 
 <style scoped>
+.console {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-3);
+  padding: var(--sm-space-3) var(--sm-space-4);
+  border-radius: var(--sm-radius-lg);
+  box-shadow: var(--sm-shadow-1);
+}
+
+.console__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sm-space-3);
+  flex-wrap: wrap;
+}
+
+.console__titles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+  min-width: 0;
+}
+
+.console__hint {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-xs);
+  line-height: 1.6;
+}
+
+.console__foot {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.5;
+}
+
 .filter-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
@@ -622,5 +663,16 @@ void loadClubs()
 .page-note {
   color: var(--sm-text-3);
   font-size: var(--sm-fs-2xs);
+}
+
+@media (max-width: 640px) {
+  .console {
+    padding: var(--sm-space-3);
+  }
+
+  /* 单列布局下取消跨列，避免隐式网格列造成横向溢出。 */
+  .filter-field--wide {
+    grid-column: auto;
+  }
 }
 </style>

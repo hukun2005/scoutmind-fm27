@@ -29,6 +29,7 @@ import NumberCell from '../components/NumberCell.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import SectionCard from '../components/SectionCard.vue'
+import StatHeader from '../components/StatHeader.vue'
 import type {
   DevelopmentPeriod,
   PlayerAttribute,
@@ -122,6 +123,25 @@ const instanceId = computed(() => {
 const summary = computed(() => detail.value?.summary ?? null)
 
 const pageTitle = computed(() => (summary.value ? displayText(summary.value.name) : '球员详情'))
+
+/** 头像缩写：仅由姓名派生，不引入额外字段。 */
+const initials = computed(() => {
+  const name = summary.value?.name?.trim() ?? ''
+  if (!name) return EMPTY
+  const parts = name.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return `${parts[0]!.charAt(0)}${parts[1]!.charAt(0)}`.toUpperCase()
+  return name.slice(0, 2).toUpperCase()
+})
+
+/** 档案速览：全部复用 detail / summary 中已有字段。 */
+const profileFacts = computed(() => [
+  { label: '生日', value: formatDate(summary.value?.birth_date) },
+  { label: '入档', value: formatDate(detail.value?.first_seen) },
+  { label: '最近观测', value: formatDate(detail.value?.last_seen) },
+  { label: '快照次数', value: formatInt(detail.value?.snapshot_count) },
+  { label: '最新快照 ID', value: displayText(detail.value?.latest_snapshot_id) },
+  { label: '周薪（€）', value: formatMoney(summary.value?.wage) },
+])
 
 /** Currency used by valuation and comparable transfers. */
 const currency = computed(() => valuation.value?.currency ?? 'EUR')
@@ -485,6 +505,7 @@ void loadRoles()
 <template>
   <div class="sm-page">
     <PageHeader
+      eyebrow="PLAYER INTELLIGENCE"
       :title="pageTitle"
       :description="summary ? `${positionLabel(summary.position)} · ${positionGroupLabel(summary.position_group)} · ${displayText(summary.club)}` : '读取球员档案、成长曲线与估值依据'"
       back-to="/players"
@@ -537,60 +558,63 @@ void loadRoles()
       <LoadingBlock v-else-if="detailLoading && !detail" :rows="8" label="正在加载球员档案" />
 
       <template v-else-if="detail && summary">
-        <SectionCard title="档案" subtitle="字段全部来自后端，缺失显示为 —">
-          <div class="profile">
-            <div class="profile__identity">
-              <div class="profile__name">{{ displayText(summary.name) }}</div>
-              <div class="profile__sub">
+        <section class="player-hero" aria-label="球员档案概览">
+          <div class="player-hero__glow" aria-hidden="true" />
+
+          <div class="player-hero__identity">
+            <div class="player-hero__avatar" aria-hidden="true">{{ initials }}</div>
+            <div class="player-hero__id">
+              <h2 class="player-hero__name">{{ displayText(summary.name) }}</h2>
+              <p class="player-hero__sub">
                 {{ positionLabel(summary.position) }} · {{ positionGroupLabel(summary.position_group) }} ·
                 {{ displayText(summary.club) }}
+              </p>
+              <div class="player-hero__chips">
+                <span class="player-chip">
+                  年龄 <strong>{{ summary.age === null ? EMPTY : `${summary.age} 岁` }}</strong>
+                </span>
+                <span class="player-chip">国籍 <strong>{{ displayText(summary.nationality) }}</strong></span>
+                <span class="player-chip">合同到期 <strong>{{ formatDate(summary.contract_end) }}</strong></span>
+                <ConfidenceTag :confidence="valuation?.confidence ?? null" />
               </div>
-              <div class="profile__facts">
-                <span>年龄 <strong>{{ summary.age === null ? EMPTY : `${summary.age} 岁` }}</strong></span>
-                <span>生日 {{ formatDate(summary.birth_date) }}</span>
-                <span>国籍 {{ displayText(summary.nationality) }}</span>
-                <span>入档 {{ formatDate(detail.first_seen) }}</span>
-                <span>最近 {{ formatDate(detail.last_seen) }}</span>
-                <span>快照 {{ formatInt(detail.snapshot_count) }} 次</span>
-              </div>
-              <div v-if="detail.tags.length > 0" class="profile__tags">
+              <div v-if="detail.tags.length > 0" class="player-hero__tags">
                 <el-tag v-for="tag in detail.tags" :key="tag" size="small" type="info" disable-transitions>{{ tag }}</el-tag>
               </div>
             </div>
+          </div>
 
-            <div class="profile__metrics">
-              <div class="metric">
-                <span class="metric__label">CA</span>
-                <span class="metric__value sm-num">{{ formatInt(summary.ca) }}</span>
-              </div>
-              <div class="metric">
-                <span class="metric__label">PA</span>
-                <span class="metric__value sm-num">{{ formatInt(summary.pa) }}</span>
-              </div>
-              <div class="metric">
-                <span class="metric__label">身价（€）</span>
-                <span class="metric__value sm-num" :title="formatMoneyExact(summary.market_value, 'EUR')">
-                  {{ formatMoney(summary.market_value) }}
-                </span>
-                <span class="metric__hint">币种默认 EUR</span>
-              </div>
-              <div class="metric">
-                <span class="metric__label">周薪（€）</span>
-                <span class="metric__value sm-num" :title="formatMoneyExact(summary.wage, 'EUR')">
-                  {{ formatMoney(summary.wage) }}
-                </span>
-              </div>
-              <div class="metric">
-                <span class="metric__label">合同到期</span>
-                <span class="metric__value metric__value--text">{{ formatDate(summary.contract_end) }}</span>
-              </div>
-              <div class="metric">
-                <span class="metric__label">数据完整度</span>
-                <span class="metric__value sm-num">{{ formatPercent(summary.data_completeness) }}</span>
-                <CoverageBar label="非空字段比例" :value="summary.data_completeness" dense />
-              </div>
+          <div class="player-hero__tiles">
+            <div class="fact-tile">
+              <span class="fact-tile__label">CA</span>
+              <span class="fact-tile__value sm-num">{{ formatInt(summary.ca) }}</span>
+            </div>
+            <div class="fact-tile">
+              <span class="fact-tile__label">PA</span>
+              <span class="fact-tile__value sm-num">{{ formatInt(summary.pa) }}</span>
+            </div>
+            <div class="fact-tile">
+              <span class="fact-tile__label">身价（€）</span>
+              <span class="fact-tile__value sm-num" :title="formatMoneyExact(summary.market_value, 'EUR')">
+                {{ formatMoney(summary.market_value) }}
+              </span>
+              <span class="fact-tile__hint">币种默认 EUR</span>
+            </div>
+            <div class="fact-tile">
+              <span class="fact-tile__label">周薪（€）</span>
+              <span class="fact-tile__value sm-num" :title="formatMoneyExact(summary.wage, 'EUR')">
+                {{ formatMoney(summary.wage) }}
+              </span>
+            </div>
+            <div class="fact-tile fact-tile--wide">
+              <span class="fact-tile__label">数据完整度</span>
+              <span class="fact-tile__value sm-num">{{ formatPercent(summary.data_completeness) }}</span>
+              <CoverageBar label="非空字段比例" :value="summary.data_completeness" dense />
             </div>
           </div>
+        </section>
+
+        <SectionCard title="档案" subtitle="字段全部来自后端，缺失显示为 —">
+          <StatHeader :items="profileFacts" />
           <template #footer>
             <span v-if="detail.notes">备注：{{ detail.notes }}</span>
             <span v-else>备注：后端未提供备注字段。</span>
@@ -729,7 +753,7 @@ void loadRoles()
 
         <SectionCard title="估值（相似成交）" subtitle="区间来自可比成交的分位数，样本不足时不给区间">
             <header class="sm-row sm-row--between valuation__head">
-              <ConfidenceTag :confidence="valuation?.confidence ?? null" />
+              <span class="sm-label">相似成交区间</span>
               <span class="sm-text-2xs sm-text-faint">
                 样本 {{ valuation ? formatInt(valuation.sample_size) : EMPTY }} · 币种 {{ currency }} · 算法
                 {{ displayText(valuation?.algorithm_version) }}
@@ -1011,9 +1035,12 @@ void loadRoles()
             compact
           />
           <div v-else class="attribute-groups">
-            <div v-for="group in attributeGroups" :key="group.category" class="attribute-group">
-              <p class="attribute-group__title">{{ group.label }}</p>
-              <div class="attribute-group__grid">
+            <section v-for="group in attributeGroups" :key="group.category" class="attribute-card">
+              <header class="attribute-card__head">
+                <h3 class="attribute-card__title">{{ group.label }}</h3>
+                <span class="attribute-card__count">{{ group.items.length }} 项</span>
+              </header>
+              <div class="attribute-card__grid">
                 <AttributeBar
                   v-for="attribute in group.items"
                   :key="attribute.key"
@@ -1022,7 +1049,7 @@ void loadRoles()
                   :code="attribute.key"
                 />
               </div>
-            </div>
+            </section>
           </div>
           <template #footer>
             属性为 1–20 整数刻度；null 表示该属性未被扫描到，不按 0 处理。
@@ -1184,79 +1211,154 @@ void loadRoles()
   gap: var(--sm-space-2);
 }
 
-.profile {
+/* ---------- 球员档案指挥条 ---------- */
+
+.player-hero {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
+  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 1fr);
+  align-items: center;
   gap: var(--sm-space-5);
+  padding: var(--sm-space-5);
+  overflow: hidden;
+  border: 1px solid var(--sm-border-strong);
+  border-radius: var(--sm-radius-xl);
+  background:
+    linear-gradient(120deg, rgba(10, 34, 54, 0.92) 0%, rgba(9, 18, 34, 0.94) 50%, rgba(24, 16, 46, 0.9) 100%),
+    var(--sm-surface);
+  box-shadow: var(--sm-shadow-2);
 }
 
-.profile__identity {
+.player-hero__glow {
+  position: absolute;
+  top: -110px;
+  left: -40px;
+  width: 340px;
+  height: 280px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.2), transparent 70%);
+  filter: blur(4px);
+  pointer-events: none;
+}
+
+.player-hero__identity {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  gap: var(--sm-space-2);
+  align-items: center;
+  gap: var(--sm-space-4);
   min-width: 0;
 }
 
-.profile__name {
-  color: var(--sm-text);
-  font-size: var(--sm-fs-2xl);
+/* 渐变描边头像：用 padding + 渐变背景形成 2px 边框。 */
+.player-hero__avatar {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  flex: 0 0 auto;
+  border-radius: var(--sm-radius-lg);
+  background: var(--sm-gradient-accent);
+  color: var(--sm-text-inverse);
+  font-size: var(--sm-fs-xl);
   font-weight: var(--sm-fw-semibold);
-  line-height: var(--sm-lh-tight);
+  letter-spacing: 0.02em;
+  box-shadow: var(--sm-glow-cyan);
 }
 
-.profile__sub {
+.player-hero__id {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+  min-width: 0;
+}
+
+.player-hero__name {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-2xl);
+  font-weight: var(--sm-fw-semibold);
+  letter-spacing: -0.015em;
+  line-height: var(--sm-lh-tight);
+  overflow-wrap: anywhere;
+}
+
+.player-hero__sub {
   color: var(--sm-text-2);
   font-size: var(--sm-fs-sm);
 }
 
-.profile__facts {
+.player-hero__chips {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--sm-space-3);
-  color: var(--sm-text-2);
-  font-size: var(--sm-fs-xs);
+  align-items: center;
+  gap: var(--sm-space-2);
+  margin-top: var(--sm-space-1);
 }
 
-.profile__tags {
+.player-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px var(--sm-space-2);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-pill);
+  background: rgba(8, 17, 30, 0.72);
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  white-space: nowrap;
+}
+
+.player-chip strong {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-xs);
+  font-weight: var(--sm-fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.player-hero__tags {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sm-space-1);
+  margin-top: var(--sm-space-1);
 }
 
-.profile__metrics {
+.player-hero__tiles {
+  position: relative;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--sm-space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sm-space-2);
+  margin: 0;
 }
 
-.metric {
+.fact-tile {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
   padding: var(--sm-space-2) var(--sm-space-3);
-  background: var(--sm-surface-2);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
+  background: rgba(10, 21, 36, 0.7);
 }
 
-.metric__label {
+.fact-tile--wide {
+  grid-column: 1 / -1;
+}
+
+.fact-tile__label {
   color: var(--sm-text-3);
   font-size: var(--sm-fs-2xs);
+  letter-spacing: var(--sm-tracking-label);
 }
 
-.metric__value {
-  color: var(--sm-text);
+.fact-tile__value {
+  color: var(--sm-text-primary);
   font-size: var(--sm-fs-lg);
   font-weight: var(--sm-fw-semibold);
+  line-height: var(--sm-lh-tight);
   text-align: right;
 }
 
-.metric__value--text {
-  font-size: var(--sm-fs-sm);
-}
-
-.metric__hint {
+.fact-tile__hint {
   color: var(--sm-text-3);
   font-size: var(--sm-fs-2xs);
   text-align: right;
@@ -1508,21 +1610,47 @@ void loadRoles()
 }
 
 .attribute-groups {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sm-space-4);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--sm-space-3);
 }
 
-.attribute-group__title {
+/* 每个属性类别是一张独立玻璃卡，避免长表格失去分组。 */
+.attribute-card {
+  min-width: 0;
+  padding: var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background:
+    linear-gradient(160deg, rgba(22, 37, 59, 0.45) 0%, rgba(11, 21, 36, 0.85) 100%),
+    var(--sm-surface-2);
+}
+
+.attribute-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sm-space-2);
+  padding-bottom: var(--sm-space-2);
   margin-bottom: var(--sm-space-2);
+  border-bottom: 1px solid var(--sm-border);
+}
+
+.attribute-card__title {
   color: var(--sm-text);
   font-size: var(--sm-fs-sm);
   font-weight: var(--sm-fw-semibold);
 }
 
-.attribute-group__grid {
+.attribute-card__count {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.attribute-card__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: var(--sm-space-3) var(--sm-space-4);
 }
 
@@ -1561,9 +1689,39 @@ void loadRoles()
 }
 
 @media (max-width: 1180px) {
-  .profile,
+  .player-hero,
   .attribution-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .player-hero {
+    gap: var(--sm-space-4);
+    padding: var(--sm-space-4);
+  }
+
+  .player-hero__identity {
+    align-items: flex-start;
+  }
+
+  .player-hero__tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 420px) {
+  .player-hero__identity {
+    flex-direction: column;
+    gap: var(--sm-space-3);
+  }
+
+  .player-hero__tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fact-tile--wide {
+    grid-column: auto;
   }
 }
 </style>

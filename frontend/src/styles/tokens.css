@@ -1,7 +1,16 @@
-/* Design tokens. 8px spacing grid, dark professional football-analysis palette, one accent. */
+/*
+ * ScoutMind Design Tokens
+ *
+ * 视觉主题：Futuristic Football Intelligence + Premium Dark Dashboard。
+ * 两层命名：
+ *   1. 语义层（--sm-bg-primary / --sm-accent-cyan / ...）——新组件优先使用；
+ *   2. 兼容层（--sm-bg / --sm-surface / --sm-accent / ...）——既有页面与 Element Plus 覆盖使用，
+ *      值映射到语义层，保证「一处换肤、全站生效」。
+ * 所有颜色需在 #050a13 画布上满足正文对比度 ≥ 4.5:1，强调色仅用于图形、边框与小面积高亮。
+ */
 
 :root {
-  /* Spacing: 4 / 8 / 12 / 16 / 24 / 32 / 40 / 48 / 64 */
+  /* ---------- 间距：4 / 8 / 12 / 16 / 24 / 32 / 40 / 48 / 64 ---------- */
   --sm-space-1: 4px;
   --sm-space-2: 8px;
   --sm-space-3: 12px;
@@ -12,41 +21,83 @@
   --sm-space-8: 48px;
   --sm-space-9: 64px;
 
-  /* Surfaces: near-black canvas, two raised levels for cards and nested panels */
-  --sm-bg: #0b0e14;
-  --sm-surface: #131922;
-  --sm-surface-2: #18202b;
-  --sm-surface-3: #202a38;
-  --sm-sidebar: #080b11;
-  --sm-sidebar-2: #121a24;
-  --sm-sidebar-3: #1d2836;
-  --sm-sidebar-text: #94a2b8;
-  --sm-sidebar-text-strong: #f1f5fb;
+  /* ---------- 语义色彩：背景 ---------- */
+  --sm-bg-primary: #050a13; /* Deep Space Navy */
+  --sm-bg-secondary: #091220; /* Midnight Blue */
+  --sm-bg-elevated: #0f1a2b; /* Dark Graphite */
+  --sm-surface-glass: rgba(14, 25, 41, 0.72);
+  --sm-surface-glass-strong: rgba(11, 21, 36, 0.88);
 
-  /* Lines */
-  --sm-border: #232d3c;
-  --sm-border-strong: #35435c;
+  /* ---------- 语义色彩：强调 ---------- */
+  --sm-accent-cyan: #22d3ee;
+  --sm-accent-blue: #4d8dff;
+  --sm-accent-violet: #a78bfa;
+  --sm-accent-green: #34d399;
 
-  /* Text */
-  --sm-text: #e9eef6;
-  --sm-text-2: #a6b2c4;
-  --sm-text-3: #7a8698;
-  --sm-text-inverse: #0b0e14;
+  /* ---------- 语义色彩：文本 ---------- */
+  --sm-text-primary: #eef5ff;
+  --sm-text-secondary: #9db0c9;
+  --sm-text-tertiary: #7689a3;
 
-  /* Semantic */
-  --sm-accent: #4d8dff;
-  --sm-accent-hover: #6fa4ff;
-  --sm-accent-weak: #17243c;
-  --sm-success: #35c98a;
-  --sm-success-weak: #10291f;
-  --sm-warn: #e6a93c;
-  --sm-warn-weak: #2b2314;
-  --sm-danger: #f06a63;
-  --sm-danger-weak: #2e1618;
-  --sm-neutral: #8f9db2;
-  --sm-neutral-weak: #1b2334;
+  /* ---------- 语义色彩：状态 ---------- */
+  --sm-status-success: #34d399;
+  --sm-status-warning: #f5b544;
+  --sm-status-danger: #fb7185;
 
-  /* Typography */
+  /* ---------- 语义色彩：描边 ---------- */
+  --sm-border-subtle: rgba(122, 162, 220, 0.13);
+  --sm-border-strong-2: rgba(122, 162, 220, 0.26);
+  --sm-border-glow: rgba(34, 211, 238, 0.42);
+
+  /* ---------- 兼容层：表面 ---------- */
+  --sm-bg: var(--sm-bg-primary);
+  --sm-surface: #0b1524;
+  --sm-surface-2: #101d30;
+  --sm-surface-3: #16253b;
+  --sm-sidebar: #060c16;
+  --sm-sidebar-2: #0c1727;
+  --sm-sidebar-3: #132135;
+  --sm-sidebar-text: var(--sm-text-secondary);
+  --sm-sidebar-text-strong: var(--sm-text-primary);
+
+  /* ---------- 兼容层：线条 ---------- */
+  --sm-border: var(--sm-border-subtle);
+  --sm-border-strong: var(--sm-border-strong-2);
+
+  /* ---------- 兼容层：文本 ---------- */
+  --sm-text: var(--sm-text-primary);
+  --sm-text-2: var(--sm-text-secondary);
+  --sm-text-3: var(--sm-text-tertiary);
+  --sm-text-inverse: #050a13;
+
+  /* ---------- 兼容层：语义色 ---------- */
+  --sm-accent: var(--sm-accent-blue);
+  --sm-accent-hover: #7fb0ff;
+  --sm-accent-weak: rgba(77, 141, 255, 0.14);
+  --sm-success: var(--sm-status-success);
+  --sm-success-weak: rgba(52, 211, 153, 0.12);
+  --sm-warn: var(--sm-status-warning);
+  --sm-warn-weak: rgba(245, 181, 68, 0.12);
+  --sm-danger: var(--sm-status-danger);
+  --sm-danger-weak: rgba(251, 113, 133, 0.12);
+  --sm-neutral: #94a3b8;
+  --sm-neutral-weak: #16243a;
+
+  /* ---------- 渐变与发光 ---------- */
+  --sm-gradient-accent: linear-gradient(135deg, #22d3ee 0%, #4d8dff 52%, #a78bfa 100%);
+  --sm-gradient-accent-soft: linear-gradient(
+    135deg,
+    rgba(34, 211, 238, 0.16) 0%,
+    rgba(77, 141, 255, 0.1) 55%,
+    rgba(167, 139, 250, 0.14) 100%
+  );
+  --sm-gradient-surface: linear-gradient(160deg, rgba(22, 37, 59, 0.92) 0%, rgba(11, 21, 36, 0.98) 100%);
+  --sm-gradient-text: linear-gradient(96deg, #d9f6ff 0%, #7dd3fc 38%, #a5b4fc 72%, #c4b5fd 100%);
+  --sm-glow-cyan: 0 0 0 1px rgba(34, 211, 238, 0.2), 0 12px 34px -18px rgba(34, 211, 238, 0.55);
+  --sm-glow-blue: 0 0 0 1px rgba(77, 141, 255, 0.22), 0 16px 40px -22px rgba(77, 141, 255, 0.65);
+  --sm-glow-violet: 0 0 0 1px rgba(167, 139, 250, 0.2), 0 16px 40px -22px rgba(167, 139, 250, 0.55);
+
+  /* ---------- 字体 ---------- */
   --sm-font-sans: 'Inter', 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
   --sm-font-mono: 'JetBrains Mono', 'SFMono-Regular', 'Consolas', 'Menlo', monospace;
   --sm-fs-2xs: 11px;
@@ -55,33 +106,54 @@
   --sm-fs-md: 14px;
   --sm-fs-lg: 16px;
   --sm-fs-xl: 20px;
-  --sm-fs-2xl: 26px;
-  --sm-fs-3xl: 32px;
-  --sm-lh-tight: 1.25;
+  --sm-fs-2xl: 28px;
+  --sm-fs-3xl: 36px;
+  --sm-fs-4xl: 44px;
+  --sm-lh-tight: 1.2;
   --sm-lh-normal: 1.55;
   --sm-fw-regular: 400;
   --sm-fw-medium: 500;
   --sm-fw-semibold: 600;
+  --sm-tracking-wide: 0.14em;
+  --sm-tracking-label: 0.08em;
 
-  /* Radii and elevation */
-  --sm-radius-sm: 4px;
-  --sm-radius-md: 6px;
-  --sm-radius-lg: 10px;
-  --sm-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
-  --sm-shadow-2: 0 10px 28px rgba(0, 0, 0, 0.45);
+  /* ---------- 圆角 ---------- */
+  --sm-radius-xs: 6px;
+  --sm-radius-sm: 8px;
+  --sm-radius-md: 10px;
+  --sm-radius-lg: 14px;
+  --sm-radius-xl: 18px;
+  --sm-radius-2xl: 24px;
+  --sm-radius-pill: 999px;
 
-  /* Layout */
-  --sm-sidebar-width: 216px;
-  --sm-topbar-height: 56px;
+  /* ---------- 阴影与模糊 ---------- */
+  --sm-shadow-1: 0 1px 2px rgba(2, 7, 16, 0.55);
+  --sm-shadow-2: 0 18px 40px -24px rgba(2, 7, 16, 0.85);
+  --sm-shadow-float: 0 28px 60px -32px rgba(2, 7, 16, 0.95);
+  --sm-blur-glass: 16px;
+
+  /* ---------- 动效 ---------- */
+  --sm-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --sm-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --sm-dur-1: 120ms;
+  --sm-dur-2: 220ms;
+  --sm-dur-3: 420ms;
+  --sm-dur-4: 720ms;
+
+  /* ---------- 布局 ---------- */
+  --sm-sidebar-width: 248px;
+  --sm-sidebar-width-rail: 76px;
+  --sm-topbar-height: 64px;
   --sm-page-max: 1680px;
-  --sm-focus-ring: 0 0 0 2px rgba(77, 141, 255, 0.55);
+  --sm-focus-ring: 0 0 0 2px rgba(34, 211, 238, 0.65);
+  --sm-safe-bottom: env(safe-area-inset-bottom, 0px);
 
   color-scheme: dark;
 }
 
 /*
- * Element Plus keys its dark theme off `html.dark`, so these overrides live on the same selector to win the
- * cascade: every Element surface then follows the same scale as our own components.
+ * Element Plus 的深色主题以 `html.dark` 为开关，覆盖必须放在同一选择器上才能赢得级联。
+ * 这里只映射颜色与圆角，保持组件库行为不变。
  */
 html.dark {
   --el-color-primary: #4d8dff;
@@ -89,37 +161,51 @@ html.dark {
   --el-color-primary-light-5: #335b9f;
   --el-color-primary-light-7: #26416f;
   --el-color-primary-light-8: #1f3459;
-  --el-color-primary-light-9: #17243c;
-  --el-color-primary-dark-2: #6fa4ff;
-  --el-color-success: #35c98a;
-  --el-color-warning: #e6a93c;
-  --el-color-danger: #f06a63;
-  --el-color-error: #f06a63;
-  --el-color-info: #8f9db2;
-  --el-bg-color: #131922;
-  --el-bg-color-page: #0b0e14;
-  --el-bg-color-overlay: #18202b;
-  --el-fill-color: #18202b;
-  --el-fill-color-light: #18202b;
-  --el-fill-color-lighter: #151c26;
-  --el-fill-color-dark: #202a38;
-  --el-fill-color-darker: #26313f;
-  --el-fill-color-blank: #131922;
-  --el-border-color: #232d3c;
-  --el-border-color-light: #232d3c;
-  --el-border-color-lighter: #1d2632;
-  --el-border-color-extra-light: #1a222d;
-  --el-border-color-dark: #35435c;
-  --el-border-color-darker: #40506c;
-  --el-text-color-primary: #e9eef6;
-  --el-text-color-regular: #a6b2c4;
-  --el-text-color-secondary: #7a8698;
-  --el-text-color-placeholder: #6b7789;
-  --el-text-color-disabled: #5b6678;
-  --el-mask-color: rgba(8, 11, 17, 0.8);
+  --el-color-primary-light-9: rgba(77, 141, 255, 0.14);
+  --el-color-primary-dark-2: #7fb0ff;
+  --el-color-success: #34d399;
+  --el-color-success-light-9: rgba(52, 211, 153, 0.12);
+  --el-color-warning: #f5b544;
+  --el-color-warning-light-9: rgba(245, 181, 68, 0.12);
+  --el-color-danger: #fb7185;
+  --el-color-danger-light-9: rgba(251, 113, 133, 0.12);
+  --el-color-error: #fb7185;
+  --el-color-info: #94a3b8;
+  --el-bg-color: #0b1524;
+  --el-bg-color-page: #050a13;
+  --el-bg-color-overlay: #101d30;
+  --el-fill-color: #101d30;
+  --el-fill-color-light: #101d30;
+  --el-fill-color-lighter: #0d1828;
+  --el-fill-color-dark: #16253b;
+  --el-fill-color-darker: #1b2c44;
+  --el-fill-color-blank: #0b1524;
+  --el-border-color: rgba(122, 162, 220, 0.16);
+  --el-border-color-light: rgba(122, 162, 220, 0.13);
+  --el-border-color-lighter: rgba(122, 162, 220, 0.1);
+  --el-border-color-extra-light: rgba(122, 162, 220, 0.07);
+  --el-border-color-dark: rgba(122, 162, 220, 0.26);
+  --el-border-color-darker: rgba(122, 162, 220, 0.34);
+  --el-text-color-primary: #eef5ff;
+  --el-text-color-regular: #9db0c9;
+  --el-text-color-secondary: #6b7f9b;
+  --el-text-color-placeholder: #5d708a;
+  --el-text-color-disabled: #4b5c74;
+  --el-mask-color: rgba(3, 8, 16, 0.78);
   --el-box-shadow-light: var(--sm-shadow-1);
   --el-box-shadow: var(--sm-shadow-2);
-  --el-border-radius-base: 6px;
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
   --el-font-family: var(--sm-font-sans);
-  --el-disabled-bg-color: #1b2334;
+  --el-disabled-bg-color: #131f31;
+}
+
+/* 系统要求减少动态效果时，把全局过渡压到最短（组件内的降级见 base.css）。 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --sm-dur-1: 1ms;
+    --sm-dur-2: 1ms;
+    --sm-dur-3: 1ms;
+    --sm-dur-4: 1ms;
+  }
 }

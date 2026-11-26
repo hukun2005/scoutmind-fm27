@@ -63,9 +63,10 @@ const partialCoverage = computed(
 
 .score-badge__value {
   display: inline-block;
-  min-width: 44px;
-  padding: 1px 6px;
-  border-radius: var(--sm-radius-sm);
+  min-width: 46px;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--sm-radius-pill);
   font-variant-numeric: tabular-nums;
   font-weight: var(--sm-fw-semibold);
   text-align: right;
@@ -77,21 +78,25 @@ const partialCoverage = computed(
 }
 
 .score-badge--high .score-badge__value {
+  border-color: rgba(52, 211, 153, 0.32);
   background: var(--sm-success-weak);
-  color: var(--sm-success);
+  color: #6ee7b7;
 }
 
 .score-badge--good .score-badge__value {
+  border-color: rgba(77, 141, 255, 0.32);
   background: var(--sm-accent-weak);
-  color: var(--sm-accent);
+  color: #93c5fd;
 }
 
 .score-badge--mid .score-badge__value {
+  border-color: rgba(245, 181, 68, 0.32);
   background: var(--sm-warn-weak);
-  color: var(--sm-warn);
+  color: #fcd34d;
 }
 
 .score-badge--low .score-badge__value {
+  border-color: rgba(122, 162, 220, 0.22);
   background: var(--sm-neutral-weak);
   color: var(--sm-neutral);
 }

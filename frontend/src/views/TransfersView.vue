@@ -17,6 +17,7 @@ import DataTable from '../components/DataTable.vue'
 import EChart from '../components/EChart.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
+import KpiCard from '../components/KpiCard.vue'
 import NumberCell from '../components/NumberCell.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
@@ -140,6 +141,20 @@ const statsFootnote = computed(() => {
 })
 
 const statsEmpty = computed(() => transfers.stats !== null && transfers.stats.sample_size === 0)
+
+/** Current-page rows that carry a date, newest first; presentation-only rail, the table stays authoritative. */
+const timelineItems = computed(() =>
+  transfers.items
+    .filter((row) => row.transfer_date !== null)
+    .slice()
+    .sort((a, b) => String(b.transfer_date).localeCompare(String(a.transfer_date)))
+    .slice(0, 8),
+)
+
+/** Largest effective fee on the current page, used only for the rail bar width. */
+const timelineMaxFee = computed(() =>
+  Math.max(0, ...timelineItems.value.map((row) => row.effective_fee ?? 0)),
+)
 
 const statsEmptyDescription = computed(() => {
   const stats = transfers.stats
@@ -485,6 +500,7 @@ if (activeTab.value === 'deals') void loadDealsOverview()
 <template>
   <div class="sm-page">
     <PageHeader
+      eyebrow="TRANSFER INTELLIGENCE"
       title="转会情报"
       description="成交样本的分位数、费用直方图与可比交易。只有已完成且有金额来源的交易进入统计，缺失字段不填默认值。"
     >
@@ -502,7 +518,15 @@ if (activeTab.value === 'deals') void loadDealsOverview()
     <el-tabs v-model="activeTab" class="tabs">
       <el-tab-pane label="成交列表" name="list">
         <div class="sm-stack">
-          <SectionCard title="筛选" subtitle="条件变更后自动查询；统计头使用位置组、年龄、日期、俱乐部，费用与类型只影响列表（契约未提供对应统计参数）" dense>
+          <section class="console sm-glass" aria-label="转会筛选控制台">
+            <header class="console__head">
+              <div class="console__titles">
+                <span class="sm-eyebrow">MARKET CONSOLE</span>
+                <p class="console__hint">
+                  条件变更后自动查询；统计头使用位置组、年龄、日期、俱乐部，费用与类型只影响列表（契约未提供对应统计参数）。
+                </p>
+              </div>
+            </header>
             <div class="filter-grid">
               <label class="filter-field">
                 <span class="sm-label">状态</span>
@@ -628,45 +652,90 @@ if (activeTab.value === 'deals') void loadDealsOverview()
                 <el-button size="small" @click="resetFilters">重置</el-button>
               </div>
             </div>
-            <template #footer>
+            <p class="console__foot">
               <span v-if="clubsError">俱乐部选项加载失败：{{ clubsError.message }}</span>
               <span v-else>成交时 CA、合同剩余月数等字段按记录返回值展示；缺失显示 —，不参与分位数校正。</span>
-            </template>
-          </SectionCard>
+            </p>
+          </section>
 
-          <SectionCard title="样本统计" subtitle="分位数来自后端统计接口，样本不足时仍展示真实样本数">
-            <StatHeader
-              :items="statsItems"
+          <div class="sm-grid sm-grid--wide-left">
+            <section class="market" aria-label="样本统计">
+              <header class="panel-head">
+                <span class="sm-eyebrow">MARKET SNAPSHOT</span>
+                <h2 class="panel-head__title">样本统计</h2>
+                <p class="panel-head__hint">分位数来自后端统计接口，样本不足时仍展示真实样本数。</p>
+              </header>
+              <div class="market__tiles">
+                <KpiCard
+                  v-for="item in statsItems"
+                  :key="item.label"
+                  :label="item.label"
+                  :value="item.value"
+                  :hint="item.hint"
+                  :loading="transfers.statsLoading && !transfers.stats"
+                />
+              </div>
+              <ErrorState
+                v-if="transfers.statsError && !transfers.stats"
+                :error="transfers.statsError"
+                compact
+                @retry="transfers.loadStats(session.activeSaveId)"
+              />
+              <div v-if="transfers.stats && transfers.stats.warnings.length > 0" class="warnings">
+                <el-alert type="warning" :closable="false" show-icon>
+                  <template #title>
+                    <span class="sm-text-xs">{{ transfers.stats.warnings.join(' ') }}</span>
+                  </template>
+                </el-alert>
+              </div>
+            </section>
+
+            <ChartCard
+              title="成交费用分布"
+              subtitle="按后端给定区间统计的已完成交易笔数"
               :loading="transfers.statsLoading && !transfers.stats"
+              :empty="!transfers.statsLoading && (transfers.stats === null || statsEmpty || (transfers.stats?.distribution.length ?? 0) === 0)"
+              empty-title="暂无成交样本"
+              empty-variant="insufficient"
+              :empty-description="statsEmptyDescription"
               :footnote="statsFootnote"
-            />
-            <ErrorState
-              v-if="transfers.statsError && !transfers.stats"
-              :error="transfers.statsError"
-              compact
-              @retry="transfers.loadStats(session.activeSaveId)"
-            />
-            <div v-if="transfers.stats && transfers.stats.warnings.length > 0" class="warnings">
-              <el-alert type="warning" :closable="false" show-icon>
-                <template #title>
-                  <span class="sm-text-xs">{{ transfers.stats.warnings.join(' ') }}</span>
-                </template>
-              </el-alert>
-            </div>
-          </SectionCard>
+            >
+              <EChart :option="histogramOption" height="236px" aria-label="成交费用直方图" />
+            </ChartCard>
+          </div>
 
-          <ChartCard
-            title="成交费用分布"
-            subtitle="按后端给定区间统计的已完成交易笔数"
-            :loading="transfers.statsLoading && !transfers.stats"
-            :empty="!transfers.statsLoading && (transfers.stats === null || statsEmpty || (transfers.stats?.distribution.length ?? 0) === 0)"
-            empty-title="暂无成交样本"
-            empty-variant="insufficient"
-            :empty-description="statsEmptyDescription"
-            :footnote="statsFootnote"
+          <section
+            v-if="timelineItems.length > 0 && !transfers.error"
+            class="timeline sm-glass"
+            aria-label="本页成交时间轴"
           >
-            <EChart :option="histogramOption" height="236px" aria-label="成交费用直方图" />
-          </ChartCard>
+            <header class="timeline__head">
+              <span class="sm-eyebrow">DEAL TIMELINE</span>
+              <p class="timeline__hint">仅当前页成交，按日期倒序；金额为记录自带币种，完整明细以下方表格为准。</p>
+            </header>
+            <ol class="timeline__rail">
+              <li v-for="row in timelineItems" :key="row.id" class="timeline__item">
+                <span class="timeline__date sm-num">{{ formatDate(row.transfer_date) }}</span>
+                <span class="timeline__dot" aria-hidden="true" />
+                <div class="timeline__body">
+                  <div class="timeline__row">
+                    <span class="timeline__player">{{ displayText(row.player_name) }}</span>
+                    <span class="timeline__fee sm-num">{{ formatMoney(row.effective_fee) }}</span>
+                  </div>
+                  <p class="timeline__clubs">
+                    {{ displayText(row.from_club) }} → {{ displayText(row.to_club) }}
+                  </p>
+                  <span v-if="row.effective_fee !== null" class="timeline__bar" aria-hidden="true">
+                    <i
+                      :style="{
+                        width: `${timelineMaxFee > 0 ? Math.max(4, (row.effective_fee / timelineMaxFee) * 100) : 0}%`,
+                      }"
+                    />
+                  </span>
+                </div>
+              </li>
+            </ol>
+          </section>
 
           <SectionCard title="成交明细" subtitle="展开行可查看费用构成（基础、分期、附加条款等）" flush>
             <DataTable
@@ -1170,6 +1239,226 @@ if (activeTab.value === 'deals') void loadDealsOverview()
 <style scoped>
 .tabs :deep(.el-tabs__header) {
   margin-bottom: var(--sm-space-3);
+}
+
+/* 当前标签页使用品牌渐变下划线，其余保持 Element Plus 行为。 */
+.tabs :deep(.el-tabs__active-bar) {
+  background: var(--sm-gradient-accent);
+}
+
+.tabs :deep(.el-tabs__item.is-active) {
+  color: var(--sm-text-primary);
+  font-weight: var(--sm-fw-semibold);
+}
+
+/* ---------- 市场筛选控制台 ---------- */
+
+.console {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-3);
+  padding: var(--sm-space-3) var(--sm-space-4);
+  border-radius: var(--sm-radius-lg);
+  box-shadow: var(--sm-shadow-1);
+}
+
+.console__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sm-space-3);
+  flex-wrap: wrap;
+}
+
+.console__titles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+  min-width: 0;
+}
+
+.console__hint {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-xs);
+  line-height: 1.6;
+}
+
+.console__foot {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.5;
+}
+
+/* ---------- 样本统计 ---------- */
+
+.market {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-3);
+  min-width: 0;
+}
+
+.panel-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+}
+
+.panel-head__title {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-lg);
+  font-weight: var(--sm-fw-semibold);
+  letter-spacing: 0.01em;
+}
+
+.panel-head__hint {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-xs);
+  line-height: 1.6;
+}
+
+.market__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--sm-space-3);
+}
+
+/* ---------- 本页成交时间轴 ---------- */
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-3);
+  padding: var(--sm-space-3) var(--sm-space-4);
+  border-radius: var(--sm-radius-lg);
+  box-shadow: var(--sm-shadow-1);
+}
+
+.timeline__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+}
+
+.timeline__hint {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-xs);
+}
+
+.timeline__rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 82px 12px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--sm-space-2);
+}
+
+/* 连接线只画到下一项，最后一项自然结束。 */
+.timeline__item::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  bottom: calc(-1 * var(--sm-space-2));
+  left: 96px;
+  width: 1px;
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.35), rgba(167, 139, 250, 0.08));
+}
+
+.timeline__item:last-child::before {
+  display: none;
+}
+
+.timeline__date {
+  padding-top: 2px;
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+.timeline__dot {
+  width: 7px;
+  height: 7px;
+  margin: 6px auto 0;
+  border-radius: 50%;
+  background: var(--sm-accent-cyan);
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12);
+}
+
+.timeline__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.timeline__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sm-space-2);
+}
+
+.timeline__player {
+  overflow: hidden;
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-sm);
+  font-weight: var(--sm-fw-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline__fee {
+  color: var(--sm-text);
+  font-size: var(--sm-fs-sm);
+  font-weight: var(--sm-fw-semibold);
+}
+
+.timeline__clubs {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  overflow-wrap: anywhere;
+}
+
+.timeline__bar {
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(22, 37, 59, 0.9);
+  overflow: hidden;
+}
+
+.timeline__bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(34, 211, 238, 0.6), rgba(167, 139, 250, 0.75));
+}
+
+@media (max-width: 640px) {
+  .console,
+  .timeline {
+    padding: var(--sm-space-3);
+  }
+
+  /* 单列布局下取消跨列，避免隐式网格列造成横向溢出。 */
+  .filter-field--wide {
+    grid-column: auto;
+  }
+
+  .timeline__item {
+    grid-template-columns: 64px 10px minmax(0, 1fr);
+  }
+
+  .timeline__item::before {
+    left: 79px;
+  }
 }
 
 .deal-grid {

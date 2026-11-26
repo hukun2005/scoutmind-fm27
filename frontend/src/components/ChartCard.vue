@@ -1,4 +1,4 @@
-/** Chart container: loads, empties and footnotes handled outside the chart math. */
+/** 图表容器：加载、空数据与脚注在图表计算之外统一处理。 */
 
 <script setup lang="ts">
 import EmptyState from './EmptyState.vue'
@@ -6,23 +6,23 @@ import LoadingBlock from './LoadingBlock.vue'
 
 withDefaults(
   defineProps<{
-    /** Chart title. */
+    /** 图表标题。 */
     title: string
-    /** Explanation of the metric and its unit. */
+    /** 指标口径与单位说明。 */
     subtitle?: string
-    /** Skeleton row count while data loads. */
+    /** 加载时的骨架行数。 */
     loadingRows?: number
-    /** Whether data is currently loading. */
+    /** 是否正在加载。 */
     loading?: boolean
-    /** Render the empty state instead of the chart slot. */
+    /** 用空状态替代图表插槽。 */
     empty?: boolean
-    /** Empty-state heading. */
+    /** 空状态标题。 */
     emptyTitle?: string
-    /** Empty-state explanation, including which filter produced no data. */
+    /** 空状态说明：哪一个筛选条件导致无数据。 */
     emptyDescription?: string
-    /** Visual tone of the empty state; `insufficient` marks a sample-size refusal. */
+    /** 空状态语气；`insufficient` 表示样本量不足的明确拒绝。 */
     emptyVariant?: 'empty' | 'insufficient' | 'error'
-    /** Sample size / coverage / algorithm version line. */
+    /** 样本量 / 覆盖率 / 算法版本脚注。 */
     footnote?: string
   }>(),
   {
@@ -66,13 +66,27 @@ withDefaults(
 
 <style scoped>
 .chart-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--sm-surface);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-lg);
+  background:
+    linear-gradient(168deg, rgba(20, 35, 56, 0.5) 0%, rgba(9, 18, 32, 0.94) 58%),
+    var(--sm-surface);
   box-shadow: var(--sm-shadow-1);
+}
+
+.chart-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  border-radius: var(--sm-radius-lg) var(--sm-radius-lg) 0 0;
+  background: linear-gradient(90deg, rgba(34, 211, 238, 0.45), rgba(122, 162, 220, 0.12) 42%, transparent);
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 .chart-card__head {
@@ -91,9 +105,22 @@ withDefaults(
 }
 
 .chart-card__title {
-  color: var(--sm-text);
+  display: flex;
+  align-items: center;
+  gap: var(--sm-space-2);
+  color: var(--sm-text-primary);
   font-size: var(--sm-fs-md);
   font-weight: var(--sm-fw-semibold);
+  letter-spacing: 0.01em;
+}
+
+/* 标题前的渐变小方块，统一所有图表的视觉锚点。 */
+.chart-card__title::before {
+  content: '';
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--sm-gradient-accent);
 }
 
 .chart-card__subtitle {

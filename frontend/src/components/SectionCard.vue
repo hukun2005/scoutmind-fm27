@@ -1,23 +1,25 @@
-/** Section container: titled panel with actions and an optional footer. */
+/** 区块容器：带标题、操作区与可选脚注的面板。 */
 
 <script setup lang="ts">
 withDefaults(
   defineProps<{
-    /** Section heading; omit for an untitled panel. */
+    /** 分区标题；省略时渲染为无标题面板。 */
     title?: string
-    /** Short explanation under the heading. */
+    /** 标题下方的简短说明。 */
     subtitle?: string
-    /** Remove body padding (tables and charts manage their own spacing). */
+    /** 去掉主体内边距（表格与图表自行管理间距）。 */
     flush?: boolean
-    /** Reduce vertical spacing for dense dashboards. */
+    /** 紧凑纵向间距，用于高密度仪表盘。 */
     dense?: boolean
+    /** 顶部强调光线（用于当前关注的核心区块）。 */
+    accent?: boolean
   }>(),
-  { title: '', subtitle: '', flush: false, dense: false },
+  { title: '', subtitle: '', flush: false, dense: false, accent: false },
 )
 </script>
 
 <template>
-  <section class="section-card" :class="{ 'section-card--dense': dense }">
+  <section class="section-card" :class="{ 'section-card--dense': dense, 'section-card--accent': accent }">
     <header v-if="title || $slots.actions" class="section-card__head">
       <div class="section-card__titles">
         <h2 v-if="title" class="section-card__title">{{ title }}</h2>
@@ -38,13 +40,32 @@ withDefaults(
 
 <style scoped>
 .section-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--sm-surface);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-lg);
+  background:
+    linear-gradient(168deg, rgba(20, 35, 56, 0.5) 0%, rgba(9, 18, 32, 0.94) 58%),
+    var(--sm-surface);
   box-shadow: var(--sm-shadow-1);
+}
+
+.section-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  border-radius: var(--sm-radius-lg) var(--sm-radius-lg) 0 0;
+  background: linear-gradient(90deg, rgba(34, 211, 238, 0.45), rgba(122, 162, 220, 0.12) 42%, transparent);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.section-card--accent::before {
+  background: var(--sm-gradient-accent);
+  opacity: 0.9;
 }
 
 .section-card__head {
@@ -68,9 +89,10 @@ withDefaults(
 }
 
 .section-card__title {
-  color: var(--sm-text);
+  color: var(--sm-text-primary);
   font-size: var(--sm-fs-md);
   font-weight: var(--sm-fw-semibold);
+  letter-spacing: 0.01em;
 }
 
 .section-card__subtitle {
