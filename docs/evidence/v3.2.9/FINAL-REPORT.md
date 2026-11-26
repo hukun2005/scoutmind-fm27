@@ -7,13 +7,14 @@ main：`89fe8fa7134c34a85c30693d037929a000625168`
 
 ## 1. 总体结论
 
-**PARTIAL（工程 PASS；真实 Save A 全库扫描 PASS；A/B/A 与生命周期 NOT_RUN）。**
+**PARTIAL（工程 PASS；真实 Save A 全库扫描与 A/B/A 数据层 PASS；生命周期 NOT_RUN）。**
 
 - 代码：已实现。
 - 自动化测试：通过。
 - CI：6/6 通过。
-- 真实 FM27 全库扫描（Save A）：已完成，44,869 实例、0 失败。
-- 真实跨存档 A/B/A、转会/退役/自由球员：未执行。
+- 真实 FM27 全库扫描（Save A）：已完成，44,886 实例、0 失败。
+- 真实 A/B/A：已完成（A 44,886 → B 18,614 → A 44,144），A 摘要未变，共有 13,977 UID 未合并。
+- 真实跨存档 Verified 切换、转会/退役/自由球员：未执行。
 - 人工真实球员核对：未执行（本阶段不重复 V3.2.8 的人工核对）。
 - 无 P0/P1 未解决安全问题。
 
@@ -82,11 +83,13 @@ PRECONDITION、PHASE-0-DATA-AUDIT、UID-SCOPE-DESIGN、PLAYER-RECONCILIATION-DES
 
 ## 6. 跨存档与生命周期
 
-- Save A 真实全库扫描：PASS（44,869 实例 / 42,195 匹配 / 2,674 冲突 / 0 失败）。
-- Save A 真实重复 UID：0；同名待审：813。
+- Save A 真实全库扫描：PASS（44,886 实例 / 42,194 匹配 / 2,692 冲突 / 813 待审）。
+- 真实重复 UID：0；同名待审：813。
+- 真实 A/B/A（数据层）：PASS——B 18,614 实例 / 25 俱乐部；A 44,887 / 44 俱乐部；A 摘要 `b2439d0c…` 前后一致。
+- 相同 UID 跨存档：真实 13,977 个，跨存档共用 Canonical 球员 0，未自动合并。
 - Save A / Save B 关联隔离：自动化通过。
 - 标 A 为 Stale 不影响 B：自动化通过。
-- A → B → A 真实流程：NOT_RUN。
+- Verified 级别真实 A/B/A：NOT_RUN。
 - 转会 / 自由球员 / 退役真实场景：NOT_RUN；自动化覆盖转会与俱乐部变化。
 - 同名不同生日、同名同生日不同 UID：自动化覆盖。
 
@@ -107,9 +110,9 @@ PRECONDITION、PHASE-0-DATA-AUDIT、UID-SCOPE-DESIGN、PLAYER-RECONCILIATION-DES
 7. **Reader 统计**：308 PASS（FMReader）+ 57 PASS（Reader）。
 8. **Agent 统计**：38 PASS。
 9. **CI 结果**：6/6 成功。
-10. **跨存档验证**：自动化 PASS；真实 A/B/A NOT_RUN。
-11. **真实 FM27 验收**：Save A 全库扫描 PASS（44,869 实例 / 0 失败）；A/B/A、生命周期 NOT_RUN。
-12. **未完成事项**：真实 A/B/A、真实生命周期、真实 PostgreSQL 性能、浏览器 E2E、Save Identity 绑定。
+10. **跨存档验证**：自动化 PASS；真实 A/B/A 数据层 PASS；Verified 级别 NOT_RUN。
+11. **真实 FM27 验收**：Save A 全库扫描 PASS；A/B/A PASS（数据层）；生命周期 NOT_RUN。
+12. **未完成事项**：真实生命周期、Verified 级别 A/B/A、真实 PostgreSQL 性能、浏览器 E2E、Save Identity 绑定。
 
 ## 9. 风险
 

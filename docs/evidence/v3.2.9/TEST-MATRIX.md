@@ -46,9 +46,10 @@ Backend 口径说明：
 
 | 项目 | 状态 | 原因 |
 | --- | --- | --- |
-| 真实 FM27 全库扫描（Save A） | **PASS** | 44,869 实例，Completed，0 失败，870.13 s |
+| 真实 FM27 全库扫描（Save A） | **PASS** | 44,886 实例，0 失败 |
+| 真实 FM27 A/B/A（数据层） | **PASS** | B 18,614 实例；A 摘要前后一致；共有 UID 13,977 未合并 |
 | 真实 FM27 生命周期（转会/退役/自由球员） | NOT_RUN | 需要人工在游戏中制造事件 |
-| 真实 A/B/A 存档切换 | NOT_RUN | 需要人工切换存档 |
+| Verified 级别真实 A/B/A | NOT_RUN | 需要人工核对球员 |
 | PostgreSQL 迁移 | NOT_RUN（本地 skip） | 未配置测试库；CI 作业已通过 |
 | 浏览器 E2E | NOT_RUN | 本阶段未执行 |
 
@@ -63,7 +64,7 @@ Backend 口径说明：
 | Verified | 0 |
 | 耗时 | 导入 2,174.81 s；扫描 870.13 s |
 
-详见 `REAL-FM27-ACCEPTANCE.md`。
+详见 `REAL-FM27-ACCEPTANCE.md`。A/B/A 复跑基线为 44,886 实例（A）、18,614（B）；A 摘要未变。
 
 ## 6. 稳定性
 
