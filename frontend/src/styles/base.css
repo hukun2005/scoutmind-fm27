@@ -168,6 +168,120 @@ button {
   }
 }
 
+/* ---------- 渐进式展开（高级筛选 / 更多分析） ---------- */
+
+/* 低频功能统一收进 <details>，默认折叠，展开后不改变页面主结构。 */
+.sm-details {
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: rgba(10, 20, 34, 0.5);
+}
+
+.sm-details > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sm-space-2);
+  padding: var(--sm-space-2) var(--sm-space-3);
+  border-radius: var(--sm-radius-md);
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-sm);
+  font-weight: var(--sm-fw-medium);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.sm-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sm-details > summary::before {
+  content: '›';
+  display: inline-block;
+  color: var(--sm-accent-cyan);
+  font-size: 14px;
+  line-height: 1;
+  transition: transform var(--sm-dur-2) var(--sm-ease-out);
+}
+
+.sm-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.sm-details > summary:hover {
+  color: var(--sm-text-primary);
+}
+
+.sm-details__body {
+  padding: 0 var(--sm-space-3) var(--sm-space-3);
+}
+
+/* 行内说明文字：比 .sm-text-faint 更容易读，用于一句话引导。 */
+.sm-hint {
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-xs);
+  line-height: 1.6;
+}
+
+/* 章节小标题：替代英文眉标，使用中文即可。 */
+.sm-section-label {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  font-weight: var(--sm-fw-semibold);
+  letter-spacing: var(--sm-tracking-label);
+}
+
+/* 用户可在「系统设置 → 外观」关闭界面动效。 */
+html[data-reduce-motion='1'] *,
+html[data-reduce-motion='1'] *::before,
+html[data-reduce-motion='1'] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* ---------- 表单筛选原语（跨页面复用） ---------- */
+
+.sm-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--sm-space-3);
+  align-items: end;
+}
+
+.sm-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+  min-width: 0;
+}
+
+.sm-field__label {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  font-weight: var(--sm-fw-medium);
+}
+
+.sm-field--pair {
+  min-width: 200px;
+}
+
+.sm-field__pair {
+  display: flex;
+  align-items: center;
+  gap: var(--sm-space-1);
+}
+
+.sm-field__dash {
+  color: var(--sm-text-3);
+}
+
+.sm-field .el-input-number {
+  width: 100%;
+}
+
+
 /* ---------- 视觉原语 ---------- */
 
 /* 玻璃面板：仅用于外壳、悬浮层与首屏重点卡片，避免大量 backdrop-filter 造成滚动卡顿。 */

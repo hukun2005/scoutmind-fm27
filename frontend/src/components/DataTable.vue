@@ -211,12 +211,14 @@ watch(
     <LoadingBlock v-else-if="loading && rows.length === 0" :rows="6" compact />
 
     <template v-else>
-      <EmptyState
-        v-if="rows.length === 0"
-        :title="emptyTitle"
-        :description="emptyDescription"
-        compact
-      />
+      <slot v-if="rows.length === 0" name="empty">
+        <EmptyState
+          v-if="rows.length === 0"
+          :title="emptyTitle"
+          :description="emptyDescription"
+          compact
+        />
+      </slot>
       <div v-else v-loading="loading" class="sm-table__scroll" :style="scrollStyle">
         <table class="sm-table__grid">
           <caption v-if="caption" class="sm-sr-only">{{ caption }}</caption>

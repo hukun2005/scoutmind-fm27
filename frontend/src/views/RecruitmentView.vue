@@ -249,16 +249,15 @@ onMounted(() => {
 <template>
   <div class="sm-page">
     <PageHeader
-      eyebrow="RECRUITMENT ENGINE"
-      title="智能球探引擎"
-      description="不是寻找能力最高的球员，而是寻找最合适当前阵容、预算与发展计划的球员：六维评分、位置模板、隐藏价值与可执行候选名单。"
+      title="引援中心"
+      description="寻找最适合当前阵容、预算与发展计划的球员，而不是能力最高的人。推荐理由、适配位置与主要风险会一起给出。"
     />
 
     <section class="console sm-glass" aria-label="球探筛选控制台">
       <header class="console__head">
         <div class="console__titles">
-          <span class="sm-eyebrow">SCOUTING CONSOLE</span>
-          <p class="console__hint">位置、年龄与预算来自请求本身，不做隐式猜测。</p>
+          <span class="sm-section-label">筛选目标</span>
+          <p class="console__hint">按位置、年龄与预算筛选，条件由后端执行，不做隐式猜测。</p>
         </div>
         <el-button size="small" type="primary" :loading="loading" @click="search">开始搜索</el-button>
       </header>

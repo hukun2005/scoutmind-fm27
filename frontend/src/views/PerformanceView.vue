@@ -167,9 +167,8 @@ onMounted(async () => {
 <template>
   <div class="sm-page">
     <PageHeader
-      eyebrow="PERFORMANCE ANALYTICS"
-      title="比赛表现分析"
-      description="属性强不等于表现出色：按位置比较每 90 分钟产出与同位置百分位，再把产出和能力放在一起看。缺失的统计字段会明确标注。"
+      title="表现分析"
+      description="按位置比较每 90 分钟产出与同位置水平，把表现和能力放在一起看。缺失的统计字段会明确标注。"
     >
       <template #actions>
         <el-select v-model="slot" size="small" class="perf__slot" aria-label="位置" @change="loadBoard">

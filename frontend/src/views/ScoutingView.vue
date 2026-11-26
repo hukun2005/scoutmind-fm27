@@ -250,9 +250,8 @@ void loadClubs()
 <template>
   <div class="sm-page">
     <PageHeader
-      eyebrow="ROLE SCOUTING"
-      title="智能球探"
-      description="按角色模板的权重对属性加权评分并排序。评分为规则计算结果，不代表球探主观判断；覆盖率不足时请谨慎比较。"
+      title="角色球探"
+      description="按战术角色的属性权重给球员打分并排序。评分是规则计算结果，样本不足时请谨慎比较。"
     >
       <template #meta>
         <span class="sm-text-xs sm-text-faint">
@@ -275,7 +274,7 @@ void loadClubs()
     <section class="console sm-glass" aria-label="角色筛选控制台">
       <header class="console__head">
         <div class="console__titles">
-          <span class="sm-eyebrow">ROLE CONSOLE</span>
+          <span class="sm-section-label">筛选球员</span>
           <p class="console__hint">筛选参数与球员中心一致，均由后端执行；角色模板决定加权规则。</p>
         </div>
       </header>

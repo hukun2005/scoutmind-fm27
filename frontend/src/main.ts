@@ -11,9 +11,12 @@ import './styles/base.css'
 import './styles/element.css'
 import App from './App.vue'
 import { router } from './router'
+import { applyMotionPreference, getMotionPreference } from './utils/preferences'
 
 // The product is a dark professional analysis console; Element Plus keys its dark theme off this class.
 document.documentElement.classList.add('dark')
+// 用户选择的界面动效偏好在首屏渲染前生效。
+applyMotionPreference(getMotionPreference())
 
 const app = createApp(App)
 

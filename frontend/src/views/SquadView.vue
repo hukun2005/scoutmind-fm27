@@ -341,9 +341,8 @@ onMounted(async () => {
 <template>
   <div class="sm-page">
     <PageHeader
-      eyebrow="SQUAD INTELLIGENCE"
-      title="阵容智能"
-      description="阵容评分拆成位置覆盖、深度、年龄、战术适配、工资结构与潜力储备六个维度；每个维度都给出数据依据，缺少数据时明确标注而不是记零。"
+      title="阵容分析"
+      description="看清球队哪里强、哪里弱：位置覆盖、深度、年龄、战术适配、工资结构与潜力储备。缺少数据时明确标注，不会记零。"
     >
       <template #actions>
         <el-select v-model="selectedProfile" size="small" class="squad__profile" aria-label="权重模板" @change="load">
@@ -362,7 +361,7 @@ onMounted(async () => {
         <div class="squad-hero__grid" aria-hidden="true" />
 
         <div class="squad-hero__identity">
-          <span class="sm-eyebrow">Squad Command</span>
+          <span class="sm-section-label">本队概览</span>
           <h2 class="squad-hero__club">{{ overview.club ? overview.club.name : '未指定本队' }}</h2>
           <p class="squad-hero__meta">
             {{ overview.club

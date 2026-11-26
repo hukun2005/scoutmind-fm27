@@ -139,7 +139,7 @@ const profileFacts = computed(() => [
   { label: '入档', value: formatDate(detail.value?.first_seen) },
   { label: '最近观测', value: formatDate(detail.value?.last_seen) },
   { label: '快照次数', value: formatInt(detail.value?.snapshot_count) },
-  { label: '最新快照 ID', value: displayText(detail.value?.latest_snapshot_id) },
+  { label: '合同到期', value: formatDate(summary.value?.contract_end) },
   { label: '周薪（€）', value: formatMoney(summary.value?.wage) },
 ])
 
@@ -505,7 +505,6 @@ void loadRoles()
 <template>
   <div class="sm-page">
     <PageHeader
-      eyebrow="PLAYER INTELLIGENCE"
       :title="pageTitle"
       :description="summary ? `${positionLabel(summary.position)} · ${positionGroupLabel(summary.position_group)} · ${displayText(summary.club)}` : '读取球员档案、成长曲线与估值依据'"
       back-to="/players"

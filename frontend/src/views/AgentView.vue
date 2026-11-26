@@ -55,7 +55,7 @@ const inputDisabled = computed(() => session.meta !== null && !session.agentLlm)
 
 const llmNotice = computed(() =>
   session.meta !== null && !session.agentLlm
-    ? '后端未配置 LLM（capabilities.agent_llm=false），自由输入已停用；点击下方推荐问题，仍由确定性规则引擎基于工具结果作答。'
+    ? '本地尚未配置 AI 模型，自由提问已停用；点击下方推荐问题，仍会基于真实数据作答。'
     : '',
 )
 
@@ -219,13 +219,12 @@ watch(activeId, () => {
 <template>
   <div class="sm-page agent-page">
     <PageHeader
-      eyebrow="AI SPORTING DIRECTOR"
       title="AI 体育总监"
-      description="回答中的每个数字都必须来自工具结果；样本不足时后端会拒绝精确估值。工具调用与置信度完整展示，可逐条核对。"
+      description="直接提出你的问题。回答中的数字都来自本地数据，工具调用与依据可以逐条核对。"
     >
       <template #meta>
         <el-tag size="small" :type="session.agentLlm ? 'success' : 'info'" disable-transitions>
-          {{ session.agentLlm ? 'LLM 已配置' : '确定性模式（无 LLM）' }}
+          {{ session.agentLlm ? 'AI 模型已配置' : '本地规则模式（未配置 AI 模型）' }}
         </el-tag>
         <el-tag v-if="lastMode" size="small" type="info" disable-transitions>
           最近回答：{{ agentModeLabel(lastMode) }}
@@ -257,7 +256,7 @@ watch(activeId, () => {
         <EmptyState
           v-else-if="conversations.length === 0"
           title="还没有会话"
-          description="新建会话后即可提问；确定性模式下仍会基于后端工具返回结果作答。"
+          description="新建会话后即可提问。"
           compact
         >
           <el-button size="small" type="primary" @click="startConversation">新建会话</el-button>
@@ -480,8 +479,8 @@ watch(activeId, () => {
               :rows="2"
               resize="none"
               :disabled="inputDisabled || sending"
-              :placeholder="inputDisabled ? '未配置 LLM：请使用下方推荐问题（确定性模式）' : '输入问题，例如：20 岁 CA 145 PA 175 的前锋通常卖多少钱？'"
-              aria-label="向 AI 决策中心提问"
+              :placeholder="inputDisabled ? '本地未配置 AI 模型：请使用下方推荐问题' : '输入问题，例如：20 岁 CA 145 PA 175 的前锋通常卖多少钱？'"
+              aria-label="向 AI 体育总监提问"
               @keydown.enter.exact.prevent="submit"
             />
             <div class="composer__side">

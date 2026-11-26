@@ -8,7 +8,7 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'overview',
     component: () => import('../views/DashboardView.vue'),
-    meta: { title: '指挥中心' },
+    meta: { title: '首页' },
   },
   {
     path: '/players',
@@ -32,7 +32,7 @@ const routes: RouteRecordRaw[] = [
     path: '/squad',
     name: 'squad',
     component: () => import('../views/SquadView.vue'),
-    meta: { title: '阵容智能' },
+    meta: { title: '阵容分析' },
   },
   {
     path: '/scouting',
@@ -44,7 +44,7 @@ const routes: RouteRecordRaw[] = [
     path: '/recruitment',
     name: 'recruitment',
     component: () => import('../views/RecruitmentView.vue'),
-    meta: { title: '智能球探引擎' },
+    meta: { title: '引援中心' },
   },
   {
     path: '/development',
@@ -56,7 +56,7 @@ const routes: RouteRecordRaw[] = [
     path: '/performance',
     name: 'performance',
     component: () => import('../views/PerformanceView.vue'),
-    meta: { title: '比赛表现分析' },
+    meta: { title: '表现分析' },
   },
   {
     path: '/transfers',
@@ -74,13 +74,13 @@ const routes: RouteRecordRaw[] = [
     path: '/identity',
     name: 'identity',
     component: () => import('../views/IdentityResolutionView.vue'),
-    meta: { title: '身份复核中心' },
+    meta: { title: '身份复核' },
   },
   {
     path: '/identity-center',
     name: 'identity-center',
     component: () => import('../views/PlayerIdentityCenterView.vue'),
-    meta: { title: '球员身份中心' },
+    meta: { title: '身份中心' },
   },
   {
     path: '/save-identity',
@@ -92,19 +92,25 @@ const routes: RouteRecordRaw[] = [
     path: '/unresolved',
     name: 'unresolved',
     component: () => import('../views/UnresolvedPlayerView.vue'),
-    meta: { title: '自由球员待确认' },
+    meta: { title: '待确认球员' },
   },
   {
     path: '/data',
     name: 'data',
     component: () => import('../views/DataView.vue'),
-    meta: { title: '数据与诊断' },
+    meta: { title: '数据中心' },
   },
   {
     path: '/governance',
     name: 'governance',
     component: () => import('../views/GovernanceView.vue'),
     meta: { title: '数据治理中心' },
+  },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: () => import('../views/SettingsView.vue'),
+    meta: { title: '系统设置' },
   },
   {
     path: '/:pathMatch(.*)*',
