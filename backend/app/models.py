@@ -1546,6 +1546,8 @@ class CrossSaveIdentityCandidate(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(24), default="CrossSaveCandidate", nullable=False)
     uid_equal: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    resolved_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
 
 class DataRepairAudit(TimestampMixin, Base):
@@ -1596,6 +1598,4 @@ class DataRepairAudit(TimestampMixin, Base):
 def _reject_data_repair_audit_rewrite(*_args: object) -> None:
     """修复审计不可覆盖：错误决策通过新增修正记录表达。"""
     raise ValueError("data_repair_audits 是不可覆盖的审计表：禁止更新或删除")
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
-    resolved_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 

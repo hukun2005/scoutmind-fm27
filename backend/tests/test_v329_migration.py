@@ -81,7 +81,15 @@ def test_upgrade_downgrade_upgrade_preserves_existing_data(tmp_path) -> None:
         assert connection.execute(text("select count(*) from players")).scalar_one() == 1
         assert connection.execute(text("select save_local_uid from player_instances")).scalar_one() == "EXIST-1"
         version = connection.execute(text("select version_num from alembic_version")).scalar_one()
-    assert version == "b2c3d4e5f6a7"
+    assert version == "c3f5a1b7d9e2"
+    assert "data_repair_audits" in tables
+    repair_uniques = {
+        frozenset(row["column_names"])
+        for row in inspect(engine).get_unique_constraints("data_repair_audits")
+    }
+    assert frozenset(
+        {"import_job_id", "entity", "row_index", "rule_id", "field"}
+    ) in repair_uniques
 
     review_columns = {column["name"] for column in inspect(engine).get_columns("player_identity_review_items")}
     assert "version" in review_columns, "审核条目缺少乐观锁版本列"
@@ -93,6 +101,7 @@ def test_upgrade_downgrade_upgrade_preserves_existing_data(tmp_path) -> None:
     _alembic(database_url, "downgrade", PREVIOUS_REVISION)
     tables_after = set(inspect(engine).get_table_names())
     assert not (NEW_TABLES & tables_after)
+    assert "data_repair_audits" not in tables_after
     with engine.connect() as connection:
         assert connection.execute(text("select count(*) from players")).scalar_one() == 1
     engine.dispose()
@@ -100,6 +109,7 @@ def test_upgrade_downgrade_upgrade_preserves_existing_data(tmp_path) -> None:
     _alembic(database_url, "upgrade", "head")
     engine = create_engine(database_url, future=True)
     assert NEW_TABLES <= set(inspect(engine).get_table_names())
+    assert "data_repair_audits" in set(inspect(engine).get_table_names())
     with engine.connect() as connection:
         assert connection.execute(text("select count(*) from player_instances")).scalar_one() == 1
     engine.dispose()
