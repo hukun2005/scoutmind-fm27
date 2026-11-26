@@ -37,8 +37,6 @@ from .uid_scope import (
     STATUS_VALID,
     UidScope,
     digest_json,
-    duplicate_uid_groups,
-    players_for_uid,
     record_observation,
     summary as uid_summary,
 )
@@ -85,6 +83,7 @@ def _write_link(
     status: str,
     confidence: float | None,
     evidence: dict[str, Any],
+    flush: bool = True,
 ) -> PlayerIdentityLink:
     current = active_link(db, save_id, instance.id)
     if current is not None:
@@ -114,7 +113,9 @@ def _write_link(
         evidence_json=json.dumps(evidence, ensure_ascii=False, default=str),
     )
     db.add(link)
-    db.flush()
+    # 只有需要回填 superseded_by_id 时才必须立即拿到自增 id；批量扫描由调用方统一 flush。
+    if flush or current is not None:
+        db.flush()
     if current is not None and current.valid_to is not None:
         current.superseded_by_id = link.id
     return link
@@ -314,39 +315,34 @@ def _same_name_review(
     instance: PlayerInstance,
     index: _Index,
 ) -> tuple[str, str | None]:
-    """同名检测：返回 (observation 状态, 冲突原因)。不合并、不改写任何球员。"""
+    """同名检测：返回 (observation 状态, 冲突原因)。不合并、不改写任何球员。
+
+    V3.2.9.2：候选集合必须包含**全部**同名参与者（同生日 / 不同生日 / 生日未知），
+    不能再按 same_birth 提前返回而丢掉其他冲突方。原因码按整个参与者集合的生日分布
+    计算，保证同一集合在不同实例上得到同一条审核项。
+    """
     player_id = instance.player_id
     full_name, normalized, birth_date = index.players[player_id]
-    others = [pid for pid in index.name_players.get(normalized, set()) if pid != player_id]
+    others = sorted(pid for pid in index.name_players.get(normalized, set()) if pid != player_id)
     if not others:
         return STATUS_VALID, None
 
-    same_birth: list[int] = []
-    different_birth: list[int] = []
-    unknown_birth: list[int] = []
-    for other_id in others:
-        other_birth = index.players.get(other_id, (None, None, None))[2]
-        if birth_date is not None and other_birth is not None:
-            if birth_date == other_birth:
-                same_birth.append(other_id)
-            else:
-                different_birth.append(other_id)
-        else:
-            unknown_birth.append(other_id)
+    candidate_ids = sorted({player_id, *others})
+    births = [index.players.get(pid, (None, None, None))[2] for pid in candidate_ids]
+    known = {value for value in births if value is not None}
 
-    if same_birth:
-        reason = "same_name_same_birth_date"
-        status = STATUS_CONFLICTED
-        candidate_ids = [player_id, *same_birth]
-    elif different_birth:
-        reason = "same_name_different_birth_date"
-        status = STATUS_CONFLICTED
-        candidate_ids = [player_id, *different_birth]
-    else:
-        # 同名且至少一方生日未知：只能待人工核验，不能判定为同一人，也不能判为不同人。
+    if not known:
+        # 同名且生日全部未知：只能待人工核验，不能判定为同一人，也不能判为不同人。
         reason = "same_name_unknown_birth_date"
-        status = STATUS_CONFLICTED
-        candidate_ids = [player_id, *unknown_birth]
+    elif len(known) == 1:
+        # 已知生日全部相同；若仍有未知生日参与者，证据并不完整。
+        reason = (
+            "same_name_same_birth_date"
+            if all(value is not None for value in births)
+            else "same_name_mixed_evidence"
+        )
+    else:
+        reason = "same_name_different_birth_date"
 
     ensure_review_item(
         db,
@@ -361,28 +357,46 @@ def _same_name_review(
             "name": full_name,
             "normalized_name": normalized,
             "birth_date": str(birth_date) if birth_date else None,
-            "other_birth_dates": [
-                str(index.players[pid][2]) if index.players.get(pid) else None for pid in candidate_ids[1:]
+            "participants": [
+                {
+                    "player_id": pid,
+                    "name": index.players.get(pid, (None, None, None))[0],
+                    "birth_date": str(index.players[pid][2]) if index.players.get(pid) and index.players[pid][2] else None,
+                }
+                for pid in candidate_ids
             ],
+            "birth_dates": [str(value) if value is not None else None for value in births],
+            "same_birth_count": sum(1 for value in births if value == birth_date),
+            "unknown_birth_count": sum(1 for value in births if value is None),
             "uid": instance.save_local_uid,
-            "note": "同名不构成身份；必须人工确认",
+            "note": "同名不构成身份；必须人工确认，候选集合包含全部同名参与者",
         },
     )
-    return status, reason
+    return STATUS_CONFLICTED, reason
 
 
 def _duplicate_uid_review(db: Session, run: IdentityScanRun, index: _Index) -> int:
+    """按索引里已经算好的 UID→球员集合创建重复审核项，避免每批重复做全表分组查询。"""
     created = 0
-    for group in duplicate_uid_groups(db, run.fm_save_id):
+    for uid, player_ids in sorted(index.uid_players.items()):
+        if len(player_ids) < 2:
+            continue
+        ordered = sorted(player_ids)
+        group = {
+            "uid": uid,
+            "player_count": len(ordered),
+            "first_player_id": ordered[0],
+            "last_player_id": ordered[-1],
+        }
         reason = "duplicate_uid_same_save"
         ensure_review_item(
             db,
             run.fm_save_id,
             item_type="uid_duplicate",
-            subject_uid=group["uid"],
-            player_ids=players_for_uid(db, run.fm_save_id, group["uid"]),
+            subject_uid=uid,
+            player_ids=ordered,
             reason=reason,
-            primary_player_id=group["first_player_id"],
+            primary_player_id=ordered[0],
             payload={
                 **group,
                 "note": "同一存档内一个 UID 对应多个球员实体；不自动合并，全部保留",
@@ -391,7 +405,7 @@ def _duplicate_uid_review(db: Session, run: IdentityScanRun, index: _Index) -> i
         for observation in db.scalars(
             select(PlayerUidObservation).where(
                 PlayerUidObservation.fm_save_id == run.fm_save_id,
-                PlayerUidObservation.uid == group["uid"],
+                PlayerUidObservation.uid == uid,
                 PlayerUidObservation.status == STATUS_VALID,
             )
         ):
@@ -455,17 +469,22 @@ def run_scan(db: Session, run: IdentityScanRun, *, max_batches: int | None = Non
         )
         if not batch:
             break
-        for instance in batch:
-            try:
-                _reconcile_instance(db, run, instance, index, scope)
-                run.processed_count += 1
-            except Exception as exc:  # noqa: BLE001 - 单行失败不拖垮整批，但要计数
-                run.failed_count += 1
-                run.error_message = f"instance {instance.id}: {exc}"[:500]
+        # 批量写入：关闭 autoflush，逐行只做幂等查询与 add，批末统一 flush/commit。
+        with db.no_autoflush:
+            for instance in batch:
+                try:
+                    _reconcile_instance(db, run, instance, index, scope, flush=False)
+                    run.processed_count += 1
+                except Exception as exc:  # noqa: BLE001 - 单行失败不拖垮整批，但要计数
+                    run.failed_count += 1
+                    run.error_message = f"instance {instance.id}: {exc}"[:500]
+        db.flush()
         run.cursor = batch[-1].id
-        _duplicate_uid_review(db, run, index)
         batches += 1
         db.commit()
+
+    # 重复 UID 的分组结果在索引里已经算好：一次扫描只需处理一次，不再每批重复全表分组。
+    _duplicate_uid_review(db, run, index)
 
     remaining = db.scalar(
         select(func.count())
@@ -488,6 +507,8 @@ def _reconcile_instance(
     instance: PlayerInstance,
     index: _Index,
     scope: UidScope,
+    *,
+    flush: bool = True,
 ) -> None:
     player = db.get(Player, instance.player_id)
     if player is None:
@@ -512,6 +533,7 @@ def _reconcile_instance(
         status=status,
         uid_reason=reason,
         conflicting_player_id=conflicting_player_id,
+        flush=flush,
     )
 
     if status in (STATUS_CONFLICTED, STATUS_DUPLICATE):
@@ -531,6 +553,7 @@ def _reconcile_instance(
             "reason": reason,
             "note": "扫描只产生候选；Verified 由存档作用域门控决定",
         },
+        flush=flush,
     )
     if status == STATUS_VALID:
         run.matched_count += 1

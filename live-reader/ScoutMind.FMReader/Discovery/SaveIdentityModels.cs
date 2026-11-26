@@ -190,12 +190,17 @@ public sealed record SaveFileSnapshot(
 /// <param name="Process">进程会话证据。</param>
 /// <param name="SaveFiles">发现的存档文件。</param>
 /// <param name="Career">职业元数据（可选）。</param>
-/// <param name="UserConfirmedFingerprint">用户此前确认过的指纹。</param>
+/// <param name="UserConfirmedFingerprint">用户此前确认过的指纹，只用于校验，绝不用于选择当前存档。</param>
+/// <param name="ExplicitFileSelection">
+/// 是否由调用者用 <c>--save-file</c> 显式指定文件。显式路径只代表"用户想看这个文件"，
+/// 没有运行时证据证明它是当前加载的存档，因此最高只能到 CANDIDATE。
+/// </param>
 public sealed record SaveIdentityInput(
     GameProcessEvidence Process,
     IReadOnlyList<SaveFileSnapshot> SaveFiles,
     CareerEvidence? Career = null,
-    string? UserConfirmedFingerprint = null);
+    string? UserConfirmedFingerprint = null,
+    bool ExplicitFileSelection = false);
 
 /// <summary>身份解析结果。所有字段都用于解释“为什么这样判定”。</summary>
 /// <param name="Status">身份状态。</param>
@@ -211,6 +216,11 @@ public sealed record SaveIdentityInput(
 /// <param name="Explanation">判定解释。</param>
 /// <param name="IsAmbiguous">是否无法唯一确定当前存档。</param>
 /// <param name="SnapshotEligible">是否允许自动快照；只有 <c>verified</c> 身份为 <c>true</c>。</param>
+/// <param name="CurrentSaveConfirmed">
+/// 是否具备"这就是当前加载存档"的运行时证据。歧义、无文件、文件缺少稳定元数据或用
+/// <c>--save-file</c> 显式指定时一律为 <c>false</c>；为 <c>false</c> 时不得用于 Person Verified。
+/// </param>
+/// <param name="Limitations">限制/未确认原因码（如 <c>CURRENT_SAVE_UNCONFIRMED</c>），供诊断与 UI 展示。</param>
 public sealed record SaveIdentityResolution(
     SaveIdentityStatus Status,
     SaveIdentityConfidence Confidence,
@@ -224,7 +234,13 @@ public sealed record SaveIdentityResolution(
     IReadOnlyList<string> Conflicts,
     IReadOnlyList<string> Explanation,
     bool IsAmbiguous,
-    bool SnapshotEligible);
+    bool SnapshotEligible,
+    bool CurrentSaveConfirmed = false,
+    IReadOnlyList<string>? Limitations = null)
+{
+    /// <summary>限制原因码；没有限制时为空集合。</summary>
+    public IReadOnlyList<string> LimitationCodes => Limitations ?? Array.Empty<string>();
+}
 
 /// <summary>复合指纹算法。只允许强证据进入指纹；第三优先级证据不参与。</summary>
 public static class SaveIdentityFingerprint
@@ -335,24 +351,9 @@ public static class SaveIdentityResolver
         }
 
         var files = input.SaveFiles ?? Array.Empty<SaveFileSnapshot>();
+        // 选择当前存档只允许使用运行时证据（哪个文件被游戏占用 / 是否只有唯一文件）。
+        // 用户历史确认的指纹只用于事后校验，绝不能反过来"选中"某个文件，否则切档后会继续返回旧指纹。
         var selection = SelectActiveFile(files);
-        if (selection.Ambiguous && !string.IsNullOrWhiteSpace(input.UserConfirmedFingerprint))
-        {
-            // 多存档且都没有被进程占用时，SelectActiveFile 无法判定；若用户此前已确认过某个
-            // 存档指纹，则允许用该指纹在候选文件里唯一定位当前存档（显式确认优先于“最新文件”猜测）。
-            var confirmed = files
-                .Where(candidate => candidate.HasStableMetadata)
-                .Where(candidate => string.Equals(
-                    SaveIdentityFingerprint.FromSaveFile(candidate.VolumeSerial!, candidate.FileId!),
-                    input.UserConfirmedFingerprint,
-                    StringComparison.Ordinal))
-                .ToList();
-            if (confirmed.Count == 1)
-            {
-                explanation.Add("存在多个候选存档文件；已按用户确认的指纹唯一定位到当前存档。");
-                selection = (confirmed[0], false);
-            }
-        }
 
         if (selection.Ambiguous)
         {
@@ -371,7 +372,9 @@ public static class SaveIdentityResolver
                 Array.Empty<string>(),
                 explanation,
                 IsAmbiguous: true,
-                SnapshotEligible: false);
+                SnapshotEligible: false,
+                CurrentSaveConfirmed: false,
+                Limitations: new[] { "AMBIGUOUS_SAVE_FILES" });
         }
 
         if (selection.File is null)
@@ -390,7 +393,9 @@ public static class SaveIdentityResolver
                 Array.Empty<string>(),
                 explanation,
                 IsAmbiguous: false,
-                SnapshotEligible: false);
+                SnapshotEligible: false,
+                CurrentSaveConfirmed: false,
+                Limitations: new[] { "NO_SAVE_FILE" });
         }
 
         var file = selection.File;
@@ -429,10 +434,14 @@ public static class SaveIdentityResolver
                 Array.Empty<string>(),
                 explanation,
                 IsAmbiguous: false,
-                SnapshotEligible: false);
+                SnapshotEligible: false,
+                CurrentSaveConfirmed: false,
+                Limitations: new[] { "UNSTABLE_SAVE_FILE_IDENTITY" });
         }
 
         var fingerprint = SaveIdentityFingerprint.FromSaveFile(file.VolumeSerial!, file.FileId!);
+        var limitations = new List<string>();
+        var currentSaveConfirmed = true;
         explanation.Add(
             file.IsLocked
                 ? "存档文件被游戏进程占用，按当前存档处理。"
@@ -443,7 +452,19 @@ public static class SaveIdentityResolver
         var confidence = SaveIdentityConfidence.Medium;
         var kind = SaveIdentityKind.SaveFile;
 
-        if (!string.IsNullOrWhiteSpace(input.UserConfirmedFingerprint))
+        if (input.ExplicitFileSelection)
+        {
+            // 显式路径没有运行时证据证明它就是当前加载的存档：保留文件指纹，但绝不升级为 Verified。
+            currentSaveConfirmed = false;
+            limitations.Add("CURRENT_SAVE_UNCONFIRMED");
+            explanation.Add("显式指定的存档文件只作为定位信息，不能证明它是当前加载存档。");
+            if (!string.IsNullOrWhiteSpace(input.UserConfirmedFingerprint)
+                && !string.Equals(input.UserConfirmedFingerprint, fingerprint, StringComparison.Ordinal))
+            {
+                explanation.Add("显式文件与已确认指纹不一致；不会改选或覆盖既有确认。");
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(input.UserConfirmedFingerprint))
         {
             if (string.Equals(input.UserConfirmedFingerprint, fingerprint, StringComparison.Ordinal))
             {
@@ -485,7 +506,9 @@ public static class SaveIdentityResolver
             conflicts,
             explanation,
             IsAmbiguous: false,
-            SnapshotEligible: status == SaveIdentityStatus.Verified);
+            SnapshotEligible: status == SaveIdentityStatus.Verified,
+            CurrentSaveConfirmed: currentSaveConfirmed,
+            Limitations: limitations.Count == 0 ? null : limitations.ToArray());
     }
 
     private static SaveEvidence FileMetadataEvidence(SaveFileSnapshot file, SaveIdentityConfidence confidence) => new(

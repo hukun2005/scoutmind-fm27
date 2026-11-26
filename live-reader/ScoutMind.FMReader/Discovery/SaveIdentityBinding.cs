@@ -14,7 +14,7 @@ public static class SaveIdentityBinding
     public static string? CurrentFingerprint(SaveIdentityResolution resolution)
     {
         ArgumentNullException.ThrowIfNull(resolution);
-        if (resolution.IsAmbiguous)
+        if (resolution.IsAmbiguous || !resolution.CurrentSaveConfirmed)
         {
             return null;
         }

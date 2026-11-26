@@ -773,6 +773,8 @@ public sealed class Cli
                 kind = ToText(resolution.Kind),
                 version = SaveIdentityFingerprint.CurrentVersion,
                 confidence = ToText(resolution.Confidence),
+                current_save_confirmed = resolution.CurrentSaveConfirmed,
+                limitations = resolution.LimitationCodes,
             },
             save_id = (string?)null,
             session = new
@@ -797,6 +799,8 @@ public sealed class Cli
             explanation = resolution.Explanation,
             ambiguous = resolution.IsAmbiguous,
             snapshot_eligible = resolution.SnapshotEligible,
+            generation = report.Generation,
+            confirmation_invalidated = report.ConfirmationInvalidated,
             automatic_snapshot_enabled = report.AutomaticSnapshotEnabled,
             state_path = report.StatePath,
             verify_requested = report.VerifyRequested,
@@ -812,8 +816,15 @@ public sealed class Cli
         _stdout.WriteLine($"状态：{ToText(resolution.Status)}（{ToText(resolution.Confidence)}）");
         _stdout.WriteLine($"指纹：{resolution.Fingerprint}");
         _stdout.WriteLine($"来源：{ToText(resolution.Kind)}");
-        _stdout.WriteLine($"会话：{resolution.SessionKey ?? "(无)"}");
+        _stdout.WriteLine($"会话：{resolution.SessionKey ?? "(无)"}；generation：{report.Generation}");
         _stdout.WriteLine($"构建：{resolution.Build ?? "未知"}；插件：{resolution.PluginVersion ?? "未知"}");
+        _stdout.WriteLine(
+            $"当前存档确认：{(resolution.CurrentSaveConfirmed ? "yes" : "no")}" +
+            (resolution.LimitationCodes.Count == 0 ? string.Empty : $"（{string.Join(", ", resolution.LimitationCodes)}）"));
+        if (report.ConfirmationInvalidated)
+        {
+            _stdout.WriteLine("注意：检测到存档变化，旧确认已失效，必须重新确认。");
+        }
 
         if (resolution.Evidence.Count > 0)
         {

@@ -32,11 +32,15 @@ export function resolveReviewItem(
   itemId: number,
   decision: ReviewDecision,
   note?: string,
-): Promise<{ id: number; status: string; resolved_at: string | null }> {
+  expectedVersion?: number,
+  requestKey?: string,
+): Promise<{ id: number; status: string; version: number; resolved_at: string | null }> {
   return apiPost(`/identity/center/queue/${itemId}/resolve`, {
     decision,
     note: note ?? null,
     payload: {},
+    expected_version: expectedVersion ?? null,
+    request_key: requestKey ?? null,
   })
 }
 

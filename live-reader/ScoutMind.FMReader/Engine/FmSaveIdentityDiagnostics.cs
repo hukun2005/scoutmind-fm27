@@ -9,13 +9,17 @@ namespace ScoutMind.FMReader.Engine;
 /// <param name="AutomaticSnapshotEnabled">自动快照开关（由 <c>SCOUTMIND_AUTOMATIC_SNAPSHOT</c> 决定）。</param>
 /// <param name="VerifyRequested">是否请求了 <c>--verify</c>。</param>
 /// <param name="VerifyApplied">本次是否真的完成了用户确认。</param>
+/// <param name="Generation">身份代次；切档/会话变化时递增。</param>
+/// <param name="ConfirmationInvalidated">本次是否因存档变化使旧确认失效。</param>
 public sealed record SaveIdentityReport(
     SaveIdentityResolution Resolution,
     string StatePath,
     IReadOnlyList<string> Diagnostics,
     bool AutomaticSnapshotEnabled,
     bool VerifyRequested,
-    bool VerifyApplied);
+    bool VerifyApplied,
+    int Generation = 0,
+    bool ConfirmationInvalidated = false);
 
 /// <summary>
 /// 存档身份诊断编排：进程/构建 → 存档文件 → 证据解析 → 持久化。
@@ -107,21 +111,79 @@ public sealed class FmSaveIdentityDiagnostics
             detected.PluginVersion,
             detected.ProcessId is not null);
 
+        var explicitSelection = SaveFilePath is not null;
+        var generation = state.Generation;
         var confirmed = state.UserConfirmedFingerprint;
-        var resolution = SaveIdentityResolver.Resolve(new SaveIdentityInput(process, files, null, confirmed));
+        var confirmationInvalidated = false;
+
+        // 第一步：只用运行时证据解析当前存档。历史确认不参与选择，避免切档后仍选中旧存档。
+        var resolution = SaveIdentityResolver.Resolve(
+            new SaveIdentityInput(process, files, Career: null, UserConfirmedFingerprint: null, ExplicitFileSelection: explicitSelection));
+        var currentFingerprint = SaveIdentityBinding.CurrentFingerprint(resolution);
+
+        if (currentFingerprint is not null
+            && !string.IsNullOrWhiteSpace(confirmed)
+            && !string.Equals(confirmed, currentFingerprint, StringComparison.Ordinal))
+        {
+            confirmationInvalidated = true;
+            generation++;
+            diagnostics.Add(
+                $"检测到当前存档已变化（确认 {Shorten(confirmed)} → 当前 {Shorten(currentFingerprint)}）：旧确认与依赖旧存档的 Verified 立即失效。");
+            confirmed = null;
+        }
+        else if (currentFingerprint is null && !string.IsNullOrWhiteSpace(confirmed))
+        {
+            diagnostics.Add(
+                "无法唯一确认当前存档：历史确认仅保留用于审计，本次不得用于 Verified（CURRENT_SAVE_UNCONFIRMED）。");
+        }
+
+        if (!string.IsNullOrWhiteSpace(state.LastSessionKey)
+            && !string.IsNullOrWhiteSpace(resolution.SessionKey)
+            && !string.Equals(state.LastSessionKey, resolution.SessionKey, StringComparison.Ordinal))
+        {
+            generation++;
+            diagnostics.Add("游戏会话已变化（新进程/新会话）：依赖旧会话的 Verified 立即失效。");
+        }
+
+        if (resetSession)
+        {
+            generation++;
+        }
+
+        generation = Math.Max(generation, 1);
+
+        // 第二步：把（仍有效的）确认作为校验证据，而不是选择依据。
+        if (!string.IsNullOrWhiteSpace(confirmed))
+        {
+            resolution = SaveIdentityResolver.Resolve(
+                new SaveIdentityInput(process, files, Career: null, UserConfirmedFingerprint: confirmed, ExplicitFileSelection: explicitSelection));
+        }
+
         var verifyApplied = false;
 
         if (verify)
         {
-            // 显式 --verify 表示用户确认「就是这份存档」：candidate 与 conflict 都允许确认，
-            // 后者等价于用户主动切换确认到新存档（旧存档不再被视为当前存档）。
-            if (resolution.Status is SaveIdentityStatus.Candidate or SaveIdentityStatus.Conflict
-                && resolution.Kind == SaveIdentityKind.SaveFile)
+            if (explicitSelection)
             {
+                diagnostics.Add(
+                    "--verify 被拒绝：显式 --save-file 只能证明该文件自身的身份，不能证明它是当前加载存档（CURRENT_SAVE_UNCONFIRMED）。");
+            }
+            else if (resolution.CurrentSaveConfirmed
+                     && (resolution.Status is SaveIdentityStatus.Candidate or SaveIdentityStatus.Conflict)
+                     && resolution.Kind == SaveIdentityKind.SaveFile)
+            {
+                // 显式 --verify 表示用户确认「就是这份存档」：candidate 与 conflict 都允许确认，
+                // 后者等价于用户主动切换确认到新存档（旧存档不再被视为当前存档）。
                 var previousStatus = resolution.Status;
                 confirmed = resolution.Fingerprint;
-                resolution = SaveIdentityResolver.Resolve(new SaveIdentityInput(process, files, null, confirmed));
+                resolution = SaveIdentityResolver.Resolve(
+                    new SaveIdentityInput(process, files, Career: null, UserConfirmedFingerprint: confirmed, ExplicitFileSelection: false));
                 verifyApplied = resolution.Status == SaveIdentityStatus.Verified;
+                if (verifyApplied)
+                {
+                    diagnostics.Add($"已确认当前存档（generation {generation}）。");
+                }
+
                 if (verifyApplied && previousStatus == SaveIdentityStatus.Conflict)
                 {
                     diagnostics.Add("用户确认了与上次不同的存档文件，已将确认切换至当前存档。");
@@ -130,12 +192,26 @@ public sealed class FmSaveIdentityDiagnostics
 
             if (!verifyApplied && resolution.Status != SaveIdentityStatus.Verified)
             {
-                diagnostics.Add("--verify 被拒绝：需要唯一且带稳定元数据的存档文件，或需要用户已有确认。");
+                diagnostics.Add("--verify 被拒绝：需要唯一且带稳定元数据的当前存档文件，或需要用户已有确认。");
             }
         }
 
         var now = _now().ToUniversalTime();
         var nowText = now.ToString("O");
+        string? confirmedAt;
+        if (string.IsNullOrWhiteSpace(confirmed))
+        {
+            confirmedAt = null;
+        }
+        else if (verifyApplied)
+        {
+            confirmedAt = nowText;
+        }
+        else
+        {
+            confirmedAt = state.UserConfirmedAt;
+        }
+
         var next = new SaveIdentityState(
             Fingerprint: resolution.Fingerprint,
             Kind: resolution.Kind,
@@ -145,9 +221,8 @@ public sealed class FmSaveIdentityDiagnostics
             LastSessionKey: resetSession ? null : resolution.SessionKey,
             LastSeenAt: nowText,
             UserConfirmedFingerprint: confirmed,
-            UserConfirmedAt: resolution.Status == SaveIdentityStatus.Verified
-                ? state.UserConfirmedAt ?? nowText
-                : state.UserConfirmedAt);
+            UserConfirmedAt: confirmedAt,
+            Generation: generation);
 
         _store.Save(next);
 
@@ -162,6 +237,11 @@ public sealed class FmSaveIdentityDiagnostics
             diagnostics,
             SaveIdentityResolver.AutomaticSnapshotEnabled,
             verify,
-            verifyApplied);
+            verifyApplied,
+            generation,
+            confirmationInvalidated);
     }
+
+    private static string Shorten(string fingerprint) =>
+        fingerprint.Length <= 24 ? fingerprint : fingerprint[^12..];
 }
