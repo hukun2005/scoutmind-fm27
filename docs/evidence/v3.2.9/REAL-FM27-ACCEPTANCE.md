@@ -108,12 +108,12 @@
 | 相同 UID 跨存档 | **PASS（未合并）** | 共有 13,977 个 UID；共用 Canonical 球员 0 |
 | 返回 Save A | **PASS（真实）** | 44,144 球员 / 44 俱乐部；A 摘要仍为 `b2439d0c…` |
 | 转会 / 自由球员 / 退役真实场景 | NOT_RUN | 需要人工在游戏中制造并保存 |
-| Verified 级别真实 A/B/A | NOT_RUN | 需人工在 A、B 内各核对球员并 Mark |
-| 真实存档身份指纹绑定 | NOT_RUN | 本次导入未附带 Save Identity，仅验证数据层 |
+| Verified 级别真实 A/B/A | **FAIL（P1）** | 旧存档指纹可为他档球员生成 Verified；详见 CROSS-SAVE §5 |
+| 真实存档身份指纹绑定 | **FAIL（P1）** | verify 信任调用方指纹；LiveReader 切档后仍返回旧指纹 |
 
 说明：A1 44,887 → A2 44,144 是游戏时间推进造成的内容变化；`scan_id` 为内容哈希，故 A1 `fmreader-633e130d…` 与 A2 `fmreader-4934b655…` 不同。存档区分依据是俱乐部数（44 vs 25）与数据规模，不是 `scan_id`。
 
-因此整体仍为 **PARTIAL**：真实 A/B/A 数据层隔离已完成，生命周期与 Verified 级别切换未完成。
+因此整体仍为 **PARTIAL，且带 P1 未解决项**：真实 A/B/A 数据层隔离已完成；Verified 门控存在跨存档指纹信任缺陷。
 
 ## 6. 证据边界
 

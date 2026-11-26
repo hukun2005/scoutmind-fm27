@@ -7,18 +7,19 @@ main：`89fe8fa7134c34a85c30693d037929a000625168`
 
 ## 1. 总体结论
 
-**PARTIAL（工程 PASS；真实 Save A 全库扫描与 A/B/A 数据层 PASS；生命周期 NOT_RUN）。**
+**PARTIAL，带 P1 未解决项（Verified 指纹信任缺陷）。**
 
 - 代码：已实现。
 - 自动化测试：通过。
 - CI：6/6 通过。
 - 真实 FM27 全库扫描（Save A）：已完成，44,886 实例、0 失败。
-- 真实 A/B/A：已完成（A 44,886 → B 18,614 → A 44,144），A 摘要未变，共有 13,977 UID 未合并。
-- 真实跨存档 Verified 切换、转会/退役/自由球员：未执行。
-- 人工真实球员核对：未执行（本阶段不重复 V3.2.8 的人工核对）。
-- 无 P0/P1 未解决安全问题。
+- 真实 A/B/A（数据层）：PASS（A 44,886 → B 18,614 → A 44,144），A 摘要未变，13,977 个相同 UID 未合并。
+- 真实 Verified 级别 A/B/A：**FAIL（P1）** —— 在 B 已加载时用 A 旧指纹仍得到 `Verified` 且无告警；LiveReader 切档后仍返回旧指纹；同一生涯保存后文件指纹变化。
+- 真实转会/退役/自由球员：未执行。
+- 人工真实球员核对：已执行 2 次（A、B 各 1 名，按姓名/生日/俱乐部核对）。
+- 存在 P1 未解决安全问题，**不建议在修复前对外宣称 Verified 跨存档安全**。
 
-不把 PARTIAL 写成 PASS。
+不把 PARTIAL 写成 PASS，不把 P1 降级为提示。
 
 ## 2. 授权偏离（必须显式记录）
 
@@ -89,7 +90,7 @@ PRECONDITION、PHASE-0-DATA-AUDIT、UID-SCOPE-DESIGN、PLAYER-RECONCILIATION-DES
 - 相同 UID 跨存档：真实 13,977 个，跨存档共用 Canonical 球员 0，未自动合并。
 - Save A / Save B 关联隔离：自动化通过。
 - 标 A 为 Stale 不影响 B：自动化通过。
-- Verified 级别真实 A/B/A：NOT_RUN。
+- Verified 级别真实 A/B/A：**FAIL（P1）**——旧指纹可为另一存档球员产生 Verified；LiveReader 切档后仍返回旧指纹；重新保存后文件指纹变化。
 - 转会 / 自由球员 / 退役真实场景：NOT_RUN；自动化覆盖转会与俱乐部变化。
 - 同名不同生日、同名同生日不同 UID：自动化覆盖。
 
@@ -110,9 +111,11 @@ PRECONDITION、PHASE-0-DATA-AUDIT、UID-SCOPE-DESIGN、PLAYER-RECONCILIATION-DES
 7. **Reader 统计**：308 PASS（FMReader）+ 57 PASS（Reader）。
 8. **Agent 统计**：38 PASS。
 9. **CI 结果**：6/6 成功。
-10. **跨存档验证**：自动化 PASS；真实 A/B/A 数据层 PASS；Verified 级别 NOT_RUN。
-11. **真实 FM27 验收**：Save A 全库扫描 PASS；A/B/A PASS（数据层）；生命周期 NOT_RUN。
-12. **未完成事项**：真实生命周期、Verified 级别 A/B/A、真实 PostgreSQL 性能、浏览器 E2E、Save Identity 绑定。
+10. **跨存档验证**：数据层真实 A/B/A PASS；Verified 级别 FAIL（P1）。
+11. **真实 FM27 验收**：Save A 全库扫描 PASS；A/B/A 数据层 PASS；Verified 门控 FAIL。
+12. **未完成事项**：真实生命周期、真实 PostgreSQL 性能、浏览器 E2E。
+13. **风险**：Verified 指纹由调用方提供且不校验当前存档；文件指纹随保存变化；LiveReader 确认状态粘滞。三者组合可导致错误 Verified。
+14. **合并条件**：工程层面已合并；但 P1 修复前不应宣称 Verified 跨存档安全。建议新增修复分支：verify 内部解析当前存档身份 + 切档强制 Conflict + 回归测试。
 
 ## 9. 风险
 
@@ -125,6 +128,6 @@ PRECONDITION、PHASE-0-DATA-AUDIT、UID-SCOPE-DESIGN、PLAYER-RECONCILIATION-DES
 
 ## 10. 合并建议
 
-- PR #12 已合并进 main（合并提交 `d5b3bdc`），main CI 6/6 通过。
-- 真实 Save A 验收已完成；剩余 A/B/A 与生命周期为 NOT_RUN，属于环境限制，不阻塞工程结论。
+- PR #12 已合并进 main（`d5b3bdc`），main CI 6/6 通过。
+- 真实数据层 A/B/A 通过；但 Verified 门控存在 P1 指纹信任缺陷，修复前不建议对外宣称跨存档安全。
 - 本 Agent 未发布 Release、未删除任何分支。
