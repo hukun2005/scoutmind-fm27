@@ -19,6 +19,10 @@ export interface PlayerSummary {
   market_value: number | null
   wage: number | null
   contract_end: string | null
+  /** 身高（cm）；仅球员详情返回，列表可能为 null。 */
+  height_cm?: number | null
+  /** 惯用脚；仅球员详情返回，原始值由后端给出。 */
+  foot?: string | null
   observed_at: string | null
   data_completeness: number | null
   source: DataSource

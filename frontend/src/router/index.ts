@@ -23,6 +23,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '球员详情' },
   },
   {
+    path: '/compare',
+    name: 'compare',
+    component: () => import('../views/CompareView.vue'),
+    meta: { title: '球员对比' },
+  },
+  {
     path: '/watchlist',
     name: 'watchlist',
     component: () => import('../views/WatchlistView.vue'),

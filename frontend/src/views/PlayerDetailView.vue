@@ -44,7 +44,7 @@ import type { WatchlistItem } from '../types/watchlist'
 import type { PlayerStatus } from '../types/status'
 import type { TableColumn } from '../types/table'
 import { useSessionStore } from '../stores/session'
-import { buildAppearanceChart, buildGrowthChart } from '../utils/chart'
+import { buildAppearanceChart, buildGrowthChart, buildRadarChart } from '../utils/chart'
 import {
   EMPTY,
   displayText,
@@ -160,6 +160,25 @@ const attributeGroups = computed(() => {
     label: attributeCategoryLabel(category),
     items,
   }))
+})
+
+/** 能力结构雷达：类别均值（1–20），只绘制有数据的类别，不是 CA/PA。 */
+const attributeRadarOption = computed(() => {
+  const dimensions = attributeGroups.value
+    .map((group) => {
+      const values = group.items.map((item) => item.value).filter((value): value is number => value !== null)
+      return {
+        label: group.label,
+        value: values.length > 0 ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1)) : null,
+      }
+    })
+    .filter((entry): entry is { label: string; value: number } => entry.value !== null)
+  if (dimensions.length < 3) return null
+  return buildRadarChart(
+    dimensions.map((entry) => entry.label),
+    [{ name: summary.value?.name ?? '当前球员', values: dimensions.map((entry) => entry.value) }],
+    20,
+  )
 })
 
 const historyPoints = computed(() => history.value?.points ?? [])
@@ -1025,6 +1044,15 @@ void loadRoles()
             </DataTable>
           </template>
         </SectionCard>
+
+        <ChartCard
+          v-if="attributeRadarOption"
+          title="能力结构雷达"
+          subtitle="按属性类别汇总的 1–20 均值，用于观察结构差异"
+          footnote="类别均值为该类属性的算术平均，仅用于查看能力结构，不代表 CA/PA，也不是综合评分。"
+        >
+          <EChart :option="attributeRadarOption" height="280px" aria-label="球员能力结构雷达" />
+        </ChartCard>
 
         <SectionCard title="球员属性" :subtitle="`按类别分组的 1–20 属性值（共 ${formatInt(detail.attributes.length)} 项）`">
           <EmptyState

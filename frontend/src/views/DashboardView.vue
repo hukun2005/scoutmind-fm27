@@ -168,9 +168,10 @@ const highlights = computed<Array<{ tone: 'info' | 'warn' | 'danger'; title: str
 /** Top 5 身价最大值，用作条形宽度比例。 */
 const topValueMax = computed(() => Math.max(0, ...topPlayers.value.map((row) => row.market_value ?? 0)))
 
-/** 快捷入口：只保留五个主流程。 */
+/** 快捷入口：只保留主流程。 */
 const quickLinks = [
   { to: '/players', icon: 'players' as const, title: '球员中心', description: '搜索球员，查看能力与潜力' },
+  { to: '/compare', icon: 'players' as const, title: '球员对比', description: '2–4 名球员横向比较能力与价值' },
   { to: '/squad', icon: 'squad' as const, title: '阵容分析', description: '看清强项、短板与合同风险' },
   { to: '/recruitment', icon: 'scouting' as const, title: '引援中心', description: '找到值得引进的目标' },
   { to: '/transfers', icon: 'transfers' as const, title: '转会情报', description: '查看交易状态与费用' },

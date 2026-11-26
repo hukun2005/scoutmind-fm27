@@ -9,6 +9,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AppIcon from './components/AppIcon.vue'
 import DemoBanner from './components/DemoBanner.vue'
+import GlobalSearch from './components/GlobalSearch.vue'
 import { useSessionStore } from './stores/session'
 import { formatInt } from './utils/format'
 
@@ -54,6 +55,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { key: 'squad', label: '阵容分析', to: '/squad', icon: 'squad', hint: '强项、短板与合同风险' },
       { key: 'players', label: '球员中心', to: '/players', icon: 'players', hint: '搜索球员与查看档案' },
+      { key: 'compare', label: '球员对比', to: '/compare', icon: 'players', hint: '2–4 名球员横向比较' },
       { key: 'recruitment', label: '引援中心', to: '/recruitment', icon: 'scouting', hint: '推荐目标与理由' },
       { key: 'transfers', label: '转会情报', to: '/transfers', icon: 'transfers', hint: '交易状态与费用' },
       { key: 'development', label: '球员发展', to: '/development', icon: 'development', hint: '成长变化与建议' },
@@ -242,6 +244,8 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="topbar__right">
+          <GlobalSearch />
+
           <span class="sync-chip" :title="`最近导入：${lastSyncLabel}`">
             <span class="sync-chip__dot" :class="{ 'sync-chip__dot--demo': session.demoMode }" aria-hidden="true" />
             <span class="sync-chip__text">{{ lastSyncLabel }}</span>

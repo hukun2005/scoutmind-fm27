@@ -14,6 +14,7 @@ import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
 import LoadingBlock from '../components/LoadingBlock.vue'
 import PageHeader from '../components/PageHeader.vue'
+import PositionHeatmapCard from '../components/PositionHeatmapCard.vue'
 import SectionCard from '../components/SectionCard.vue'
 import StatHeader from '../components/StatHeader.vue'
 import { useSessionStore } from '../stores/session'
@@ -351,6 +352,8 @@ onMounted(async () => {
         <el-button size="small" :loading="loading" @click="load">刷新</el-button>
       </template>
     </PageHeader>
+
+    <PositionHeatmapCard :save-id="session.activeSaveId" />
 
     <ErrorState v-if="error" :error="error" title="阵容数据加载失败" @retry="load" />
     <LoadingBlock v-else-if="loading && !overview" :rows="4" />
