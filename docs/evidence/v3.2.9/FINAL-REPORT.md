@@ -15,9 +15,10 @@ main：`89fe8fa7134c34a85c30693d037929a000625168`
 - 真实 FM27 全库扫描（Save A）：已完成，44,886 实例、0 失败。
 - 真实 A/B/A（数据层）：PASS（A 44,886 → B 18,614 → A 44,144），A 摘要未变，13,977 个相同 UID 未合并。
 - 真实 Verified 级别 A/B/A：**FAIL（P1）** —— 在 B 已加载时用 A 旧指纹仍得到 `Verified` 且无告警；LiveReader 切档后仍返回旧指纹；同一生涯保存后文件指纹变化。
+- P1 修复：**PASS** —— `verify` 改为现场解析当前存档指纹，旧指纹不再通过；真实负向验证见 `P1-FINGERPRINT-BINDING-FIX.md`。
 - 真实转会/退役/自由球员：未执行。
 - 人工真实球员核对：已执行 2 次（A、B 各 1 名，按姓名/生日/俱乐部核对）。
-- 存在 P1 未解决安全问题，**不建议在修复前对外宣称 Verified 跨存档安全**。
+- 剩余 P1 风险已由显式断言收敛，不再存在隐式信任路径；不得宣称 Verified 跨存档"完全安全"。
 
 不把 PARTIAL 写成 PASS，不把 P1 降级为提示。
 
@@ -114,8 +115,8 @@ PRECONDITION、PHASE-0-DATA-AUDIT、UID-SCOPE-DESIGN、PLAYER-RECONCILIATION-DES
 10. **跨存档验证**：数据层真实 A/B/A PASS；Verified 级别 FAIL（P1）。
 11. **真实 FM27 验收**：Save A 全库扫描 PASS；A/B/A 数据层 PASS；Verified 门控 FAIL。
 12. **未完成事项**：真实生命周期、真实 PostgreSQL 性能、浏览器 E2E。
-13. **风险**：Verified 指纹由调用方提供且不校验当前存档；文件指纹随保存变化；LiveReader 确认状态粘滞。三者组合可导致错误 Verified。
-14. **合并条件**：工程层面已合并；但 P1 修复前不应宣称 Verified 跨存档安全。建议新增修复分支：verify 内部解析当前存档身份 + 切档强制 Conflict + 回归测试。
+13. **风险**：LiveReader 切档后仍可能返回旧指纹；文件指纹随保存变化；显式传入错误 `--save-file` 仍属操作者责任。隐式信任路径已关闭。
+14. **合并条件**：工程层面已合并；P1 隐式路径修复完成。可对外说明"旧指纹不再被隐式接受"，但不得宣称"跨存档 Verified 完全安全"。建议后续修复 LiveReader 切档检测。
 
 ## 9. 风险
 
