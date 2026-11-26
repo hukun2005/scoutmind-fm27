@@ -279,13 +279,20 @@ async function selectItem(row: ReviewQueueItem): Promise<void> {
 
 async function decide(decision: ReviewDecision): Promise<void> {
   if (!detail.value) return
+  const itemId = detail.value.id
   resolving.value = true
   try {
-    await resolveReviewItem(detail.value.id, decision, note.value)
+    await resolveReviewItem(itemId, decision, note.value, detail.value.version)
     ElMessage.success('已记录审核决定')
     await reloadAll()
-    detail.value = await getReviewItem(detail.value.id)
+    detail.value = await getReviewItem(itemId)
   } catch (caught) {
+    // 版本冲突时强制重新读取最新审核状态，避免继续用旧版本提交。
+    try {
+      detail.value = await getReviewItem(itemId)
+    } catch {
+      // 读取失败时保留原错误提示。
+    }
     reportError(caught)
   } finally {
     resolving.value = false

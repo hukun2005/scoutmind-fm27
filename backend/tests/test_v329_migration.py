@@ -81,7 +81,14 @@ def test_upgrade_downgrade_upgrade_preserves_existing_data(tmp_path) -> None:
         assert connection.execute(text("select count(*) from players")).scalar_one() == 1
         assert connection.execute(text("select save_local_uid from player_instances")).scalar_one() == "EXIST-1"
         version = connection.execute(text("select version_num from alembic_version")).scalar_one()
-    assert version == "a1b2c3d4e5f6"
+    assert version == "b2c3d4e5f6a7"
+
+    review_columns = {column["name"] for column in inspect(engine).get_columns("player_identity_review_items")}
+    assert "version" in review_columns, "审核条目缺少乐观锁版本列"
+    action_columns = {
+        column["name"] for column in inspect(engine).get_columns("player_identity_review_actions")
+    }
+    assert {"previous_version", "new_version", "request_key"} <= action_columns
 
     _alembic(database_url, "downgrade", PREVIOUS_REVISION)
     tables_after = set(inspect(engine).get_table_names())

@@ -1398,6 +1398,7 @@ class PlayerIdentityLink(TimestampMixin, Base):
         UniqueConstraint("fm_save_id", "link_key", name="uq_identity_link_save_key"),
         Index("ix_identity_link_save_player", "fm_save_id", "canonical_player_id"),
         Index("ix_identity_link_save_uid", "fm_save_id", "save_local_uid"),
+        Index("ix_identity_link_save_instance", "fm_save_id", "player_instance_id"),
         Index("ix_identity_link_status", "fm_save_id", "verification_status"),
     )
 
@@ -1438,6 +1439,8 @@ class PlayerIdentityReviewItem(TimestampMixin, Base):
     item_type: Mapped[str] = mapped_column(String(32), nullable=False)
     severity: Mapped[str] = mapped_column(String(16), default="warning", nullable=False)
     status: Mapped[str] = mapped_column(String(24), default="PendingHumanReview", nullable=False)
+    # 乐观锁版本（V3.2.9.2）：每次状态变更 +1；客户端提交决定时必须携带读取到的版本。
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     subject_uid: Mapped[str | None] = mapped_column(String(64))
     primary_player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"))
     candidate_player_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
@@ -1451,7 +1454,10 @@ class PlayerIdentityReviewAction(Base):
     """审核操作的不可变审计行（追加写，禁止更新/删除）。"""
 
     __tablename__ = "player_identity_review_actions"
-    __table_args__ = (Index("ix_identity_review_action_item", "review_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_identity_review_action_item", "review_id", "created_at"),
+        UniqueConstraint("review_id", "request_key", name="uq_identity_review_action_request"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     review_id: Mapped[int] = mapped_column(
@@ -1463,6 +1469,11 @@ class PlayerIdentityReviewAction(Base):
     decision: Mapped[str] = mapped_column(String(32), nullable=False)
     previous_status: Mapped[str | None] = mapped_column(String(24))
     new_status: Mapped[str] = mapped_column(String(24), nullable=False)
+    # 乐观锁版本快照（V3.2.9.2）：历史必须能追溯"从哪个版本改到哪个版本"。
+    previous_version: Mapped[int | None] = mapped_column(Integer)
+    new_version: Mapped[int | None] = mapped_column(Integer)
+    # 幂等键（V3.2.9.2）：同一 review 上重复提交同一 key 不重复追加历史。
+    request_key: Mapped[str | None] = mapped_column(String(64))
     note: Mapped[str | None] = mapped_column(String(512))
     payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
