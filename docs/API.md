@@ -80,6 +80,38 @@
 `GET /imports?save_id=&limit=&offset=` → `{"items": [ImportJob], "total": n}`，
 `ImportJob = {id, save_id, scan_id, source, status, received_at, finished_at, player_count, transfer_count, warnings, coverage, raw_payload_path}`。
 
+### V3.3.0 数据中心（data-hub）
+
+普通用户只需要两个动作：查看连接状态、导入一次文件。格式/版本识别、校验、修复、去重与验证全部自动完成。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/data-hub/status` | 游戏连接、存档识别、记录数、最近同步、健康状态、待确认数量 |
+| POST | `/data-hub/import` | 统一导入入口；`multipart/form-data`（字段 `file`）或原始请求体 |
+| GET | `/data-hub/repairs?import_job_id=&decision=&limit=&offset=` | 按批次查看修复前后的值与隔离原因 |
+| GET | `/data-hub/capabilities` | 自动识别支持的来源与格式 |
+
+`POST /data-hub/import` 查询参数：`save_id`、`save_identity_id`、`save_session_id`、`operation_id`、
+`dry_run`（只检查不写库）、`filename`。响应示例：
+
+```json
+{
+  "status": "PASS",
+  "stages": [{"id": "detect", "label": "正在识别数据", "status": "pass"}],
+  "detection": {"source": "scan_json", "format": "json", "schema_version": "1.0", "compatible": true},
+  "counts": {"created": 820, "updated": 0, "duplicates": 3, "repaired": 41, "quarantined": 2, "rejected": 0},
+  "import": {"job_id": 12, "save_id": 1, "duplicate": false, "status": "succeeded"},
+  "verification": {"status": "PASS", "checks": []},
+  "quarantine": [{"row": 8, "entity": "player", "code": "missing_name", "message": "..."}]
+}
+```
+
+- `status` 只允许 `PASS` / `PARTIAL` / `FAIL` / `ROLLED_BACK` / `BLOCKED`。
+- 不支持的版本或格式返回 `422`，`error.code` 为 `unsupported_version` / `unsupported_format`，**不写入任何数据**。
+- 同一 `scan_id` 重复导入返回 `duplicate=true`，不新增数据、不重复写修复审计。
+- 修复审计写入 `data_repair_audits`（`decision=repaired|quarantined`），与业务写入同一事务。
+
+
 ## 5. 球员（players）
 
 ### GET /players

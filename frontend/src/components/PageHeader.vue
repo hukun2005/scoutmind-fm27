@@ -1,4 +1,9 @@
-/** 页面头部：眉标、标题、来源说明、返回链接与页面级操作。 */
+/**
+ * 页面头部：标题、一句通俗说明、返回链接与页面级操作。
+ *
+ * V3.3.0 起不再渲染英文眉标：页面只保留中文标题与一句说明，
+ * `eyebrow` 参数仅为兼容旧调用保留，不产生任何视觉输出。
+ */
 
 <script setup lang="ts">
 import { computed } from 'vue'
@@ -6,13 +11,13 @@ import AppIcon from './AppIcon.vue'
 
 const props = withDefaults(
   defineProps<{
-    /** 页面标题。 */
+    /** 页面标题（中文）。 */
     title: string
-    /** 一句话说明该页面回答的问题。 */
+    /** 一句话说明该页面能做什么。 */
     description?: string
     /** 兼容旧调用：与 description 同义，description 优先。 */
     subtitle?: string
-    /** 模块眉标（全大写英文，例如 SQUAD INTELLIGENCE）。 */
+    /** 已废弃：不再渲染，避免英文装饰堆叠在标题上方。 */
     eyebrow?: string
     /** 返回目标路由，设置后渲染返回链接。 */
     backTo?: string
@@ -33,7 +38,6 @@ const descriptionText = computed(() => props.description || props.subtitle)
         <AppIcon name="back" :size="14" />
         {{ backLabel }}
       </router-link>
-      <span v-if="eyebrow" class="sm-eyebrow">{{ eyebrow }}</span>
       <h1 class="page-header__title">{{ title }}</h1>
       <p v-if="descriptionText" class="page-header__description">{{ descriptionText }}</p>
       <div v-if="$slots.meta" class="page-header__meta">

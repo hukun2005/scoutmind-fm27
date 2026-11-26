@@ -26,6 +26,7 @@ from ..clubs import SOURCE_PAYLOAD_CLUBS, SOURCE_PLAYER_FIELD, ClubResolver
 from ..config import settings as default_settings
 from ..models import (
     Club,
+    DataRepairAudit,
     DataSource,
     FmSave,
     ImportJob,
@@ -171,6 +172,8 @@ class ScanImporter:
         self.session = session
         self._resolver: ClubResolver | None = None
         self.raw_dir = raw_dir or default_settings.raw_import_dir
+        #: V3.3.0 修复审计行，在 ``_apply`` 内与业务写入同一个事务提交。
+        self._pending_repair_audits: list[dict[str, object]] | None = None
 
     # -- public API ---------------------------------------------------------------------------------------------
 
@@ -184,6 +187,7 @@ class ScanImporter:
         final_guard: Callable[[], None] | None = None,
         fence: WriteFence | None = None,
         operation_id: str | None = None,
+        repair_audits: list[dict[str, object]] | None = None,
     ) -> ImportOutcome:
         """Parse and import a raw payload (JSON or NDJSON)."""
         payload, structural_warnings = parse_payload(raw)
@@ -197,6 +201,7 @@ class ScanImporter:
             final_guard=final_guard,
             fence=fence,
             operation_id=operation_id,
+            repair_audits=repair_audits,
         )
 
     def import_payload(
@@ -210,12 +215,14 @@ class ScanImporter:
         final_guard: Callable[[], None] | None = None,
         fence: WriteFence | None = None,
         operation_id: str | None = None,
+        repair_audits: list[dict[str, object]] | None = None,
     ) -> ImportOutcome:
         """Import an already parsed payload; the caller owns the ``save_id`` existence check.
 
         ``identity_id`` / ``session_id`` 由路由层校验后传入，作为审计归属写入 ImportJob；
         ``fence`` 在**同一事务内**做代次校验（V3.2.7.3），失败则回滚全部写入并标记 rejected；
         ``final_guard`` 保留为旧版独立事务校验（无 fence 时的兼容路径）。
+        ``repair_audits`` 是 V3.3.0 自动修复审计行：与业务写入同属一个事务，失败一起回滚。
         """
         existing = self.session.scalar(
             select(ImportJob).where(
@@ -259,6 +266,8 @@ class ScanImporter:
         # 认领排队任务：queued → running 的条件更新保证同一任务只有一个 Worker 真正执行。
         job = self._claim_job(job)
         try:
+            # 审计行通过实例属性传递，保持 ``_apply(job, payload)`` 的既有签名（测试与子类会替换它）。
+            self._pending_repair_audits = repair_audits
             outcome = self._apply(job, payload)
         except ImportCancelled:
             self.session.rollback()
@@ -268,6 +277,8 @@ class ScanImporter:
             self.session.rollback()
             self._mark_failed(job.id, str(exc))
             raise
+        finally:
+            self._pending_repair_audits = None
 
         if cancellation.is_requested(job.id):
             # 提交前最后一次取消检查：与 commit 之间只剩 fence 校验；取消在此之后到达则
@@ -633,6 +644,18 @@ class ScanImporter:
             scan_id=payload.scan.scan_id,
             status="succeeded",
         )
+        repair_audits = getattr(self, "_pending_repair_audits", None)
+        if repair_audits:
+            # 与业务写入同一事务：任何后续失败都会把审计一起回滚，不存在“业务成功但审计丢失”。
+            for spec in repair_audits:
+                self.session.add(
+                    DataRepairAudit(
+                        fm_save_id=job.fm_save_id,
+                        import_job_id=job.id,
+                        scan_id=job.scan_id,
+                        **spec,
+                    )
+                )
         outcome.warnings.extend(payload.warnings)
         attribute_ids = ensure_attributes(self.session)
         clubs = self._upsert_clubs(job.fm_save_id, payload, outcome)

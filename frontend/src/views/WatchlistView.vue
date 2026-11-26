@@ -235,8 +235,8 @@ watch(signature, () => void reload(), { immediate: true })
 <template>
   <div class="sm-page">
     <PageHeader
-      title="成长追踪"
-      description="关注名单与规则提醒。提醒由后端规则（U21、PA 阈值、身价变化、合同到期）生成，前端不推断。"
+      title="关注名单"
+      description="集中查看关注的球员与规则提醒。提醒由后端规则生成，前端不推断。"
     >
       <template #meta>
         <span class="sm-text-xs sm-text-faint">
