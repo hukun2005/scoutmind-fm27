@@ -114,7 +114,7 @@ public static class SaveIdentityTests
             TestHarness.Equal("si:v1:unresolved:26620374", resolution.Fingerprint, "歧义时不得生成稳定指纹");
         });
 
-        harness.Run("身份：多存档歧义时用户确认指纹可唯一消歧", () =>
+        harness.Run("身份：多存档歧义时旧确认不得反向选择当前存档", () =>
         {
             var files = new[]
             {
@@ -125,17 +125,38 @@ public static class SaveIdentityTests
             var resolution = SaveIdentityResolver.Resolve(
                 new SaveIdentityInput(Process(), files, null, confirmed));
 
-            TestHarness.Equal(SaveIdentityStatus.Verified, resolution.Status, "确认指纹唯一命中时应 VERIFIED");
-            TestHarness.Equal(SaveIdentityKind.UserConfirmed, resolution.Kind, "来源应为用户确认");
-            TestHarness.True(!resolution.IsAmbiguous, "确认后不得再标记歧义");
-            TestHarness.Equal(confirmed, resolution.Fingerprint, "指纹应是被确认的那个存档");
-            TestHarness.True(resolution.SnapshotEligible, "确认后的身份应允许参与自动快照评估");
+            TestHarness.Equal(SaveIdentityStatus.Discovered, resolution.Status, "歧义时确认不得把状态提升为 VERIFIED");
+            TestHarness.True(resolution.IsAmbiguous, "必须保持歧义");
+            TestHarness.True(!resolution.CurrentSaveConfirmed, "歧义时不得声称已确认当前存档");
+            TestHarness.Equal(null, SaveIdentityBinding.CurrentFingerprint(resolution), "旧确认不得作为当前指纹");
+            TestHarness.True(
+                resolution.LimitationCodes.Contains("AMBIGUOUS_SAVE_FILES"),
+                "必须给出歧义限制码");
 
             var unmatched = SaveIdentityResolver.Resolve(new SaveIdentityInput(
                 Process(), files, null, SaveIdentityFingerprint.FromSaveFile("V9", "F9")));
 
-            TestHarness.Equal(SaveIdentityStatus.Discovered, unmatched.Status, "不匹配的确认不能猜存档");
+            TestHarness.Equal(SaveIdentityStatus.Discovered, unmatched.Status, "不匹配的确认同样不能猜存档");
             TestHarness.True(unmatched.IsAmbiguous, "仍应标记歧义");
+        });
+
+        harness.Run("身份：显式 --save-file 不能作为当前存档获得 VERIFIED", () =>
+        {
+            var fingerprint = SaveIdentityFingerprint.FromSaveFile("V1", "F1");
+            var resolution = SaveIdentityResolver.Resolve(new SaveIdentityInput(
+                Process(),
+                new[] { SaveFile("a.fm", fileId: "F1") },
+                Career: null,
+                UserConfirmedFingerprint: fingerprint,
+                ExplicitFileSelection: true));
+
+            TestHarness.Equal(SaveIdentityStatus.Candidate, resolution.Status, "显式文件最高只能是 CANDIDATE");
+            TestHarness.True(!resolution.CurrentSaveConfirmed, "显式文件不能证明是当前加载存档");
+            TestHarness.True(
+                resolution.LimitationCodes.Contains("CURRENT_SAVE_UNCONFIRMED"),
+                "必须返回 CURRENT_SAVE_UNCONFIRMED");
+            TestHarness.Equal(null, SaveIdentityBinding.CurrentFingerprint(resolution), "不得把显式文件指纹交给 Verified 门控");
+            TestHarness.True(!resolution.SnapshotEligible, "不得参与自动快照");
         });
 
         harness.Run("身份：唯一被游戏占用的文件可确定为当前存档", () =>

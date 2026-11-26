@@ -13,6 +13,10 @@ namespace ScoutMind.FMReader.Discovery;
 /// <param name="LastSeenAt">最近一次观测时间（ISO 8601）。</param>
 /// <param name="UserConfirmedFingerprint">用户确认过的指纹。</param>
 /// <param name="UserConfirmedAt">用户确认时间。</param>
+/// <param name="Generation">
+/// 身份代次（V3.2.9.2）：存档身份或运行时会话发生变化时递增。依赖旧代次的 Verified / 临时结果
+/// 一律作废，防止晚到的异步任务覆盖新存档状态。
+/// </param>
 public sealed record SaveIdentityState(
     string? Fingerprint,
     SaveIdentityKind? Kind,
@@ -22,7 +26,8 @@ public sealed record SaveIdentityState(
     string? LastSessionKey,
     string? LastSeenAt,
     string? UserConfirmedFingerprint,
-    string? UserConfirmedAt)
+    string? UserConfirmedAt,
+    int Generation = 0)
 {
     /// <summary>空状态。</summary>
     public static SaveIdentityState Empty { get; } = new(

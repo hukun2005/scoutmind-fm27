@@ -324,11 +324,17 @@ class SaveSessionSwitchIn(BaseModel):
 
 
 class IdentityReviewResolveIn(BaseModel):
-    """人工审核决定。``payload`` 只作证据补充，不允许携带 Verified。"""
+    """人工审核决定。``payload`` 只作证据补充，不允许携带 Verified。
+
+    ``expected_version`` 是乐观锁版本：客户端必须携带读取条目时拿到的 ``version``；
+    ``request_key`` 是幂等键，同一 review 上重复提交不会重复追加历史。
+    """
 
     decision: Literal["same", "different", "independent", "defer"]
     note: str | None = Field(default=None, max_length=512)
     payload: dict[str, Any] = Field(default_factory=dict)
+    expected_version: int | None = Field(default=None, ge=1)
+    request_key: str | None = Field(default=None, max_length=64)
 
 
 class IdentityScanStartIn(BaseModel):

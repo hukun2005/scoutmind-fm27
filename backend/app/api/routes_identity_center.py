@@ -177,12 +177,26 @@ def review_resolve(
     if item is None or item.fm_save_id != save.id:
         raise HTTPException(status_code=404, detail={"code": errors.REVIEW_NOT_FOUND, "message": "审核条目不存在"})
     try:
-        resolve_review(db, item, user=user, decision=body.decision, note=body.note, payload=body.payload)
+        resolve_review(
+            db,
+            item,
+            user=user,
+            decision=body.decision,
+            note=body.note,
+            payload=body.payload,
+            expected_version=body.expected_version,
+            request_key=body.request_key,
+        )
         db.commit()
     except IdentityGovernanceError as exc:
         db.rollback()
         _raise(exc)
-    return {"id": item.id, "status": item.status, "resolved_at": iso(item.resolved_at)}
+    return {
+        "id": item.id,
+        "status": item.status,
+        "version": item.version,
+        "resolved_at": iso(item.resolved_at),
+    }
 
 
 @router.get("/identity/center/players/{player_id}", summary="球员身份详情：实例/关联/观测/审核")

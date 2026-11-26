@@ -123,8 +123,12 @@ def record_observation(
     status: str | None = None,
     uid_reason: str | None = None,
     conflicting_player_id: int | None = None,
+    flush: bool = True,
 ) -> PlayerUidObservation:
-    """幂等记录一条 UID 观测；已存在则返回原行（不更新、不覆盖）。"""
+    """幂等记录一条 UID 观测；已存在则返回原行（不更新、不覆盖）。
+
+    ``flush=False`` 供批量扫描使用：由调用方在批末统一 flush，避免逐行 fsync。
+    """
     moment = (observed_at or utcnow()).replace(microsecond=0)
     assessment = classify_uid(uid_raw)
     derived_status, derived_reason = status_for_assessment(assessment.status)
@@ -172,7 +176,8 @@ def record_observation(
         conflicting_player_id=conflicting_player_id,
     )
     db.add(observation)
-    db.flush()
+    if flush:
+        db.flush()
     return observation
 
 

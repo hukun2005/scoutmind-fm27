@@ -50,6 +50,9 @@ export interface ReviewHistoryEntry {
   decision: string
   previous_status: string | null
   new_status: string
+  previous_version: number | null
+  new_version: number | null
+  request_key: string | null
   note: string | null
   created_at: string
 }
@@ -59,6 +62,7 @@ export interface ReviewQueueItem {
   item_type: string
   severity: string
   status: string
+  version: number
   subject_uid: string | null
   primary_player_id: number | null
   candidate_player_ids: number[]
