@@ -86,3 +86,13 @@
 - 已知未完成：本机 PostgreSQL 迁移（NOT_RUN，CI 已过）、本版产物的 A/B/A 重跑（NOT_RUN，需游戏内手动切换）、
   游戏关闭后的进程清理（NOT_RUN）、axe 自动化无障碍（NOT_RUN）；
 - 详情：`docs/release/v3.2.9.2/README.md`、`docs/evidence/v3.2.9.2/`。
+
+## V3.3.0 完成情况（2026-11-26）
+
+- 一键数据体验：新增 `POST /api/v1/data-hub/import`，自动识别来源/格式/版本/编码，普通用户不再选择 JSON、NDJSON 或适配器；
+- 自动数据修复：Level 1 确定性标准化、Level 2 稳定 UID/唯一俱乐部名补全、Level 3 隔离；新增只追加审计表 `data_repair_audits`（migration `c3f5a1b7d9e2`）；
+- 数据可靠性：复用既有 `ScanImporter` 的事务、幂等、取消与写栅栏；导入后校验批次快照与跨存档所有权；
+- 数据中心 UI：游戏连接 / 文件导入 / 数据状态三块主区域，6 阶段进度与统一结果页，技术细节折叠到“开发者诊断”；
+- 验收：后端新增 34 个 data-hub 用例并通过针对性回归；前端类型检查 + 生产构建通过；SQLite 迁移升级/回滚/安全门禁通过；
+- 真实 FM27 一键导入：`NOT_RUN`（验收时游戏未运行，不使用合成数据冒充）；
+- 详情：`docs/reports/V3.3.0_FINAL_REPORT.md`、`docs/architecture/AUTOMATIC_DATA_IMPORT_ENGINE.md`。

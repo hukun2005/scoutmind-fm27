@@ -1,9 +1,8 @@
 <template>
   <section class="sm-page identity-center">
     <PageHeader
-      eyebrow="PLAYER IDENTITY CENTER"
-      title="球员身份中心"
-      subtitle="UID 只在存档内有效；同名、重复 UID 与跨存档候选都只作为待审核项，系统绝不自动合并"
+      title="身份中心"
+      subtitle="同名、重复身份与跨存档候选都会列在这里等待确认，系统不会自动合并。"
     >
       <template #actions>
         <el-button size="small" type="primary" :loading="loading" @click="reloadAll">刷新</el-button>

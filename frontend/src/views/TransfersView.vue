@@ -500,9 +500,8 @@ if (activeTab.value === 'deals') void loadDealsOverview()
 <template>
   <div class="sm-page">
     <PageHeader
-      eyebrow="TRANSFER INTELLIGENCE"
       title="转会情报"
-      description="成交样本的分位数、费用直方图与可比交易。只有已完成且有金额来源的交易进入统计，缺失字段不填默认值。"
+      description="清楚查看每笔交易的状态、类型与费用。只有已完成且有金额来源的交易进入统计，缺失字段不填默认值。"
     >
       <template #meta>
         <span class="sm-text-xs sm-text-faint">
@@ -521,7 +520,7 @@ if (activeTab.value === 'deals') void loadDealsOverview()
           <section class="console sm-glass" aria-label="转会筛选控制台">
             <header class="console__head">
               <div class="console__titles">
-                <span class="sm-eyebrow">MARKET CONSOLE</span>
+                <span class="sm-section-label">筛选交易</span>
                 <p class="console__hint">
                   条件变更后自动查询；统计头使用位置组、年龄、日期、俱乐部，费用与类型只影响列表（契约未提供对应统计参数）。
                 </p>
@@ -661,7 +660,7 @@ if (activeTab.value === 'deals') void loadDealsOverview()
           <div class="sm-grid sm-grid--wide-left">
             <section class="market" aria-label="样本统计">
               <header class="panel-head">
-                <span class="sm-eyebrow">MARKET SNAPSHOT</span>
+                <span class="sm-section-label">市场概况</span>
                 <h2 class="panel-head__title">样本统计</h2>
                 <p class="panel-head__hint">分位数来自后端统计接口，样本不足时仍展示真实样本数。</p>
               </header>
@@ -710,7 +709,7 @@ if (activeTab.value === 'deals') void loadDealsOverview()
             aria-label="本页成交时间轴"
           >
             <header class="timeline__head">
-              <span class="sm-eyebrow">DEAL TIMELINE</span>
+              <span class="sm-section-label">交易时间线</span>
               <p class="timeline__hint">仅当前页成交，按日期倒序；金额为记录自带币种，完整明细以下方表格为准。</p>
             </header>
             <ol class="timeline__rail">

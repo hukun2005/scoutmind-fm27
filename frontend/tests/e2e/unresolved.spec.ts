@@ -145,7 +145,7 @@ test.beforeEach(async ({ page }) => {
 
 test('list shows candidates with raw UID evidence', async ({ page }) => {
   await page.goto('/unresolved')
-  await expect(page.getByRole('heading', { name: '自由球员待确认' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '待确认球员' })).toBeVisible()
   await expect(page.getByText('Free Agent One')).toBeVisible()
   await expect(page.getByText('上游哨兵 0xFFFFFFFF（4294967295）')).toBeVisible()
   await expect(page.locator('.sm-table__grid tbody tr').first()).toContainText('待确认')
@@ -165,7 +165,7 @@ test('empty list shows an actionable empty state', async ({ page }) => {
     }),
   )
   await page.goto('/unresolved')
-  await expect(page.getByText('暂无待确认的自由球员')).toBeVisible()
+  await expect(page.getByText('暂无待确认球员')).toBeVisible()
 })
 
 test('load failure shows the normalized error and a retry action', async ({ page }) => {

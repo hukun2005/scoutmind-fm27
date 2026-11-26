@@ -16,6 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .api import (
     routes_adapters,
     routes_compat,
+    routes_datahub,
     routes_identity,
     routes_identity_center,
     routes_save_identity,
@@ -143,6 +144,7 @@ def create_app() -> FastAPI:
 
     for router in (
         routes_core.router,
+        routes_datahub.router,
         routes_adapters.router,
         routes_clubs.router,
         routes_players.router,

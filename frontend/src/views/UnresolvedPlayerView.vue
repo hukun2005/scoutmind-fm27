@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 自由球员待确认（SM-119）。
+ * 待确认球员（SM-119）。
  *
  * 只展示证据与建议：没有任何候选被默认标成"已确认身份"。关联身份必须由人点确认按钮并再次确认，
  * 忽略候选不会删除观察记录。
@@ -233,8 +233,8 @@ onMounted(reload)
 <template>
   <section class="unresolved">
     <PageHeader
-      title="自由球员待确认"
-      subtitle="上游没有给出可用身份的球员（哨兵 0xFFFFFFFF、缺失或非法 ID）；只保存观察与证据，确认之前不进入任何正式统计"
+      title="待确认球员"
+      subtitle="缺少可用身份信息的球员会先保存在这里，确认之前不进入任何正式统计。"
     >
       <template #actions>
         <el-button size="small" :loading="loading" @click="reload">刷新</el-button>
@@ -316,7 +316,7 @@ onMounted(reload)
           :page-sizes="[20, 50, 100]"
           show-pagination
           clickable
-          empty-title="暂无待确认的自由球员"
+          empty-title="暂无待确认球员"
           empty-description="扫描导入后，没有可用身份的球员会出现在这里"
           @update:page="onPage"
           @update:page-size="onPageSize"

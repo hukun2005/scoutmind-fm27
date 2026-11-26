@@ -45,46 +45,40 @@ interface NavGroup {
 const NAV_GROUPS: NavGroup[] = [
   {
     key: 'command',
-    label: 'Command',
-    items: [{ key: 'overview', label: '指挥中心', to: '/', icon: 'overview', hint: '全局数据、覆盖度与今日重点' }],
+    label: '总览',
+    items: [{ key: 'overview', label: '首页', to: '/', icon: 'overview', hint: '球队现状与下一步' }],
   },
   {
     key: 'intelligence',
-    label: 'Intelligence',
+    label: '球探分析',
     items: [
-      { key: 'squad', label: '阵容智能', to: '/squad', icon: 'squad', hint: '六维评分、位置深度与接班规划' },
-      { key: 'players', label: '球员中心', to: '/players', icon: 'players', hint: '筛选、排序与球员档案' },
-      { key: 'recruitment', label: '智能球探', to: '/recruitment', icon: 'scouting', hint: '六维评分、隐藏价值与候选名单' },
-      { key: 'transfers', label: '转会情报', to: '/transfers', icon: 'transfers', hint: '成本模型、投资效率与历史复盘' },
-      { key: 'development', label: '球员发展', to: '/development', icon: 'development', hint: '成长速率、建议与潜力区间' },
+      { key: 'squad', label: '阵容分析', to: '/squad', icon: 'squad', hint: '强项、短板与合同风险' },
+      { key: 'players', label: '球员中心', to: '/players', icon: 'players', hint: '搜索球员与查看档案' },
+      { key: 'recruitment', label: '引援中心', to: '/recruitment', icon: 'scouting', hint: '推荐目标与理由' },
+      { key: 'transfers', label: '转会情报', to: '/transfers', icon: 'transfers', hint: '交易状态与费用' },
+      { key: 'development', label: '球员发展', to: '/development', icon: 'development', hint: '成长变化与建议' },
       { key: 'performance', label: '表现分析', to: '/performance', icon: 'performance', hint: '分位置产出与能力对比' },
-      { key: 'agent', label: 'AI 体育总监', to: '/agent', icon: 'agent', hint: '自然语言提问，工具级证据' },
+      { key: 'agent', label: 'AI 体育总监', to: '/agent', icon: 'agent', hint: '直接提问，获得带证据的回答' },
     ],
   },
   {
     key: 'operations',
-    label: 'Identity & Data',
+    label: '数据管理',
     items: [
-      { key: 'data', label: '数据中心', to: '/data', icon: 'data', hint: '数据导入、覆盖度与兼容性' },
-      { key: 'governance', label: '数据治理', to: '/governance', icon: 'data', hint: '同日冲突、canonical 审核与成长时间轴' },
-      { key: 'identity', label: '身份复核', to: '/identity', icon: 'players', hint: '同 UID 冲突的人工确认与审计' },
-      {
-        key: 'identity-center',
-        label: '球员身份中心',
-        to: '/identity-center',
-        icon: 'players',
-        hint: 'UID 作用域、审核队列与跨存档候选',
-      },
-      { key: 'save-identity', label: '存档身份', to: '/save-identity', icon: 'data', hint: '存档身份、会话心跳与采集阻断诊断' },
-      { key: 'unresolved', label: '自由球员', to: '/unresolved', icon: 'players', hint: '无 UID 球员的观察、确认与忽略' },
+      { key: 'data', label: '数据中心', to: '/data', icon: 'data', hint: '同步、导入与数据状态' },
+      { key: 'governance', label: '数据治理', to: '/governance', icon: 'data', hint: '冲突处理与审核记录' },
+      { key: 'identity', label: '身份复核', to: '/identity', icon: 'players', hint: '球员身份冲突确认' },
+      { key: 'identity-center', label: '身份中心', to: '/identity-center', icon: 'players', hint: '审核队列与跨存档候选' },
+      { key: 'save-identity', label: '存档身份', to: '/save-identity', icon: 'data', hint: '存档识别与采集状态' },
+      { key: 'unresolved', label: '待确认球员', to: '/unresolved', icon: 'players', hint: '缺少身份信息的球员' },
     ],
   },
   {
     key: 'tools',
-    label: 'Tools',
+    label: '工具',
     items: [
-      { key: 'scouting', label: '角色球探', to: '/scouting', icon: 'scouting', hint: '战术角色模板与排序' },
-      { key: 'watchlist', label: '关注名单', to: '/watchlist', icon: 'watchlist', hint: '关注球员与提醒规则' },
+      { key: 'scouting', label: '角色球探', to: '/scouting', icon: 'scouting', hint: '按战术角色筛选' },
+      { key: 'watchlist', label: '关注名单', to: '/watchlist', icon: 'watchlist', hint: '关注球员与提醒' },
     ],
   },
 ]
@@ -92,8 +86,6 @@ const NAV_GROUPS: NavGroup[] = [
 const session = useSessionStore()
 const route = useRoute()
 
-const settingsOpen = ref(false)
-const tokenDraft = ref(session.token)
 const navOpen = ref(false)
 
 /** 当前路由对应的高亮项；详情页保持父级高亮。 */
@@ -103,12 +95,14 @@ const activeKey = computed(() => {
   return name
 })
 
-/** 顶栏标题与所属模块名。 */
-const pageTitle = computed(() => (typeof route.meta.title === 'string' ? route.meta.title : '工作台'))
+/** 顶栏所属模块名：设置等不在导航内的页面显示「系统」。 */
 const activeGroupLabel = computed(() => {
   const group = NAV_GROUPS.find((entry) => entry.items.some((item) => item.key === activeKey.value))
-  return group?.label ?? 'Command'
+  return group?.label ?? '系统'
 })
+
+/** 顶栏面包屑标题，与页面 H1 保持一致。 */
+const pageTitle = computed(() => (typeof route.meta.title === 'string' ? route.meta.title : '工作台'))
 
 /** 存档选择器。 */
 const saveModel = computed<number | null>({
@@ -150,22 +144,6 @@ async function refreshSession(): Promise<void> {
   ElMessage.success('元信息已刷新')
 }
 
-/** 保存令牌并重新加载受影响的数据。 */
-async function saveToken(): Promise<void> {
-  session.applyToken(tokenDraft.value)
-  settingsOpen.value = false
-  await session.load()
-  ElMessage.success(tokenDraft.value ? '令牌已保存' : '令牌已清除')
-}
-
-/** 移除已保存的令牌。 */
-function clearToken(): void {
-  tokenDraft.value = ''
-  session.applyToken('')
-  void session.load()
-  ElMessage.success('令牌已清除')
-}
-
 /** 移动端抽屉开关。 */
 function toggleNav(): void {
   navOpen.value = !navOpen.value
@@ -175,20 +153,6 @@ function toggleNav(): void {
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape' && navOpen.value) navOpen.value = false
 }
-
-watch(
-  () => session.authRequired,
-  (required) => {
-    if (required) settingsOpen.value = true
-  },
-)
-
-watch(
-  () => session.token,
-  (token) => {
-    tokenDraft.value = token
-  },
-)
 
 // 路由变化后关闭移动抽屉，避免遮挡新页面。
 watch(
@@ -221,7 +185,7 @@ onBeforeUnmount(() => {
         </span>
         <span class="brand__text">
           <span class="brand__name">SCOUTMIND</span>
-          <span class="brand__sub">FM27 INTELLIGENCE</span>
+          <span class="brand__sub">FM27 足球情报</span>
         </span>
       </div>
 
@@ -254,7 +218,7 @@ onBeforeUnmount(() => {
           <span class="sidebar__status-text">{{ dataStatus }}</span>
         </div>
         <div class="sidebar__meta">记录 {{ formatInt(totalRecords) }}</div>
-        <div class="sidebar__meta">v{{ session.version }} · LLM {{ session.agentLlm ? '在线' : '确定性模式' }}</div>
+        <div class="sidebar__meta">v{{ session.version }} · AI {{ session.agentLlm ? '已连接' : '本地规则' }}</div>
       </div>
     </aside>
 
@@ -309,37 +273,9 @@ onBeforeUnmount(() => {
             <AppIcon name="watchlist" :size="16" />
           </router-link>
 
-          <el-popover v-model:visible="settingsOpen" placement="bottom-end" :width="336" trigger="click">
-            <template #reference>
-              <button type="button" class="icon-btn" aria-label="设置：接口与令牌" title="设置">
-                <AppIcon name="settings" :size="16" />
-              </button>
-            </template>
-            <div class="settings">
-              <p class="settings__title">接口与令牌</p>
-              <p class="settings__hint">
-                后端配置了 <code>SCOUTMIND_API_TOKEN</code> 时，所有请求都需要
-                <code>X-ScoutMind-Token</code>。令牌仅保存在本浏览器 localStorage。
-              </p>
-              <el-input
-                v-model="tokenDraft"
-                type="password"
-                show-password
-                size="small"
-                placeholder="粘贴 SCOUTMIND_API_TOKEN"
-                aria-label="API 令牌"
-              />
-              <div class="settings__row">
-                <el-button size="small" type="primary" @click="saveToken">保存并重载</el-button>
-                <el-button size="small" @click="clearToken">清除</el-button>
-              </div>
-              <p class="settings__state">
-                当前状态：<strong>{{ session.token ? '已配置令牌' : '未配置令牌' }}</strong>
-                <span v-if="session.authRequired" class="settings__danger"> · 后端返回 401</span>
-              </p>
-              <p class="settings__meta">后端地址：/api/v1 → http://127.0.0.1:8000</p>
-            </div>
-          </el-popover>
+          <router-link class="icon-btn" to="/settings" aria-label="系统设置" title="系统设置">
+            <AppIcon name="settings" :size="16" />
+          </router-link>
 
           <button type="button" class="avatar" aria-label="本机分析员" title="本机分析员">
             {{ analystInitials }}
@@ -358,7 +294,7 @@ onBeforeUnmount(() => {
             title="后端要求 API 令牌"
           >
             <p class="shell__alert-text">
-              请求返回 401。请在右上角「设置」中填入后端 <code>SCOUTMIND_API_TOKEN</code> 对应的令牌后重试。
+              请求返回 401。请在「系统设置 → 开发者选项」中填入访问令牌后重试。
             </p>
           </el-alert>
 

@@ -183,9 +183,8 @@ onMounted(() => void loadBoard())
 <template>
   <div class="sm-page">
     <PageHeader
-      eyebrow="PLAYER DEVELOPMENT"
       title="球员发展"
-      description="成长速率来自快照之间的真实变化；潜力判断是区间与等级，产品不承诺精确预测未来 CA。"
+      description="用真实快照查看能力与身价变化，并给出发展建议；没有历史快照时不会绘制成长曲线。"
     >
       <template #actions>
         <el-input-number v-model="minAge" :min="14" :max="45" size="small" controls-position="right" />

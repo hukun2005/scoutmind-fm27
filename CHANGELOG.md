@@ -2,6 +2,39 @@
 
 本文件记录 ScoutMind 的重要变更。编号对应 `docs/evidence/` 下的验收证据。
 
+## [V3.3.0] - 2026-11-26
+
+一键数据体验 + 自动数据修复（One-Click Data Experience + Automatic Data Repair）。
+
+### 新增
+
+- **统一导入引擎** `app/datahub`：识别 → 解析 → 校验 → 匹配 → 修复 → 去重 → 事务导入 → 导入后验证 → 审计。
+- **自动识别**：扫描 JSON、NDJSON、FMSuperScout 导出自动分流；阵容名单 CSV 明确引导到对应入口；UTF-8 / GB18030 编码回退，不静默替换字符。
+- **三级修复**：
+  - Level 1 确定性标准化（空白、空值、日期、数字字符串、枚举大小写、旧字段名、完全重复行）；
+  - Level 2 有依据补全（稳定 UID 复用、同存档唯一俱乐部名 → uid），歧义不猜；
+  - Level 3 隔离（缺姓名、非法枚举、未知状态等），不写入正式数据。
+- **修复审计表** `data_repair_audits`（migration `c3f5a1b7d9e2`）：保留前后值、规则与规则版本、批次、来源、结果；只追加、不可覆盖。
+- **数据中心 API**：`GET /data-hub/status`、`POST /data-hub/import`、`GET /data-hub/repairs`、`GET /data-hub/capabilities`。
+- **数据中心 UI**：游戏连接 / 文件导入 / 数据状态三块；6 阶段进度；统一结果页；技术信息折叠到“开发者诊断”。
+- **全站普通人视角**：中文导航分组；新增系统设置页（常用信息优先，内部凭据折叠）；首页/球员中心区分“没有数据”与“筛选无结果”，并提供同步或清除入口。
+
+### 保障
+
+- 复用既有 `ScanImporter` 的事务、幂等（`save_id + scan_id` / `operation_id`）、取消状态机与写栅栏；
+- 修复审计与业务写入同一事务，失败一起回滚；重复导入不重复写审计；
+- Level 2 查询全部按 `fm_save_id` 过滤，禁止跨存档；导入后校验批次快照与转会归属；
+- 旧接口 `/imports/scan`、`/imports/fmscout`、`/imports/squad-csv`、`/imports/transfers` 行为不变。
+
+### 测试
+
+- 新增 data-hub 用例 34 个（识别、修复、引擎、API），全部通过；
+- 针对性回归覆盖导入、并发、事务安全、FMSuperScout 适配、未解析球员、canonical 治理、质量规则，全部通过；
+- 前端 `vue-tsc --noEmit && vite build` 通过，Playwright 16 / 16 通过（含 3 档分辨率无横向溢出）；
+- SQLite 迁移升级 → 回滚 → 再升级通过，`scripts/check_migration_safety.py` 通过；
+- 临时数据库全链路冒烟通过（自动修复 15 条、去重 1 条、隔离 1 条、二次导入幂等、验证 PASS、数据中心页面渲染 PASS）。
+- 真实 FM27 一键导入验收：`NOT_RUN`（验收时游戏未运行）。
+
 ## [V3.2.9.2] - 2026-11-26
 
 首版公开发布前稳定性收口（First Public Preview）。PR #14 + 本分支发布工程修复。

@@ -5,6 +5,7 @@ import { computed, ref, watch } from 'vue'
 import type { UploadRequestOptions } from 'element-plus'
 import { ElMessage } from 'element-plus'
 import { asApiError, type ApiError } from '../api/client'
+import { getDataHubStatus, importDataFile } from '../api/datahub'
 import { getCompatibility, getOverview } from '../api/analytics'
 import { listImports, uploadScan } from '../api/imports'
 import { getFmscoutAdapter, importFmscoutDump, previewFmscoutDump } from '../api/fmscout'
@@ -28,6 +29,7 @@ import type {
   FmscoutSamplePlayer,
 } from '../types/fmscout'
 import type { ValidationResponse } from '../types/status'
+import type { DataHubImportResponse, DataHubStatus } from '../types/datahub'
 import type { SaveSummary } from '../types/bootstrap'
 import type { TableColumn } from '../types/table'
 import { useSessionStore } from '../stores/session'
@@ -42,6 +44,155 @@ import {
 import { coverageLabel, importStatusLabel, sourceLabel } from '../utils/labels'
 
 const session = useSessionStore()
+
+// ---------- V3.3.0 数据中心：三块主区域 ----------
+
+const hub = ref<DataHubStatus | null>(null)
+const hubLoading = ref(false)
+const hubError = ref<ApiError | null>(null)
+const hubImporting = ref(false)
+const hubResult = ref<DataHubImportResponse | null>(null)
+const hubImportError = ref<ApiError | null>(null)
+const hubStageCursor = ref(0)
+const hubFileInput = ref<HTMLInputElement | null>(null)
+const devOpen = ref<string[]>([])
+let hubStageTimer: ReturnType<typeof setInterval> | null = null
+
+const HUB_STAGES = [
+  '正在识别数据',
+  '正在检查数据',
+  '正在匹配球员和俱乐部',
+  '正在自动修复',
+  '正在导入数据库',
+  '正在验证导入结果',
+]
+
+const HEALTH_LABELS: Record<string, string> = {
+  ok: '正常',
+  attention: '需要关注',
+  empty: '尚未导入',
+}
+
+const COMPAT_LABELS: Record<string, string> = {
+  supported: '已验证',
+  unknown: '未验证',
+  unsupported: '不支持',
+}
+
+const HUB_STATUS_LABELS: Record<string, string> = {
+  PASS: '导入成功',
+  PARTIAL: '部分成功',
+  FAIL: '导入未完成',
+  ROLLED_BACK: '已回滚',
+  BLOCKED: '无法导入',
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  scan_json: '扫描数据',
+  scan_ndjson: '扫描数据',
+  fmscout_dump: 'FMSuperScout 导出',
+  squad_csv: '阵容名单',
+}
+
+const VERIFY_LABELS: Record<string, string> = {
+  PASS: '通过',
+  PARTIAL: '部分通过',
+  FAIL: '未通过',
+}
+
+function verifyLabel(status?: string): string {
+  if (!status) return EMPTY
+  return VERIFY_LABELS[status] ?? status
+}
+
+/** Load the three data-center panels from real backend queries. */
+async function loadHubStatus(): Promise<void> {
+  hubLoading.value = true
+  hubError.value = null
+  try {
+    hub.value = await getDataHubStatus()
+  } catch (caught) {
+    hubError.value = asApiError(caught)
+    hub.value = null
+  } finally {
+    hubLoading.value = false
+  }
+}
+
+/** Open the OS file picker; format and version are decided by the backend. */
+function pickHubFile(): void {
+  hubFileInput.value?.click()
+}
+
+function handleHubFileInput(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (file) void runHubImport(file)
+  input.value = ''
+}
+
+/** One-click import: the backend detects, validates, repairs, deduplicates and verifies. */
+async function runHubImport(file: File): Promise<void> {
+  if (hubImporting.value) return
+  hubImporting.value = true
+  hubResult.value = null
+  hubImportError.value = null
+  hubStageCursor.value = 0
+  if (hubStageTimer) clearInterval(hubStageTimer)
+  hubStageTimer = setInterval(() => {
+    // 只推进到第 5 步：最后一步必须由真实响应确认，不能提前宣称已完成。
+    if (hubStageCursor.value < 5) hubStageCursor.value += 1
+  }, 900)
+  try {
+    const result = await importDataFile(file, { save_id: session.activeSaveId ?? undefined })
+    hubResult.value = result
+    hubStageCursor.value = 6
+    const label = HUB_STATUS_LABELS[result.status] ?? result.status
+    if (result.status === 'PASS') {
+      ElMessage.success(`${label}：新增 ${formatInt(result.counts.created)}，修复 ${formatInt(result.counts.repaired)}`)
+    } else if (result.status === 'PARTIAL') {
+      ElMessage.warning(`${label}：隔离 ${formatInt(result.counts.quarantined)} 条，合法数据已安全导入`)
+    } else {
+      ElMessage.error(label)
+    }
+    await Promise.all([loadHubStatus(), loadDataset(), session.load()])
+  } catch (caught) {
+    hubImportError.value = asApiError(caught)
+    hubStageCursor.value = 0
+    ElMessage.error(`导入未完成：${hubImportError.value.message}`)
+  } finally {
+    if (hubStageTimer) {
+      clearInterval(hubStageTimer)
+      hubStageTimer = null
+    }
+    hubImporting.value = false
+  }
+}
+
+/** "同步游戏数据": honest connection check; the reader performs the actual scan. */
+function runHubSync(): void {
+  const status = hub.value
+  if (!status) {
+    ElMessage.warning('正在读取游戏状态，请稍候再试')
+    void loadHubStatus()
+    return
+  }
+  if (!status.game.running) {
+    ElMessage.warning(status.game.detected ? '请先启动 Football Manager 27' : '无法检测游戏进程，请确认 FM27 已启动')
+    return
+  }
+  if (status.game.compatibility === 'unsupported') {
+    ElMessage.error(status.game.compatibility_message || '当前 FM27 版本暂不支持同步，请等待兼容性更新')
+    return
+  }
+  if (!status.save.can_sync) {
+    ElMessage.error(status.save.message || '当前存档不能安全同步')
+    return
+  }
+  ElMessage.success('已连接到 FM27。读取器完成扫描后会自动导入，也可以直接点「导入数据」选择扫描文件')
+}
+
+void loadHubStatus()
 
 const imports = ref<ImportJob[]>([])
 const importsLoading = ref(false)
@@ -322,6 +473,7 @@ function handleFmscoutImport(options: UploadRequestOptions): Promise<void> {
 
 /** Reload everything on this page. */
 function reloadAll(): void {
+  void loadHubStatus()
   void loadDataset()
   void loadCompatibility()
   void loadFmscoutInfo()
@@ -434,8 +586,8 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
 <template>
   <div class="sm-page">
     <PageHeader
-      title="数据与诊断"
-      description="导入扫描报文、查看覆盖度与兼容性，并确认当前数据是否可用于真实决策。"
+      title="数据中心"
+      description="连接游戏或导入数据文件，系统会自动识别、校验、修复、去重并验证。"
     >
       <template #meta>
         <el-tag size="small" :type="session.hasRealScanData ? 'success' : 'warning'" disable-transitions>
@@ -447,7 +599,7 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
         </span>
       </template>
       <template #actions>
-        <el-button size="small" :loading="importsLoading" @click="reloadAll">刷新</el-button>
+        <el-button size="small" :loading="hubLoading || importsLoading" @click="reloadAll">刷新</el-button>
       </template>
     </PageHeader>
 
@@ -466,7 +618,179 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
       </template>
     </el-alert>
 
-    <CapturePanel />
+    <ErrorState v-if="hubError" :error="hubError" compact @retry="loadHubStatus" />
+
+    <div class="sm-grid hub-grid">
+      <SectionCard title="游戏连接" subtitle="检测 FM27 与当前存档，判断是否可以安全同步">
+        <div v-if="hubLoading && !hub" class="sm-stack">
+          <el-skeleton :rows="4" animated />
+        </div>
+        <template v-else-if="hub">
+          <dl class="hub-list">
+            <div>
+              <dt>FM27</dt>
+              <dd>
+                <el-tag size="small" :type="hub.game.running ? 'success' : 'info'" disable-transitions>
+                  {{ hub.game.running ? '运行中' : '未运行' }}
+                </el-tag>
+                <span v-if="hub.game.version" class="sm-text-2xs sm-text-faint">版本 {{ hub.game.version }}</span>
+              </dd>
+            </div>
+            <div>
+              <dt>版本兼容</dt>
+              <dd>{{ COMPAT_LABELS[hub.game.compatibility] ?? hub.game.compatibility }}</dd>
+            </div>
+            <div>
+              <dt>当前存档</dt>
+              <dd>
+                {{ hub.save.name }}
+                <el-tag size="small" :type="hub.save.recognized ? 'success' : 'warning'" disable-transitions>
+                  {{ hub.save.recognized ? '已识别' : '待确认' }}
+                </el-tag>
+              </dd>
+            </div>
+          </dl>
+          <el-alert v-if="hub.save.message" type="warning" :closable="false" show-icon :title="hub.save.message" />
+          <el-button type="primary" :disabled="!hub.save.can_sync" :loading="hubLoading" @click="runHubSync">
+            同步游戏数据
+          </el-button>
+          <p class="sm-text-2xs sm-text-faint">
+            同步使用本机读取器；如果当前安装包没有读取器，可以直接用右侧「导入数据」选择扫描文件。
+          </p>
+        </template>
+      </SectionCard>
+
+      <SectionCard title="文件导入" subtitle="只需选择文件，格式与版本由系统自动识别">
+        <input
+          ref="hubFileInput"
+          type="file"
+          class="hub-file"
+          accept=".json,.ndjson,.txt,application/json,application/x-ndjson"
+          @change="handleHubFileInput"
+        />
+        <el-button type="primary" size="large" :loading="hubImporting" @click="pickHubFile">导入数据</el-button>
+        <p class="sm-text-2xs sm-text-faint">
+          支持 FM27 扫描文件与 FMSuperScout 导出；不需要选择 JSON 或 NDJSON，系统会自动判断。
+        </p>
+
+        <div v-if="hubImporting" class="hub-progress">
+          <el-steps :active="hubStageCursor" finish-status="success" align-center simple>
+            <el-step v-for="label in HUB_STAGES" :key="label" :title="label" />
+          </el-steps>
+        </div>
+
+        <ErrorState v-if="hubImportError" :error="hubImportError" compact :show-retry="false" />
+
+        <div v-if="hubResult" class="hub-result">
+          <el-alert
+            :type="hubResult.status === 'PASS' ? 'success' : hubResult.status === 'PARTIAL' ? 'warning' : 'error'"
+            :closable="false"
+            show-icon
+            :title="`${HUB_STATUS_LABELS[hubResult.status] ?? hubResult.status} · ${
+              SOURCE_LABELS[hubResult.detection.source] ?? '数据文件'
+            }`"
+          />
+          <div class="result-grid">
+            <div class="result-cell">
+              <span class="sm-label">新增记录</span>
+              <span class="sm-num">{{ formatInt(hubResult.counts.created) }}</span>
+            </div>
+            <div class="result-cell">
+              <span class="sm-label">更新记录</span>
+              <span class="sm-num">{{ formatInt(hubResult.counts.updated) }}</span>
+            </div>
+            <div class="result-cell">
+              <span class="sm-label">自动去重</span>
+              <span class="sm-num">{{ formatInt(hubResult.counts.duplicates) }}</span>
+            </div>
+            <div class="result-cell">
+              <span class="sm-label">自动修复</span>
+              <span class="sm-num">{{ formatInt(hubResult.counts.repaired) }}</span>
+            </div>
+            <div class="result-cell">
+              <span class="sm-label">被隔离</span>
+              <span class="sm-num">{{ formatInt(hubResult.counts.quarantined) }}</span>
+            </div>
+            <div class="result-cell">
+              <span class="sm-label">最终校验</span>
+              <span class="sm-num">{{ verifyLabel(hubResult.verification.status) }}</span>
+            </div>
+          </div>
+          <p v-if="hubResult.import.duplicate" class="sm-text-xs sm-text-soft">
+            这份数据已经导入过，本次没有写入重复记录（幂等检查通过）。
+          </p>
+          <p v-if="hubResult.status === 'PARTIAL'" class="sm-text-xs sm-text-soft">
+            合法的数据已经安全导入；被隔离的记录不会进入正式数据，可在下方「开发者诊断」中查看原因。
+          </p>
+          <p v-if="hubResult.status !== 'PASS' && hubResult.status !== 'PARTIAL'" class="sm-text-xs sm-text-soft">
+            本次没有写入数据，原有数据保持不变。请确认文件来自当前 FM27 版本，或重新生成扫描文件后再试。
+          </p>
+          <ul v-if="hubResult.warnings.length > 0" class="warnings-list">
+            <li v-for="warning in hubResult.warnings" :key="warning">{{ warning }}</li>
+          </ul>
+          <ul v-if="hubResult.quarantine.length > 0" class="hub-quarantine">
+            <li v-for="item in hubResult.quarantine" :key="`${item.entity}-${item.row}`">
+              第 {{ item.row + 1 }} 行（{{ item.entity }}）：{{ item.message }}
+            </li>
+          </ul>
+        </div>
+      </SectionCard>
+    </div>
+
+    <SectionCard title="数据状态" subtitle="全部数字来自当前存档的真实数据库查询">
+      <div v-if="hubLoading && !hub" class="sm-stack">
+        <el-skeleton :rows="3" animated />
+      </div>
+      <template v-else-if="hub">
+        <div class="hub-status-grid">
+          <div class="hub-status-cell">
+            <span class="sm-label">已导入球员</span>
+            <span class="sm-num">{{ formatInt(hub.records.players) }}</span>
+          </div>
+          <div class="hub-status-cell">
+            <span class="sm-label">已导入俱乐部</span>
+            <span class="sm-num">{{ formatInt(hub.records.clubs) }}</span>
+          </div>
+          <div class="hub-status-cell">
+            <span class="sm-label">已导入转会</span>
+            <span class="sm-num">{{ formatInt(hub.records.transfers) }}</span>
+          </div>
+          <div class="hub-status-cell">
+            <span class="sm-label">最近同步</span>
+            <span class="sm-num">{{ formatDateTime(hub.last_sync?.finished_at ?? null) }}</span>
+          </div>
+          <div class="hub-status-cell">
+            <span class="sm-label">数据健康</span>
+            <span class="sm-num">
+              <el-tag
+                size="small"
+                :type="hub.health.status === 'ok' ? 'success' : hub.health.status === 'attention' ? 'warning' : 'info'"
+                disable-transitions
+              >
+                {{ HEALTH_LABELS[hub.health.status] ?? hub.health.status }}
+              </el-tag>
+            </span>
+          </div>
+          <div class="hub-status-cell">
+            <span class="sm-label">待确认问题</span>
+            <span class="sm-num">{{ formatInt(hub.needs_confirmation.total) }}</span>
+          </div>
+        </div>
+        <ul v-if="hub.health.issues.length > 0" class="warnings-list">
+          <li v-for="issue in hub.health.issues" :key="issue">{{ issue }}</li>
+        </ul>
+        <p v-else class="sm-text-2xs sm-text-faint">
+          没有需要用户处理的数据问题；自动修复与隔离记录保留在开发者诊断中。
+        </p>
+      </template>
+    </SectionCard>
+
+    <el-collapse v-model="devOpen" class="dev-diagnostics">
+      <el-collapse-item name="dev">
+        <template #title>
+          <span class="dev-title">开发者诊断（高级）</span>
+        </template>
+        <CapturePanel />
 
     <SectionCard title="上传扫描数据" subtitle="支持 .json 与 .ndjson（multipart 字段名 file）">
       <div class="upload-layout">
@@ -965,6 +1289,8 @@ ScoutMind.LiveReader.exe scan --out D:\scans\scan.json</pre>
       诊断提示：所有错误响应遵循 <code>{"error": {"code", "message", "details"}}</code> 结构；401 表示缺少
       X-ScoutMind-Token，503 表示数据库不可用。后端地址由 Vite 代理 <code>/api</code> → 127.0.0.1:8000 提供。
     </p>
+      </el-collapse-item>
+    </el-collapse>
   </div>
 </template>
 
@@ -1265,6 +1591,107 @@ ScoutMind.LiveReader.exe scan --out D:\scans\scan.json</pre>
   padding-left: 18px;
   color: var(--el-color-warning);
   font-size: 12px;
+}
+
+/* ---------- V3.3.0 数据中心 ---------- */
+
+.hub-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.hub-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+  margin: 0;
+}
+
+.hub-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sm-space-2);
+  padding-bottom: var(--sm-space-1);
+  border-bottom: 1px solid var(--sm-border);
+}
+
+.hub-list dt {
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-xs);
+}
+
+.hub-list dd {
+  display: flex;
+  align-items: center;
+  gap: var(--sm-space-1);
+  margin: 0;
+  font-size: var(--sm-fs-sm);
+  color: var(--sm-text);
+}
+
+.hub-file {
+  display: none;
+}
+
+.hub-progress {
+  margin-top: var(--sm-space-4);
+}
+
+.hub-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-3);
+  margin-top: var(--sm-space-4);
+  padding-top: var(--sm-space-3);
+  border-top: 1px solid var(--sm-border);
+}
+
+.hub-quarantine {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding-left: var(--sm-space-4);
+  color: var(--sm-warn);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.6;
+}
+
+.hub-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: var(--sm-space-2);
+}
+
+.hub-status-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sm-space-2);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: var(--sm-surface-2);
+  font-size: var(--sm-fs-sm);
+}
+
+.hub-status-cell .sm-num {
+  font-weight: var(--sm-fw-semibold);
+}
+
+.dev-diagnostics {
+  margin-top: var(--sm-space-4);
+}
+
+.dev-title {
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-xs);
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 1180px) {
+  .hub-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>
 
