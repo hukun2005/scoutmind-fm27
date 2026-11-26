@@ -22,16 +22,18 @@
 
 ## 2. CI（PR #16）
 
+Run `45828387259`：**SUCCESS 6/6**
+
 | 作业 | 结果 |
 | --- | --- |
-| `.NET readers and agent` | PASS（1m14s） |
-| `Frontend (typecheck + build)` | PASS（51s） |
-| `Playwright (governance)` | PASS（1m0s） |
-| `PostgreSQL migration compatibility` | PASS（40s） |
-| `Upload / identity / agent isolation regressions` | PASS（2m27s） |
-| `Backend (pytest + migrations)` | 运行中（全量 pytest 约 20 分钟） |
+| `Backend (pytest + migrations)` | PASS |
+| `.NET readers and agent` | PASS |
+| `Frontend (typecheck + build)` | PASS |
+| `Playwright (governance)` | PASS |
+| `PostgreSQL migration compatibility` | PASS |
+| `Upload / identity / agent isolation regressions` | PASS |
 
-最终 CI 结论以 PR 页面为准；本地对应测试已全部通过。
+该 run 对应的提交为 `2f547ee`（本文件更新前的发布收口提交）。
 
 ## 3. 待用户授权的动作
 
