@@ -56,3 +56,6 @@ artifacts/diagnostics/
 
 # Raw live acceptance artifacts (scan envelopes, probe reports with names/addresses)
 artifacts/live/
+
+dist-release/
+

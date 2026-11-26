@@ -75,3 +75,14 @@
 - 状态口径：工程闭环 PASS；真实 FM27 A/B = **REAL_FM27_ACCEPTANCE_PARTIAL**（2026-11-25 两轮真实执行：第 1 轮命中 D-01 跨存档污染并如实记为 FAIL，修复后第 2 轮 A→B→A 各自落在独立 `save_id` 且身份/会话/审计完整；断网/取消/重启 NOT_RUN）；
 - 已知限制：`/imports/fmscout` 与 `/imports/transfers/history` 仍走 legacy 允许策略（计划 V3.2.7.5 收紧）；取消信号为进程内事件；
 - 详情：`docs/evidence/v3.2.7.4/FINAL-REPORT.md`。
+
+## V3.2.9.2 完成情况（2026-11-26）
+
+- 存档切换安全：切换即失效旧确认，确认绑定 generation，跨代写入拒绝；真实 FM27 A/B/A（generation 1→2→3）PASS；
+- 身份治理：Verified 生命周期账本、审核乐观锁与幂等、同名候选完整返回、转会证据关联与审计；真实导入 44,144 名球员；
+- 转会接口：修复 `/transfers` 500 与 `sort` 失效，覆盖率改为全量口径，新增 13 个回归测试；
+- Windows 发布工程：一键发布包、单端口托管前端、启动/停止/诊断/备份脚本、干净目录全链路验收；
+- 质量门禁：后端 658 用例 0 失败，FMReader 334 / Reader 57 / Agent 38，前端构建 + Playwright 9/9；
+- 已知未完成：本机 PostgreSQL 迁移（NOT_RUN，CI 已过）、本版产物的 A/B/A 重跑（NOT_RUN，需游戏内手动切换）、
+  游戏关闭后的进程清理（NOT_RUN）、axe 自动化无障碍（NOT_RUN）；
+- 详情：`docs/release/v3.2.9.2/README.md`、`docs/evidence/v3.2.9.2/`。

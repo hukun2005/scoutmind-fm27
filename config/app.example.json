@@ -1,0 +1,23 @@
+{
+  "database": {
+    "url": "sqlite:///data/scoutmind.db",
+    "note": "默认使用 SQLite；改为 PostgreSQL 时填写 postgresql+psycopg://user:password@127.0.0.1:5432/scoutmind"
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "note": "只监听本机回环地址；不要改为 0.0.0.0 暴露到局域网"
+  },
+  "api": {
+    "token": null,
+    "note": "设置后除 /api/v1/health 外都需要 X-ScoutMind-Token 请求头"
+  },
+  "frontend": {
+    "dist": "frontend/dist",
+    "note": "由后端同端口托管；修改后需要重启"
+  },
+  "agent": {
+    "llm_enabled": false,
+    "note": "当前版本默认使用确定性算法，无需配置 LLM"
+  }
+}

@@ -6,12 +6,13 @@ ScoutMind 读取 Football Manager 27 的可验证数据（游戏运行时快照�
 再用确定性统计和可解释的角色评分回答「这个球员值多少」「年轻球员该不该卖」「哪些俱乐部低买高卖」这类问题。
 LLM 只负责理解问题与组织解释，所有数字来自数据库和算法。
 
-> **当前状态：V3.2.7.4 写入安全与运行闭环完成；真实 FM27 A/B 验收 `REAL_FM27_ACCEPTANCE_PARTIAL`（D-01 跨存档污染已修复，A→B→A 复验 PASS；断网/取消/重启未执行）。**
+> **当前状态：V3.2.9.2 首版公开发布前稳定性收口（First Public Preview）；真实 FM27 A/B/A 存档切换验收 PASS（generation 1→2→3，两次 `invalidated=true`）。**
 > 自研读取器已在 FM27 27.1（build 26620374 / 插件 27.1.0+2505117）验证为 Verified，可扫描；其他版本仍拒绝。
-> 后端（576 个用例，含写入栅栏、会话代次、Worker 取消、operation 幂等与真实导出回归）、
-> 前端（类型检查 + 生产构建）、C# 读取器与 Desktop Agent（含 `diagnostics` / `jobs` / `network` 诊断）均已通过本地验证；
-> 一键运行期验收见 [tools/runtime-acceptance/README.md](tools/runtime-acceptance/README.md)，
-> 阶段报告见 [docs/evidence/v3.2.7.4/FINAL-REPORT.md](docs/evidence/v3.2.7.4/FINAL-REPORT.md)。
+> 后端（658 个用例，0 失败，含存档切换安全、Verified 生命周期账本、审核乐观锁/幂等、转会接口回归）、
+> 前端（类型检查 + 生产构建 + 9 条 Playwright）、C# 读取器与 Desktop Agent（334 + 57 + 38 用例）均已通过本地验证；
+> 真实 FM27 扫描 44,144 名球员、导入与重复上传去重通过。
+> Windows 一键发布包与安装说明见 [docs/release/v3.2.9.2/](docs/release/v3.2.9.2/README.md)，
+> 阶段与验收证据见 [docs/evidence/v3.2.9.2/](docs/evidence/v3.2.9.2/)。
 > 仓库自带一份明确标注的合成演示数据（`source=synthetic_fixture`），用于在没有真实扫描结果时验证界面和算法。
 >
 > 数据接入：除自研 C# 读取器外，已接入 [FMSuperScout](https://github.com/mavarobli/FMSuperScout) 的导出
@@ -58,6 +59,19 @@ scoutmind/
 ```
 
 ## 快速开始（Windows）
+
+**普通用户：使用发布包**
+
+```powershell
+# 解压 ScoutMind-FM27-V3.2.9.2-Windows-x64.zip 后
+pwsh -File .\scripts\Check-Environment.ps1   # 环境诊断
+pwsh -File .\scripts\Start-ScoutMind.ps1     # 启动（API + 界面，同一端口）
+pwsh -File .\scripts\Stop-ScoutMind.ps1      # 停止
+```
+
+详见 [docs/release/v3.2.9.2/INSTALLATION.md](docs/release/v3.2.9.2/INSTALLATION.md)。
+
+**开发者：从源码运行**
 
 ```powershell
 # 1. 后端：创建虚拟环境并安装依赖
