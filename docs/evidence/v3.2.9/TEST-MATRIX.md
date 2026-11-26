@@ -13,7 +13,7 @@
 | ScoutMind.Reader.Tests | 57 | 57 | 0 | 0 | 0 | PASS |
 | ScoutMind.Agent.Tests | 38 | 38 | 0 | 0 | 0 | PASS |
 | 前端 `npm run build` | — | 1 | 0 | 0 | 0 | PASS |
-| GitHub Actions | 6 类 | 待 CI | 0 | 0 | 0 | 见 CI-RESULTS |
+| GitHub Actions | 6 类 | 6 | 0 | 0 | 0 | PASS（run 45749190883） |
 
 Backend 口径说明：
 
