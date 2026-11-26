@@ -890,13 +890,18 @@ internal static class Program
                         detected.Build,
                         detected.PluginVersion,
                         detected.ProcessId is not null);
-                    var liveResolution = SaveIdentityResolver.Resolve(new SaveIdentityInput(processEvidence, files));
+                    var liveResolution = SaveIdentityResolver.Resolve(new SaveIdentityInput(
+                        processEvidence,
+                        files,
+                        ExplicitFileSelection: !string.IsNullOrWhiteSpace(explicitSaveFile)));
                     currentSaveFingerprint = SaveIdentityBinding.CurrentFingerprint(liveResolution);
                     if (currentSaveFingerprint is null)
                     {
-                        currentSaveProblem = liveResolution.IsAmbiguous
-                            ? "current_save_identity_ambiguous"
-                            : "current_save_identity_unresolved";
+                        currentSaveProblem = !string.IsNullOrWhiteSpace(explicitSaveFile)
+                            ? "current_save_unconfirmed"
+                            : liveResolution.IsAmbiguous
+                                ? "current_save_identity_ambiguous"
+                                : "current_save_identity_unresolved";
                     }
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

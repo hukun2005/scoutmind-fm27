@@ -48,6 +48,7 @@ WorldDateResolverTests.Run(harness);
         SaveIdentityTests.Run(harness);
         SaveFileProbeTests.Run(harness);
         SaveSwitchDetectorTests.Run(harness);
+        LiveReaderSaveSwitchSafetyTests.Run(harness);
         DateVerificationStoreTests.Run(harness);
         PersonLayoutCandidateTests.Run(harness);
         PersonCandidateLocatorTests.Run(harness);
@@ -55,6 +56,7 @@ WorldDateResolverTests.Run(harness);
         AttributeRecordLinkerTests.Run(harness);
         PersonVerificationGateTests.Run(harness);
         VerifiedIdentityScopeTests.Run(harness);
+        VerifiedLifecycleTests.Run(harness);
         PersonDiagnosticsTests.Run(harness);
         await EngineTests.RunAsync(harness).ConfigureAwait(false);
 
