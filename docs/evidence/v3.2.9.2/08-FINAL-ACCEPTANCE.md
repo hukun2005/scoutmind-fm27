@@ -75,6 +75,21 @@
 - 基准脚本：`scripts/benchmark_v3292_identity.py`。
 - 新 migration：`b2c3d4e5f6a7_identity_review_concurrency.py`。
 
-## 7. 最终状态
+## 7. CI
 
-PR #14 已创建，**未合并、未发布、未删除任何分支**。等待评审与 CI 结果。
+PR #14 head `e8b62eb`（run `45800525200`）：
+
+| 作业 | 结果 | 耗时 |
+| --- | --- | --- |
+| Backend (pytest + migrations) | pass | 14m24s |
+| Upload / identity / agent isolation regressions | pass | 2m43s |
+| .NET readers and agent | pass | 1m8s |
+| Frontend (typecheck + build) | pass | 1m2s |
+| Playwright (governance) | pass | 53s |
+| PostgreSQL migration compatibility | pass | 46s |
+
+6/6 通过。
+
+## 8. 最终状态
+
+PR #14 已创建，**未合并、未发布、未删除任何分支**。等待评审。
