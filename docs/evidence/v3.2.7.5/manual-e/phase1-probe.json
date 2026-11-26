@@ -1,0 +1,18 @@
+{
+  "tool": "manual-agent-e",
+  "phase": "phase1-probe",
+  "executed_at": "2026-11-25T13:52:00Z",
+  "synthetic_identity": false,
+  "real_fm27": true,
+  "status": "NOT_RUN",
+  "ok": false,
+  "scan_exit_code": 4,
+  "backend": "独立临时后端（临时 SQLite，未写入用户真实库）",
+  "observed": {
+    "reader_result": "NotFound",
+    "message": "读取器未完成扫描：NotFound。探测失败或字段被拒绝（未加载存档或布局不匹配）：禁止扫描。",
+    "agent_recovered": false
+  },
+  "expect": "FM27 载入存档后 reader probe 通过，才能执行 Agent 重启子场景",
+  "note": "本文件证明真实 Agent + 真实 FM27 已执行探测，但游戏未加载存档，E 的 Agent 子场景保持 NOT_RUN；未伪造通过。"
+}

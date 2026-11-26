@@ -1,0 +1,40 @@
+{
+  "mode": "uid-audit",
+  "game_version": "27.1",
+  "build": "26620374",
+  "layout_name": "FM27_1",
+  "field": {
+    "name": "OBJ_DUNI",
+    "offset": "0xC",
+    "read_type": "u32",
+    "relative_to": "每条属性记录的 DB 块"
+  },
+  "located_total": 1500,
+  "raw": {
+    "valid": 1500,
+    "zero": 0,
+    "sentinel": 0,
+    "unreadable": 0,
+    "min": "0x773E9CB0",
+    "max": "0x7755363E"
+  },
+  "uid_present": 1500,
+  "uid_missing": 0,
+  "distinct_uid": 1500,
+  "duplicate_uid_groups": 0,
+  "duplicate_records": 0,
+  "duplicate_groups": [],
+  "stability": {
+    "sampled": 60,
+    "uid_changed": 0,
+    "name_sample_changed": 0,
+    "reads_per_record": 2,
+    "delay_ms": 30
+  },
+  "cross_save": "unknown",
+  "lifecycle": "unknown",
+  "notes": [
+    "UID 位于每条属性记录自身的 DB 块，无法在不扫描记录的情况下独立取得。",
+    "跨存档是否区分 UID、UID 是否随转会/退役变化，本阶段未取得证据。"
+  ]
+}

@@ -18,14 +18,24 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
 from pathlib import Path
 
-FIXTURE_DIR = Path(__file__).resolve().parent.parent / "backend" / "tests" / "fixtures" / "fmsuperscout"
+BACKEND_DIR = Path(__file__).resolve().parent.parent / "backend"
+FIXTURE_DIR = BACKEND_DIR / "tests" / "fixtures" / "fmsuperscout"
 MANIFEST = FIXTURE_DIR / "manifest.json"
+
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from tests.fixture_integrity import (  # noqa: E402  (需要先写入 sys.path)
+    FixtureIntegrityError,
+    sha256_bytes,
+    verify_directory,
+    verify_entry,
+)
 
 #: Meta keys that carry operator identity rather than game data. They are removed before the sample is committed.
 PII_META_KEYS = ("manager", "managers", "host", "_scanManager", "machine", "user")
@@ -72,6 +82,11 @@ def main() -> int:
     parser.add_argument("--path", help="导出文件路径；省略则取 FMSuperScout 目录里最新的 dump")
     parser.add_argument("--dump-dir", default=str(default_dump_dir()), help="FMSuperScout 数据目录")
     parser.add_argument("--keep-manager", action="store_true", help="保留 meta.manager（默认删除）")
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="只校验现有 manifest 与磁盘字节是否一致，不登记新样本；不一致时退出码为 1",
+    )
     parser.add_argument("--name", help="目标文件名，默认 real_sample_NN.json")
     parser.add_argument("--notes", default="", help="写进 manifest 的备注")
     parser.add_argument(
@@ -81,6 +96,16 @@ def main() -> int:
         help="只保留前 N 名球员（优先保留有俱乐部的），用于把 90MB 的真实导出压成可提交的样本；0 表示不裁剪",
     )
     args = parser.parse_args()
+
+    if args.verify:
+        try:
+            entries = verify_directory(FIXTURE_DIR)
+        except FixtureIntegrityError as exc:
+            print(f"FAIL  {exc.reason}: {exc.detail}")
+            return 1
+        for item in entries:
+            print(f"OK    {item['file']}  {item['sha256']}  {item['bytes']} bytes")
+        return 0
 
     source = Path(args.path) if args.path else latest_dump(Path(args.dump_dir))
     if not source.exists():
@@ -115,10 +140,16 @@ def main() -> int:
     sanitized = json.dumps(document, ensure_ascii=False, separators=(",", ":"))
     target = FIXTURE_DIR / (args.name or next_name())
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
-    target.write_text(sanitized, encoding="utf-8")
+    # 必须写字节：文本模式在 Windows 上会把 \n 翻译成 \r\n，导致"被哈希的内容"和
+    # "磁盘/仓库里的内容"不一致（V3.2.8 的 manifest 哈希错位就是这样产生的）。
+    payload = sanitized.encode("utf-8")
+    target.write_bytes(payload)
 
-    digest = hashlib.sha256(sanitized.encode("utf-8")).hexdigest()
-    source_digest = hashlib.sha256(raw).hexdigest()
+    stored = target.read_bytes()
+    if stored != payload:
+        raise SystemExit(f"写盘字节与预期不一致：{target}")
+    digest = sha256_bytes(stored)
+    source_digest = sha256_bytes(raw)
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8")) if MANIFEST.exists() else {"samples": []}
     manifest.setdefault("samples", [])
     entry = {
@@ -137,7 +168,12 @@ def main() -> int:
     # 同一份内容重复登记时替换旧条目，避免 manifest 里出现重复文件。
     manifest["samples"] = [item for item in manifest["samples"] if item.get("file") != target.name]
     manifest["samples"].append(entry)
-    MANIFEST.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    MANIFEST.write_bytes((json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+
+    try:
+        verify_entry(FIXTURE_DIR, entry)
+    except FixtureIntegrityError as exc:
+        raise SystemExit(f"登记后校验失败：{exc.reason}: {exc.detail}") from exc
 
     print(f"来源      : {source}")
     print(f"样本文件  : {target.relative_to(Path.cwd()) if target.is_relative_to(Path.cwd()) else target}")

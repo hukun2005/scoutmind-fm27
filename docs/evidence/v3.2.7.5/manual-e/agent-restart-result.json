@@ -1,0 +1,43 @@
+{
+  "tool": "manual-agent-e",
+  "phase": "agent-restart",
+  "executed_at": "2026-11-25T14:05:00Z",
+  "synthetic_identity": false,
+  "real_fm27": true,
+  "status": "NOT_RUN",
+  "ok": false,
+  "blocked_by": "unsupported_game_build",
+  "game": {
+    "running": true,
+    "file_version": "6000.3.18.9883062",
+    "product_version": "6000.3.18f1-custom (96cdb67fb884)"
+  },
+  "reader": {
+    "verified_layout": "FM27_1",
+    "verified_build": "26620374"
+  },
+  "observed": {
+    "scan_exit_code": 4,
+    "reader_result": "NotFound",
+    "message": "读取器未完成扫描：NotFound。探测失败或字段被拒绝（未加载存档或布局不匹配）：禁止扫描。",
+    "jobs_created": 0,
+    "player_rows": 0
+  },
+  "checks": [
+    {
+      "label": "agent_scan_1_succeeded",
+      "ok": false,
+      "observed": {"exit": 4, "jobs": []},
+      "expect": "exit 0 且任务 succeeded/partial"
+    },
+    {
+      "label": "game_build_supported",
+      "ok": false,
+      "observed": {"running": "6000.3.18f1-custom", "supported": "26620374"},
+      "expect": "运行中的游戏构建与读取器已核实的构建一致"
+    }
+  ],
+  "expect": "将游戏回退到 build 26620374，或重新校准读取器布局后重跑本场景",
+  "note": "使用独立临时后端（临时 SQLite），未写入用户真实库；游戏已更新导致读取器安全门拒绝扫描，E 的 Agent 重启子场景保持 NOT_RUN，未伪造通过。",
+  "raw_removed": true
+}

@@ -1,0 +1,4309 @@
+{
+  "schema_version": "1.0",
+  "candidate_id": "fm27.1.person.2026-11-25",
+  "game_version": "27.1",
+  "build_number": "26620374",
+  "process_metadata": {
+    "process_id": 72012,
+    "process_name": "fm",
+    "plugin_version": "27.1",
+    "gate_status": "Verified",
+    "allow_scan": true,
+    "access_denied": false
+  },
+  "calibration_timestamp": "2026-11-25T22:56:58.7960879+08:00",
+  "name_field_offsets": [
+    "0x50",
+    "0x58",
+    "0x60"
+  ],
+  "date_of_birth_offset": "0x88",
+  "sampling": {
+    "located_total": 240,
+    "sampled": 24,
+    "strategy": "even_stride",
+    "read_count": 3,
+    "dry_run": false
+  },
+  "raw_read_evidence": [
+    {
+      "sample_index": 0,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D200B0",
+              "decoded_value": "y2002 d176",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D200B0",
+              "decoded_value": "y2002 d176",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D200B0",
+              "decoded_value": "y2002 d176",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 1,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D80155",
+              "decoded_value": "y2008 d341",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D80155",
+              "decoded_value": "y2008 d341",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D80155",
+              "decoded_value": "y2008 d341",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 2,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D500B2",
+              "decoded_value": "y2005 d178",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D500B2",
+              "decoded_value": "y2005 d178",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D500B2",
+              "decoded_value": "y2005 d178",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 3,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D80019",
+              "decoded_value": "y2008 d25",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D80019",
+              "decoded_value": "y2008 d25",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D80019",
+              "decoded_value": "y2008 d25",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 4,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D7015F",
+              "decoded_value": "y2007 d351",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D7015F",
+              "decoded_value": "y2007 d351",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D7015F",
+              "decoded_value": "y2007 d351",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 5,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D6016A",
+              "decoded_value": "y2006 d362",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D6016A",
+              "decoded_value": "y2006 d362",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D6016A",
+              "decoded_value": "y2006 d362",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 6,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D7011D",
+              "decoded_value": "y2007 d285",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D7011D",
+              "decoded_value": "y2007 d285",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D7011D",
+              "decoded_value": "y2007 d285",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 7,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D70038",
+              "decoded_value": "y2007 d56",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D70038",
+              "decoded_value": "y2007 d56",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D70038",
+              "decoded_value": "y2007 d56",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 8,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D900ED",
+              "decoded_value": "y2009 d237",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D900ED",
+              "decoded_value": "y2009 d237",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D900ED",
+              "decoded_value": "y2009 d237",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 9,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D90019",
+              "decoded_value": "y2009 d25",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D90019",
+              "decoded_value": "y2009 d25",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D90019",
+              "decoded_value": "y2009 d25",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 10,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D80078",
+              "decoded_value": "y2008 d120",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D80078",
+              "decoded_value": "y2008 d120",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D80078",
+              "decoded_value": "y2008 d120",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 11,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D700C4",
+              "decoded_value": "y2007 d196",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D700C4",
+              "decoded_value": "y2007 d196",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D700C4",
+              "decoded_value": "y2007 d196",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 12,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D8000D",
+              "decoded_value": "y2008 d13",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D8000D",
+              "decoded_value": "y2008 d13",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D8000D",
+              "decoded_value": "y2008 d13",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 13,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D800E6",
+              "decoded_value": "y2008 d230",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D800E6",
+              "decoded_value": "y2008 d230",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D800E6",
+              "decoded_value": "y2008 d230",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 14,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D90001",
+              "decoded_value": "y2009 d1",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D90001",
+              "decoded_value": "y2009 d1",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D90001",
+              "decoded_value": "y2009 d1",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 15,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D500A1",
+              "decoded_value": "y2005 d161",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D500A1",
+              "decoded_value": "y2005 d161",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "Unverified",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07D500A1",
+              "decoded_value": "y2005 d161",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 16,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Ahmed",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Rashid",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CD0013",
+              "decoded_value": "y1997 d19",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Ahmed",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Rashid",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CD0013",
+              "decoded_value": "y1997 d19",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Ahmed",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Rashid",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CD0013",
+              "decoded_value": "y1997 d19",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 17,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Sultan",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Al-Mentheri",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CB0005",
+              "decoded_value": "y1995 d5",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Sultan",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Al-Mentheri",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CB0005",
+              "decoded_value": "y1995 d5",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Sultan",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Al-Mentheri",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CB0005",
+              "decoded_value": "y1995 d5",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 18,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Maher",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Sabra",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07C8000E",
+              "decoded_value": "y1992 d14",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Maher",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Sabra",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07C8000E",
+              "decoded_value": "y1992 d14",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Maher",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Sabra",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07C8000E",
+              "decoded_value": "y1992 d14",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 19,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Hussain",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Abbas",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CA014E",
+              "decoded_value": "y1994 d334",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Hussain",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Abbas",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CA014E",
+              "decoded_value": "y1994 d334",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Hussain",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Abbas",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CA014E",
+              "decoded_value": "y1994 d334",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 20,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Abdalla Ghanim",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Jumaa",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Abdalla Ghanim",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CB008D",
+              "decoded_value": "y1995 d141",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Abdalla Ghanim",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Jumaa",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Abdalla Ghanim",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CB008D",
+              "decoded_value": "y1995 d141",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Abdalla Ghanim",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Jumaa",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Abdalla Ghanim",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CB008D",
+              "decoded_value": "y1995 d141",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 21,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Odai Khadr",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Al-Qarra",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Odai Al-Qarra",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07C7004F",
+              "decoded_value": "y1991 d79",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Odai Khadr",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Al-Qarra",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Odai Al-Qarra",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07C7004F",
+              "decoded_value": "y1991 d79",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Odai Khadr",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Al-Qarra",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Odai Al-Qarra",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07C7004F",
+              "decoded_value": "y1991 d79",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 22,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Salem",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Al-Ajalin",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07C40031",
+              "decoded_value": "y1988 d49",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Salem",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Al-Ajalin",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07C40031",
+              "decoded_value": "y1988 d49",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Salem",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Al-Ajalin",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07C40031",
+              "decoded_value": "y1988 d49",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 23,
+      "person_pointer": null,
+      "stable": true,
+      "stability_notes": [],
+      "reads": [
+        {
+          "read_index": 1,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Hasan",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Kourani",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CB0016",
+              "decoded_value": "y1995 d22",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 2,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Hasan",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Kourani",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CB0016",
+              "decoded_value": "y1995 d22",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        },
+        {
+          "read_index": 3,
+          "status": "StructurallyValid",
+          "fields": [
+            {
+              "kind": "NestedName",
+              "offset": "0x50",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Hasan",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x58",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": "Kourani",
+              "pointer_valid": true,
+              "string_valid": true,
+              "date_valid": false,
+              "is_valid": true,
+              "failure_reason": null
+            },
+            {
+              "kind": "NestedName",
+              "offset": "0x60",
+              "read_type": "nested_string(ptr→ptr→utf8@inner+4)",
+              "raw_value": "<redacted>",
+              "decoded_value": null,
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": false,
+              "is_valid": false,
+              "failure_reason": "zero_pointer"
+            },
+            {
+              "kind": "DateOfBirth",
+              "offset": "0x88",
+              "read_type": "u32(fm_date: year=hi16, day_of_year=lo9)",
+              "raw_value": "0x07CB0016",
+              "decoded_value": "y1995 d22",
+              "pointer_valid": false,
+              "string_valid": false,
+              "date_valid": true,
+              "is_valid": true,
+              "failure_reason": null
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "candidate_offset_sweep": [
+    {
+      "offset": "0x0",
+      "readable": 24,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x28",
+      "readable": 24,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x50",
+      "readable": 8,
+      "name_like": 8,
+      "distinct": 8,
+      "samples": [
+        "Ahmed",
+        "Sultan",
+        "Maher",
+        "Hussain",
+        "Abdalla Ghanim"
+      ]
+    },
+    {
+      "offset": "0x58",
+      "readable": 8,
+      "name_like": 8,
+      "distinct": 8,
+      "samples": [
+        "Rashid",
+        "Al-Mentheri",
+        "Sabra",
+        "Abbas",
+        "Jumaa"
+      ]
+    },
+    {
+      "offset": "0x60",
+      "readable": 2,
+      "name_like": 2,
+      "distinct": 2,
+      "samples": [
+        "Abdalla Ghanim",
+        "Odai Al-Qarra"
+      ]
+    },
+    {
+      "offset": "0x68",
+      "readable": 24,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x78",
+      "readable": 10,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x80",
+      "readable": 8,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0xA8",
+      "readable": 7,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0xF0",
+      "readable": 6,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0xF8",
+      "readable": 1,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x100",
+      "readable": 1,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x108",
+      "readable": 7,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x110",
+      "readable": 7,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x140",
+      "readable": 24,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x260",
+      "readable": 6,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x268",
+      "readable": 5,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x270",
+      "readable": 20,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x278",
+      "readable": 3,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x288",
+      "readable": 24,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x2E8",
+      "readable": 7,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x2F0",
+      "readable": 7,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x3C8",
+      "readable": 24,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    },
+    {
+      "offset": "0x3F0",
+      "readable": 24,
+      "name_like": 0,
+      "distinct": 0,
+      "samples": []
+    }
+  ],
+  "validation_results": {
+    "sample_count": 24,
+    "structurally_valid": 8,
+    "name_valid": 8,
+    "date_valid": 24,
+    "unstable": 0,
+    "failure_reason_counts": {
+      "zero_pointer": 54
+    }
+  },
+  "confidence": 0.17,
+  "verification_status": "Unverified",
+  "conclusion": "抽样 24/240：姓名有效 8，生日有效 24，结构校验通过 8，不稳定 0。结构校验通过不等于人工核对；本报告不构成 Mark(Verified) 依据。",
+  "mark_verified": false
+}

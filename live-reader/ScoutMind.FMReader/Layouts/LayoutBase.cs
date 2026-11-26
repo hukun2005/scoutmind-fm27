@@ -133,6 +133,25 @@ public abstract class LayoutBase : ILayout
             throw new ArgumentException($"布局 {Name} 没有字段 {field}", nameof(field));
         }
 
+        // 安全门控：Verified 只能来自游戏界面人工核对，且必须有可追踪的证据。
+        // 这样公共入口无法被绕过，也不会因为默认参数变成"自动 Verified"。
+        if (status == FieldStatus.Verified)
+        {
+            if (kind != EvidenceKind.GameUiAgreement)
+            {
+                throw new ArgumentException(
+                    $"字段 {field} 不能标为 Verified：只有 GameUiAgreement 证据才允许（当前 {kind}）",
+                    nameof(kind));
+            }
+
+            if (string.IsNullOrWhiteSpace(evidence))
+            {
+                throw new ArgumentException(
+                    $"字段 {field} 不能标为 Verified：必须提供证据说明",
+                    nameof(evidence));
+            }
+        }
+
         _fields[field] = new FieldVerification(field, status, kind, evidence, note);
     }
 

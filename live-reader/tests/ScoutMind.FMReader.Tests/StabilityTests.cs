@@ -89,7 +89,7 @@ internal static class StabilityTests
         var layout = new FM27_1_Layout();
         var registration = new BuildRegistration(
             "26620374", "FM27_1", BuildStatus.Verified, "27.1.0+2505117",
-            layout.Offsets.Keys.ToList(), Array.Empty<string>(), "测试用", Array.Empty<string>());
+            layout.Offsets.Keys.ToList(), new[] { "测试用界面核对" }, "测试用", Array.Empty<string>());
         var registry = new CompatibilityRegistry(new[] { registration });
         return new FMSuperScoutMemoryEngine(
             locator: new FixedLocator(InstallDirectory()),

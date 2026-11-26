@@ -1,0 +1,42 @@
+{
+  "mode": "verify",
+  "state": "HumanReviewPending",
+  "mark_verified": false,
+  "reasons": [
+    "human_review_pending"
+  ],
+  "warnings": [],
+  "target": {
+    "index": 165,
+    "name": "Ahmed Rashid",
+    "date_of_birth": "1997-01-19",
+    "ca": 89,
+    "attribute_link_status": "SingleCandidate",
+    "attribute_link_reason": "single_candidate_requires_human_review",
+    "conflicts": 0
+  },
+  "audit": {
+    "timestamp": "2026-11-25T23:05:36.0132839+08:00",
+    "outcome": "HumanReviewPending",
+    "mark_verified": false,
+    "candidate_id": "fm27.1.person.2026-11-25",
+    "layout_version": "27.1",
+    "game_build": "26620374",
+    "player_identity": {
+      "name": "Ahmed Rashid",
+      "date_of_birth": "1997-01-19",
+      "club": null,
+      "uid": 23244142,
+      "ca": 89
+    },
+    "attribute_link_status": "SingleCandidate",
+    "confidence": 0.5,
+    "verified_fields": [],
+    "rejection_reasons": [
+      "human_review_pending"
+    ],
+    "reviewer": null,
+    "confirmation_source": null,
+    "evidence_reference": null
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "mode": "summary",
+  "observed_at": "2026-11-25T23:09:55.6398135+08:00",
+  "game_version": "27.1",
+  "build": "26620374",
+  "plugin_version": "27.1",
+  "layout_name": "FM27_1",
+  "process_metadata": {
+    "process_id": 72012,
+    "process_name": "fm",
+    "plugin_version": "27.1",
+    "gate_status": "Verified",
+    "allow_scan": true,
+    "access_denied": false
+  },
+  "located_count": 800,
+  "sampled": 60,
+  "valid_object_count": 60,
+  "invalid_pointer_count": 0,
+  "name_read_count": 48,
+  "name_read_success_rate": 0.8,
+  "date_of_birth_read_count": 60,
+  "date_of_birth_read_success_rate": 1,
+  "attribute_link_unique": 60,
+  "attribute_link_success_rate": 1,
+  "conflict_count": 0,
+  "verified_count": 0,
+  "verified_note": "本命令不执行 Mark(Verified)，且进程内没有 Canonical Identity 持久化存储，因此 Verified 计数固定为 0。",
+  "link_status_counts": {
+    "SingleCandidate": 60
+  },
+  "full_memory_dump": false,
+  "mark_verified": false
+}
