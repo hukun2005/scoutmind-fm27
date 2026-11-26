@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using ScoutMind.FMReader.Calibration;
+using ScoutMind.FMReader.Discovery;
 using ScoutMind.FMReader.Engine;
 using ScoutMind.FMReader.Layouts;
 using ScoutMind.FMReader.Probes;
@@ -833,6 +834,7 @@ internal static class Program
                     Console.WriteLine("  --source <text>            确认来源（如 fm27-ui）");
                     Console.WriteLine("  --evidence <path>          证据文档引用");
                     Console.WriteLine("  --save-identity <fp>       Save Identity 指纹；缺省时不得 Mark(Verified)");
+                    Console.WriteLine("  --save-file <path>         显式指定当前存档文件；用于核对 --save-identity 是否属于当前存档");
                     Console.WriteLine("  --save-id <label>          存档标签（默认与指纹一致）");
                     Console.WriteLine("  --session <key>            采集会话键（默认 pid:build）");
                     Console.WriteLine("  --alternative-strategy <s> 经批准的替代生日验证策略");
@@ -869,6 +871,38 @@ internal static class Program
                 }
                 var outputPath = FlagValue(args, "--output");
                 var auditPath = FlagValue(args, "--audit");
+                var explicitSaveFile = FlagValue(args, "--save-file");
+
+                // 当前存档指纹必须由本次现场探测得出，不能沿用调用方传入的历史指纹；
+                // 歧义/未解析时保持 null，让门控按 current_save_identity_missing 拒绝 Verified。
+                string? currentSaveFingerprint = null;
+                string? currentSaveProblem = null;
+                try
+                {
+                    var detected = new GameBuildDetector().Detect();
+                    ISaveFileProbe probe = string.IsNullOrWhiteSpace(explicitSaveFile)
+                        ? new SaveFileLocator()
+                        : new SingleSaveFileProbe(explicitSaveFile);
+                    var files = probe.Probe(includeContentHash: false);
+                    var processEvidence = new GameProcessEvidence(
+                        detected.ProcessId,
+                        detected.ProcessStartTime,
+                        detected.Build,
+                        detected.PluginVersion,
+                        detected.ProcessId is not null);
+                    var liveResolution = SaveIdentityResolver.Resolve(new SaveIdentityInput(processEvidence, files));
+                    currentSaveFingerprint = SaveIdentityBinding.CurrentFingerprint(liveResolution);
+                    if (currentSaveFingerprint is null)
+                    {
+                        currentSaveProblem = liveResolution.IsAmbiguous
+                            ? "current_save_identity_ambiguous"
+                            : "current_save_identity_unresolved";
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    currentSaveProblem = "current_save_identity_unreadable";
+                }
 
                 var status = await engine.GetStatusAsync(cancellation.Token).ConfigureAwait(false);
                 var gameVersion = status.Gate?.Layout is { Length: > 0 } gateLayout
@@ -1050,7 +1084,7 @@ internal static class Program
                         evidenceReference,
                         DateTimeOffset.Now,
                         scope,
-                        saveIdentityFingerprint,
+                        currentSaveFingerprint,
                         sessionKey);
                     var decision = new PersonVerificationGate().Evaluate(request);
                     var json = ToJson(new
@@ -1059,7 +1093,14 @@ internal static class Program
                         state = decision.State.ToString(),
                         mark_verified = decision.MarkVerified,
                         reasons = decision.Reasons,
-                        warnings = decision.Warnings,
+                        warnings = currentSaveProblem is null
+                            ? decision.Warnings
+                            : decision.Warnings.Concat(new[] { currentSaveProblem }).ToArray(),
+                        current_save_identity = new
+                        {
+                            fingerprint = currentSaveFingerprint,
+                            problem = currentSaveProblem,
+                        },
                         save_scope = scope is null
                             ? null
                             : new
