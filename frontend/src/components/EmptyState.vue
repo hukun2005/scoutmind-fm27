@@ -1,19 +1,26 @@
 /** 空 / 样本不足 / 错误占位。任何区域都不留空白。 */
 
 <script setup lang="ts">
-withDefaults(
+import { computed } from 'vue'
+
+const props = withDefaults(
   defineProps<{
     /** 主信息，例如「没有符合筛选条件的球员」。 */
     title: string
     /** 为什么为空、下一步可以做什么。 */
     description?: string
+    /** 兼容旧调用：与 description 同义，description 优先。 */
+    hint?: string
     /** 视觉语气；`insufficient` 表示样本量不足的明确拒绝。 */
     variant?: 'empty' | 'error' | 'insufficient'
     /** 表格内使用的紧凑形态。 */
     compact?: boolean
   }>(),
-  { description: '', variant: 'empty', compact: false },
+  { description: '', hint: '', variant: 'empty', compact: false },
 )
+
+/** 说明文案：新代码用 description，旧页面用 hint。 */
+const descriptionText = computed(() => props.description || props.hint)
 </script>
 
 <template>
@@ -23,7 +30,7 @@ withDefaults(
     </span>
     <div class="empty-state__body">
       <p class="empty-state__title">{{ title }}</p>
-      <p v-if="description" class="empty-state__description">{{ description }}</p>
+      <p v-if="descriptionText" class="empty-state__description">{{ descriptionText }}</p>
       <div v-if="$slots.default" class="empty-state__actions">
         <slot />
       </div>

@@ -17,13 +17,16 @@
 | PR #14 与 main 的关系 | `merge-base(origin/main, PR14) == origin/main == 24beaba`，PR #14 不含 main 之外的提交 |
 | PR #14 前端改动 | `frontend/src/api/identityCenter.ts`、`frontend/src/types/identityCenter.ts`、`frontend/src/views/PlayerIdentityCenterView.vue`（3 个文件，共 21 行） |
 
-**结论**：本 UI 分支不依赖 PR #14 的任何代码，可以基于 `main` 独立评审与合并；同时约定
-**不修改** `PlayerIdentityCenterView.vue`、`api/identityCenter.ts`、`types/identityCenter.ts`，
-避免与 PR #14 产生文本冲突。身份状态语义（Verified / Conflict / Ambiguous）不在本次改动范围内。
+**结论（已随 PR #14 合并更新）**：PR #14 已于 2026-11-26 合并进 `main`（`33882bc`），
+本分支已同步 `main`，原先冻结的三个文件不再受限。
+冻结期间未产生任何改动，因此没有与 PR #14 的文本冲突；合并后新增 Phase 7，
+对 `PlayerIdentityCenterView.vue` 做纯视觉升级，`Verified / Conflict / Ambiguous` 等
+业务状态含义、审核接口与决策流程均未改变。`api/identityCenter.ts` 与
+`types/identityCenter.ts` 仍未改动。
 
-风险提示：全局 Token 与公共组件（`SectionCard` / `PageHeader` / Element 覆盖）会在视觉上影响到
-`/identity-center` 页面。该影响是配色与圆角层面的统一，不改变 DOM 结构、API 调用与状态文案；
-PR #14 合并后需要单独执行一次该页面的视觉走查（见 `07-FINAL-REPORT.md` 未完成项）。
+兼容性修复：升级 `PageHeader` / `EmptyState` 时新增了 `eyebrow` / `description` 等属性，
+审计中发现 3 个未改版页面仍在用旧的 `subtitle` / `hint`，已保留同名兼容属性，
+避免说明文案丢失（详见 `07-FINAL-REPORT.md`）。
 
 ## 2. 技术栈（保持不动）
 

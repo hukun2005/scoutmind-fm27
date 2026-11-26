@@ -1,14 +1,17 @@
 /** 页面头部：眉标、标题、来源说明、返回链接与页面级操作。 */
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     /** 页面标题。 */
     title: string
     /** 一句话说明该页面回答的问题。 */
     description?: string
+    /** 兼容旧调用：与 description 同义，description 优先。 */
+    subtitle?: string
     /** 模块眉标（全大写英文，例如 SQUAD INTELLIGENCE）。 */
     eyebrow?: string
     /** 返回目标路由，设置后渲染返回链接。 */
@@ -16,8 +19,11 @@ withDefaults(
     /** 返回链接文案。 */
     backLabel?: string
   }>(),
-  { description: '', eyebrow: '', backTo: '', backLabel: '返回' },
+  { description: '', subtitle: '', eyebrow: '', backTo: '', backLabel: '返回' },
 )
+
+/** 说明文案：新代码用 description，旧页面用 subtitle。 */
+const descriptionText = computed(() => props.description || props.subtitle)
 </script>
 
 <template>
@@ -29,7 +35,7 @@ withDefaults(
       </router-link>
       <span v-if="eyebrow" class="sm-eyebrow">{{ eyebrow }}</span>
       <h1 class="page-header__title">{{ title }}</h1>
-      <p v-if="description" class="page-header__description">{{ description }}</p>
+      <p v-if="descriptionText" class="page-header__description">{{ descriptionText }}</p>
       <div v-if="$slots.meta" class="page-header__meta">
         <slot name="meta" />
       </div>

@@ -74,8 +74,17 @@ npx playwright test
 | `/recruitment` 智能球探 | PASS | 7 名候选、评分徽章 82.8–52.0、筛选控制台 |
 | `/transfers` 转会情报 | PARTIAL | 统计与图表正常；列表接口 500 → 错误态（后端缺陷） |
 | `/agent` AI 体育总监 | PASS | 会话面板、空状态、输入区、确定性模式提示 |
-| `/identity-center` 球员身份中心 | PASS | 只读验证：页面正常渲染，未修改任何冻结文件 |
+| `/identity-center` 球员身份中心 | PASS | Phase 7 改版：眉标、5 KPI、扫描控制台、队列 + 详情双列、跨存档表格；1440/390 均无溢出、0 控制台错误 |
 | `/identity`、`/data`、`/players` | PASS | 路由可加载，无运行时错误 |
+
+### Phase 7 复测（PR #14 合并后）
+
+- 已同步 `main@33882bc`（含 PR #14）。
+- `npm run build`：PASS（12.42s）。
+- `npx playwright test`：**9 passed / 0 failed**（6.2s）。
+- `/identity-center`：1440×900 与 390×844 无横向溢出、无控制台错误。
+- 业务状态文案（`PendingHumanReview` / `Confirmed` / `Rejected` / `KeptIndependent` /
+  `Deferred`）与四个决策按钮的处理函数完全保留；新增的只是状态徽标色调与排版。
 
 ## 6. 已知失败与阻断
 

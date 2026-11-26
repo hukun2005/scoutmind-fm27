@@ -56,6 +56,17 @@
 | `agent-768.jpg` | 768×1024 | AI 体育总监（平板） |
 | `dashboard-390.jpg` | 390×844 | 指挥中心（移动） |
 | `squad-390.jpg` | 390×844 | 阵容智能（移动） |
+| `identity-center-1440.jpg` | 1440×900 | 球员身份中心（Phase 7） |
+| `identity-center-390.jpg` | 390×844 | 球员身份中心（Phase 7，移动） |
+
+### Phase 7 补充验证
+
+`/identity-center` 在 PR #14 合并后单独复测：
+
+| 视口 | 横向溢出 | 控制台错误 | 观察 |
+| --- | --- | --- | --- |
+| 1440×900 | 无（scrollWidth = innerWidth = 1440） | 0 | 5 张 KPI、扫描控制台、队列 + 详情双列、跨存档表格完整 |
+| 390×844 | 无（scrollWidth = innerWidth = 390） | 0 | 控制台字段纵向堆叠、详情列不再 sticky、表格容器内滚动 |
 
 ## 5. 已知问题
 
