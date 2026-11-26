@@ -1,0 +1,38 @@
+appId: com.scoutmind.fm27
+productName: ScoutMind FM27
+copyright: Copyright © 2026 ScoutMind
+directories:
+  output: ../release
+  buildResources: build
+files:
+  - main/**/*
+  - preload/**/*
+  - package.json
+extraResources:
+  - from: ../backend-dist/ScoutMindFM27
+    to: backend
+  - from: ../frontend/dist
+    to: frontend
+  - from: ../release-assets/live-reader
+    to: live-reader
+  - from: build/icon.png
+    to: icon.png
+asar: true
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.png
+  artifactName: ScoutMind-FM27-Setup-x64.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ScoutMind FM27
+  uninstallDisplayName: ScoutMind FM27
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  artifactName: ScoutMind-FM27-Setup-x64.${ext}

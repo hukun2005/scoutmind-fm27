@@ -65,3 +65,10 @@ dist-release/
 /.build-venv/
 /dist-desktop/
 
+# Desktop (Electron) build inputs and outputs
+/backend-build/
+/backend-dist/
+/release-assets/
+/release/
+/desktop/node_modules/
+
