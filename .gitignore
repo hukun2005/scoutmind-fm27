@@ -59,3 +59,9 @@ artifacts/live/
 
 dist-release/
 
+# Desktop shell runtime data and build output
+/data/
+/logs/
+/.build-venv/
+/dist-desktop/
+
