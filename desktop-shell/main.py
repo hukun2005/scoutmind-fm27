@@ -188,11 +188,25 @@ def show_error(message: str) -> None:
         print(message, file=sys.stderr)
 
 
+def watch_parent(stdin, backend: "Backend", logger: logging.Logger) -> None:
+    """Electron 退出时会关闭 stdin 管道，这里据此结束本地服务，避免残留子进程。"""
+    try:
+        stdin.buffer.read()
+    except Exception:  # noqa: BLE001 - 管道异常按父进程已退出处理
+        pass
+    logger.info("父进程管道已关闭，停止本地服务")
+    try:
+        backend.stop()
+    finally:
+        os._exit(0)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=APP_TITLE)
     parser.add_argument("--headless", action="store_true", help="只启动后端，不打开窗口（用于自动验收）")
     parser.add_argument("--port", type=int, default=0, help="固定端口；默认自动选择空闲端口")
     parser.add_argument("--browser", action="store_true", help="用默认浏览器代替桌面窗口")
+    parser.add_argument("--watch-stdin", action="store_true", help="stdin 关闭时自动退出（由 Electron 托管时使用）")
     args = parser.parse_args(argv)
 
     base = app_root()
@@ -221,6 +235,8 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.headless:
             logger.info("headless 模式，保持运行直到进程结束")
+            if args.watch_stdin and sys.stdin is not None:
+                threading.Thread(target=watch_parent, args=(sys.stdin, backend, logger), daemon=True).start()
             try:
                 while True:
                     time.sleep(1)

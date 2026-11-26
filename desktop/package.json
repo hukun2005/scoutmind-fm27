@@ -1,0 +1,17 @@
+{
+  "name": "scoutmind-fm27-desktop",
+  "version": "1.0.0",
+  "description": "ScoutMind FM27 Desktop - 完全本地运行的 Windows 桌面应用",
+  "main": "main/main.js",
+  "author": "ScoutMind",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  }
+}
