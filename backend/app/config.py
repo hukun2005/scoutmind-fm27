@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite:///{(DEFAULT_DATA_DIR / 'scoutmind.db').as_posix()}"
     data_dir: Path = DEFAULT_DATA_DIR
 
+    # 发布包用：指向已构建的前端 dist 目录，由后端同端口托管（不需要 Node 运行时）。
+    frontend_dist: str | None = None
+
     api_token: str | None = None
     cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:8000"
 

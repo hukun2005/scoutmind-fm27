@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .api import (
@@ -230,11 +232,50 @@ def create_app() -> FastAPI:
             logger.warning("SCOUTMIND_API_TOKEN 未配置：本地 API 无鉴权，只能监听 127.0.0.1")
 
     @app.get("/")
-    def root() -> dict[str, str]:
-        """Minimal landing payload so a browser hitting the host root sees something useful."""
+    def root():
+        """Landing payload; in a release package the built SPA is served here instead."""
+        index = _frontend_index()
+        if index is not None:
+            return FileResponse(index)
         return {"product": settings.app_name, "docs": "/docs", "api": API_PREFIX, "health": f"{API_PREFIX}/health"}
 
+    _install_frontend(app)
     return app
+
+
+def _frontend_index() -> Path | None:
+    """The built SPA entry point when the release package configured one."""
+    configured = (settings.frontend_dist or "").strip()
+    if not configured:
+        return None
+    index = Path(configured).expanduser() / "index.html"
+    return index if index.is_file() else None
+
+
+def _install_frontend(app: FastAPI) -> None:
+    """Serve a prebuilt SPA from the API port, so the release package needs no Node runtime.
+
+    只在显式配置 ``SCOUTMIND_FRONTEND_DIST`` 且目录内确有 ``index.html`` 时启用；开发与 CI 默认关闭。
+    """
+    index = _frontend_index()
+    if index is None:
+        if settings.frontend_dist:
+            logger.warning("SCOUTMIND_FRONTEND_DIST 未包含 index.html，忽略：%s", settings.frontend_dist)
+        return
+    dist = index.parent
+    assets = dist / "assets"
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets), name="frontend-assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def frontend(full_path: str):
+        """Static file when it exists, otherwise the SPA entry so client-side routes survive a refresh."""
+        if full_path in {"api", "docs", "redoc", "openapi.json"} or full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail={"code": "not_found", "message": "接口不存在"})
+        candidate = (dist / full_path).resolve()
+        if full_path and candidate.is_file() and dist in candidate.parents:
+            return FileResponse(candidate)
+        return FileResponse(index)
 
 
 def _seed_reference_rows() -> None:

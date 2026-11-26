@@ -20,6 +20,15 @@ from .quantiles import histogram, summarize
 TRANSFER_STATS_VERSION = "transfer-stats-1"
 SIMILAR_ALGORITHM_VERSION = "similar-transfers-1"
 
+# 排序字段白名单：`-` 前缀表示降序。`GET /transfers` 的 `sort` 只允许这些字段，
+# 未知字段返回 400，而不是静默退回默认排序。
+SORTABLE_TRANSFER_FIELDS: tuple[str, ...] = ("transfer_date", "effective_fee")
+
+
+def sort_key_of(sort: str) -> str:
+    """Strip the descending marker from a ``sort`` value."""
+    return sort[1:] if sort.startswith("-") else sort
+
 SIMILARITY_WEIGHTS: dict[str, float] = {
     "position": 0.15,
     "age": 0.25,
@@ -108,14 +117,31 @@ def build_query(save_id: int, filters: TransferFilter):  # noqa: ANN201 - SQLAlc
 
 
 def fetch_transfers(
-    session: Session, save_id: int, filters: TransferFilter, limit: int | None = None, offset: int = 0
+    session: Session,
+    save_id: int,
+    filters: TransferFilter,
+    limit: int | None = None,
+    offset: int = 0,
+    sort: str = "-transfer_date",
 ) -> list[Transfer]:
     """Load one page of transfers.
 
     位置与联赛筛选依赖关联数据，先在 SQL 里筛掉能筛的条件，再把剩余的行按位置/联赛过滤；
     没有这类筛选时 LIMIT/OFFSET 完全下推到数据库，不会把整张转会表读进内存。
+    排序只允许 ``SORTABLE_TRANSFER_FIELDS`` 中的字段，未知字段抛 ``ValueError``。
     """
-    query = build_query(save_id, filters).order_by(Transfer.transfer_date.desc(), Transfer.id.desc())
+    key = sort_key_of(sort)
+    if key not in SORTABLE_TRANSFER_FIELDS:
+        raise ValueError(f"unsupported transfer sort: {sort}")
+    descending = sort.startswith("-")
+    column = Transfer.transfer_date if key == "transfer_date" else Transfer.effective_fee
+    primary = column.desc() if descending else column.asc()
+    order_columns = [primary]
+    if key == "effective_fee":
+        # 缺失金额的行与其它字段一样参与分页，但始终排在末尾，避免空值抢占首屏。
+        order_columns = [primary.nulls_last()]
+    order_columns.append(Transfer.id.desc())
+    query = build_query(save_id, filters).order_by(*order_columns)
     needs_python_filter = bool(filters.position_group or filters.league)
     if not needs_python_filter:
         if offset:
@@ -147,6 +173,52 @@ def count_transfers(session: Session, save_id: int, filters: TransferFilter) -> 
         return int(session.scalar(select(sql_func.count()).select_from(query.subquery())) or 0)
     # 位置筛选无法纯 SQL 表达（位置来自球员实例），退回计数时只做 SQL 可下推的部分。
     return len(fetch_transfers(session, save_id, filters))
+
+
+def transfer_list_coverage(session: Session, save_id: int, filters: TransferFilter) -> dict[str, float]:
+    """Non-null ratios of the listed fields over the **whole** filtered set.
+
+    覆盖率描述的是筛选结果，不是当前页：分页或换页不会改变这些数字。
+    没有位置/联赛筛选时用一条聚合查询完成；有这两类 Python 侧筛选时退回整集遍历，与
+    :func:`count_transfers` 的口径保持一致。
+    """
+    from sqlalchemy import func as sql_func
+
+    keys = ("effective_fee", "transfer_date", "ca_at_transfer", "contract_remaining_months")
+    zeros = {key: 0.0 for key in keys}
+    if filters.position_group or filters.league:
+        rows = fetch_transfers(session, save_id, filters)
+        total = len(rows)
+        if total == 0:
+            return zeros
+        return {
+            "effective_fee": round(sum(1 for row in rows if row.effective_fee is not None) / total, 4),
+            "transfer_date": round(sum(1 for row in rows if row.transfer_date is not None) / total, 4),
+            "ca_at_transfer": round(
+                sum(1 for row in rows if row.player_ca_at_transfer is not None) / total, 4
+            ),
+            "contract_remaining_months": round(
+                sum(1 for row in rows if row.contract_remaining_months is not None) / total, 4
+            ),
+        }
+    total_rows, priced, dated, with_ca, with_contract = session.execute(
+        build_query(save_id, filters).with_only_columns(
+            sql_func.count(Transfer.id),
+            sql_func.count(Transfer.effective_fee),
+            sql_func.count(Transfer.transfer_date),
+            sql_func.count(Transfer.player_ca_at_transfer),
+            sql_func.count(Transfer.contract_remaining_months),
+        )
+    ).one()
+    total = int(total_rows or 0)
+    if total == 0:
+        return zeros
+    return {
+        "effective_fee": round(int(priced or 0) / total, 4),
+        "transfer_date": round(int(dated or 0) / total, 4),
+        "ca_at_transfer": round(int(with_ca or 0) / total, 4),
+        "contract_remaining_months": round(int(with_contract or 0) / total, 4),
+    }
 
 
 def serialize_transfer(transfer: Transfer, clubs: dict[int, Club] | None = None) -> dict[str, object]:
