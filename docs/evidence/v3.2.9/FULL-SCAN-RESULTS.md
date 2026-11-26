@@ -6,9 +6,11 @@
 | --- | --- | --- |
 | 扫描引擎实现 | 完成 | `identity_engine.start_scan` / `run_scan` / `resume_scan` |
 | 自动化扫描测试 | PASS | 8 项（`test_v329_reconciliation.py`） |
-| 真实存档全库扫描 | NOT_RUN | 本阶段未把真实扫描 payload 导入本分支数据库 |
-| 真实扫描耗时 | NOT_RUN | 同上 |
-| 真实扫描冲突数 | NOT_RUN | 同上 |
+| 真实存档全库扫描 | **PASS（Save A）** | 44,869 实例，Completed，0 失败 |
+| 真实扫描耗时 | **870.13 s** | 约 51.6 行/秒（SQLite） |
+| 真实扫描冲突数 | 2,674 | 全部为同名冲突；重复 UID 0 |
+
+真实扫描明细见 `REAL-FM27-ACCEPTANCE.md`。
 
 ## 2. 自动化扫描可确认的行为
 
@@ -49,4 +51,5 @@
 ## 5. 结论
 
 - 扫描能力与可恢复性：**PASS（自动化）**。
-- 真实全库统计：**NOT_RUN**。
+- 真实全库统计（Save A）：**PASS**，44,869 实例 / 42,195 匹配 / 2,674 冲突 / 0 失败。
+- 真实跨存档 A/B/A：**NOT_RUN**。

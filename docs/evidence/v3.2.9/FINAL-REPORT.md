@@ -7,12 +7,13 @@ main：`89fe8fa7134c34a85c30693d037929a000625168`
 
 ## 1. 总体结论
 
-**PARTIAL（工程 PASS，真实验收 NOT_RUN）。**
+**PARTIAL（工程 PASS；真实 Save A 全库扫描 PASS；A/B/A 与生命周期 NOT_RUN）。**
 
 - 代码：已实现。
 - 自动化测试：通过。
 - CI：6/6 通过。
-- 真实 FM27 全库扫描 / 生命周期 / A/B/A：未执行。
+- 真实 FM27 全库扫描（Save A）：已完成，44,869 实例、0 失败。
+- 真实跨存档 A/B/A、转会/退役/自由球员：未执行。
 - 人工真实球员核对：未执行（本阶段不重复 V3.2.8 的人工核对）。
 - 无 P0/P1 未解决安全问题。
 
@@ -22,7 +23,7 @@ main：`89fe8fa7134c34a85c30693d037929a000625168`
 
 V3.2.9 任务书 §1.1 要求「V3.2.8.1 未合并前只允许只读」。用户明确授权基于未合并分支继续开发并要求自动执行全部阶段，因此本阶段做了完整实现。详见 `PRECONDITION.md`。
 
-风险：若 PR #11 被拒绝，本分支的 Verified 作用域前提需要重做。
+风险：若 PR #11 被拒绝，本分支的 Verified 作用域前提需要重做。后续用户明确决定合并，PR #11（`69cdcdb`）与 PR #12（`d5b3bdc`）均已合并，风险已解除。
 
 ## 3. 交付内容
 
@@ -49,9 +50,9 @@ V3.2.9 任务书 §1.1 要求「V3.2.8.1 未合并前只允许只读」。用户
 
 ### 3.4 文档
 
-`docs/evidence/v3.2.9/` 共 14 份：
+`docs/evidence/v3.2.9/` 共 15 份：
 
-PRECONDITION、PHASE-0-DATA-AUDIT、UID-SCOPE-DESIGN、PLAYER-RECONCILIATION-DESIGN、CANONICAL-PLAYER-DESIGN、FULL-SCAN-RESULTS、DUPLICATE-IDENTITY-REPORT、CROSS-SAVE-IDENTITY-REPORT、TRANSFER-IDENTITY-LINK-REPORT、FRONTEND-REVIEW-CENTER、PERFORMANCE-REPORT、TEST-MATRIX、CI-RESULTS、本文件。
+PRECONDITION、PHASE-0-DATA-AUDIT、UID-SCOPE-DESIGN、PLAYER-RECONCILIATION-DESIGN、CANONICAL-PLAYER-DESIGN、FULL-SCAN-RESULTS、DUPLICATE-IDENTITY-REPORT、CROSS-SAVE-IDENTITY-REPORT、TRANSFER-IDENTITY-LINK-REPORT、FRONTEND-REVIEW-CENTER、PERFORMANCE-REPORT、REAL-FM27-ACCEPTANCE、TEST-MATRIX、CI-RESULTS、本文件。
 
 ## 4. 测试结果（同一批次）
 
@@ -81,6 +82,8 @@ PRECONDITION、PHASE-0-DATA-AUDIT、UID-SCOPE-DESIGN、PLAYER-RECONCILIATION-DES
 
 ## 6. 跨存档与生命周期
 
+- Save A 真实全库扫描：PASS（44,869 实例 / 42,195 匹配 / 2,674 冲突 / 0 失败）。
+- Save A 真实重复 UID：0；同名待审：813。
 - Save A / Save B 关联隔离：自动化通过。
 - 标 A 为 Stale 不影响 B：自动化通过。
 - A → B → A 真实流程：NOT_RUN。
@@ -89,13 +92,15 @@ PRECONDITION、PHASE-0-DATA-AUDIT、UID-SCOPE-DESIGN、PLAYER-RECONCILIATION-DES
 
 ## 7. 性能
 
-内存 SQLite、1200 实例、批 200：1.496 s，约 802 行/秒，1.246 ms/行。真实环境未测。
+- 内存 SQLite、1200 实例、批 200：1.496 s，约 802 行/秒。
+- 真实存档 SQLite：导入 44,869 实例 2,174.81 s；身份扫描 870.13 s（约 51.6 行/秒）。
+- 真实 PostgreSQL 未测。
 
 ## 8. 十二项交付回答
 
 1. **main SHA**：`89fe8fa7134c34a85c30693d037929a000625168`。
-2. **PR #11 最新 SHA**：head `52f596c0898537d85bbef7dac19377330c219eb2`，base `89fe8fa`，状态 OPEN，MERGEABLE。
-3. **新增分支**：`codex/v3.2.9-player-identity`（已推送，未建 PR）。
+2. **PR #11 最新 SHA**：head `52f596c`，已合并，合并提交 `69cdcdb`；main 基线 `89fe8fa`。
+3. **新增分支**：`codex/v3.2.9-player-identity`，已通过 PR #12 合并，合并提交 `d5b3bdc`。
 4. **修改文件**：新增 6 个后端服务/路由、1 个迁移、7 个测试文件、3 个前端文件；修改 models/schemas/main/router/App 与 4 份既有 V3.2.9 文档；新增 8 份证据文档。
 5. **修复的问题**：UID 哨兵被当成 0、跨存档 UID 被误合并、同名冲突无审核闭环、历史转会无身份关联、批次不可恢复、审核可覆盖历史、审核接口可能写入 Verified。
 6. **Backend 统计**：628 / 625 PASS / 0 FAIL / 3 SKIP。
@@ -103,8 +108,8 @@ PRECONDITION、PHASE-0-DATA-AUDIT、UID-SCOPE-DESIGN、PLAYER-RECONCILIATION-DES
 8. **Agent 统计**：38 PASS。
 9. **CI 结果**：6/6 成功。
 10. **跨存档验证**：自动化 PASS；真实 A/B/A NOT_RUN。
-11. **真实 FM27 验收**：NOT_RUN（进程在运行，但未执行真实扫描/生命周期）。
-12. **未完成事项**：真实全库扫描、真实生命周期、真实 A/B/A、真实性能、浏览器 E2E、PostgreSQL 实机 pytest。
+11. **真实 FM27 验收**：Save A 全库扫描 PASS（44,869 实例 / 0 失败）；A/B/A、生命周期 NOT_RUN。
+12. **未完成事项**：真实 A/B/A、真实生命周期、真实 PostgreSQL 性能、浏览器 E2E、Save Identity 绑定。
 
 ## 9. 风险
 
@@ -117,7 +122,6 @@ PRECONDITION、PHASE-0-DATA-AUDIT、UID-SCOPE-DESIGN、PLAYER-RECONCILIATION-DES
 
 ## 10. 合并建议
 
-- V3.2.9 分支达到**人工合并条件**（工程与自动化层面），但不是自动合并。
-- 已创建 PR #12：base `codex/v3.2.8.1-pr11-hardening`，head `codex/v3.2.9-player-identity`，状态 OPEN，mergeable。
-- PR #11 仍未合并；建议先决定 PR #11，再合并 PR #12。
-- 本 Agent 未合并、未发布、未删除任何分支。
+- PR #12 已合并进 main（合并提交 `d5b3bdc`），main CI 6/6 通过。
+- 真实 Save A 验收已完成；剩余 A/B/A 与生命周期为 NOT_RUN，属于环境限制，不阻塞工程结论。
+- 本 Agent 未发布 Release、未删除任何分支。

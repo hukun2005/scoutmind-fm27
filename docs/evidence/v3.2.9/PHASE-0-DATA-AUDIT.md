@@ -1,7 +1,7 @@
 # V3.2.9 全库身份数据审计（Phase 0）
 
 日期：2026-11-26
-状态：工程审计 **PASS**；真实 FM27 全库统计 **NOT_RUN**。
+状态：工程审计 **PASS**；真实 Save A 全库扫描与身份统计 **PASS**；跨存档 A/B/A 与生命周期 **NOT_RUN**。
 
 ## 1. 审计方法
 
@@ -15,22 +15,26 @@
 | 项目 | 值 | 来源 |
 | --- | --- | --- |
 | FM27 进程 | 运行中，pid 72012 | 本机只读进程检查 |
-| 游戏构建 | 26620374 | V3.2.8.1 证据（本次未重新读取） |
-| 插件版本 | 27.1 | 同上 |
-| 布局 | FM27_1 | 同上 |
-| 当前存档身份指纹 | `si:v1:file:b887415a…`（脱敏） | V3.2.8.1 证据（本次未重新读取） |
+| 游戏构建 | 26620374 | `Diag status` 现场读取 |
+| 插件版本 | 27.1 | `Diag status` 现场读取 |
+| 布局 | FM27_1 | `Diag status` 现场读取 |
+| 兼容性闸门 | Verified / allow_scan=true | `Diag status` 现场读取 |
+| 当前存档身份指纹 | 本次未绑定（导入未携带 Save Identity） | 见 REAL-FM27-ACCEPTANCE §5 |
 
-## 3. 数量关系（必须分开统计）
+## 2.1 真实全库统计（Save A，2026-11-26）
 
-| 概念 | 表 | 本次真实值 |
+| 概念 | 表 | 真实值 |
 | --- | --- | --- |
-| Person 候选 | 由 live reader 决定，不落库 | NOT_RUN |
-| 属性记录 | `player_snapshots` + `player_attribute_values` | NOT_RUN |
-| UID | `player_instances.save_local_uid` / `player_uid_observations` | NOT_RUN |
-| Canonical Player | `players` | NOT_RUN |
-| 当前存档球员 | `player_instances` | NOT_RUN |
+| Person 候选（抽样定位） | live reader | 800 定位 / 60 抽样 |
+| 属性记录 | `player_snapshots` | 44,869 |
+| UID | `player_instances.save_local_uid` | 44,869（唯一 44,869） |
+| 同存档重复 UID | 扫描去重后 | 0 |
+| Canonical Player | `players` | 44,803 |
+| 当前存档球员 | `player_instances` | 44,869 |
+| 同名冲突 | 审核队列 | 813 条待审核（2,674 个冲突实例） |
+| Verified | 本层 | 0 |
 
-不能假设 Person 数量 = 属性记录数量 = UID 数量。V3.2.9 的扫描统计只从数据库真实行计算，不在内存里估算。
+口径提醒：800/60 是抽样健康度，44,869 是全库导入结果，两者不能互相替代。
 
 ## 4. 数据库统计口径（实现后可用）
 
@@ -67,9 +71,10 @@
 
 ## 6. 未解决问题
 
-1. 真实全库 Person / 属性记录 / UID 统计：NOT_RUN。
-2. 真实重复 UID 与同名冲突数量：NOT_RUN。
+1. 真实全库 Person / 属性记录 / UID 统计：**已完成**（Save A）。
+2. 真实重复 UID 与同名冲突数量：**已完成**（重复 UID 0，同名待审 813）。
 3. 真实跨存档 A/B/A：NOT_RUN。
-4. PostgreSQL 实机迁移：NOT_RUN（未配置 `SCOUTMIND_PG_TEST_URL`）。
+4. 真实存档身份指纹绑定：NOT_RUN（本次导入未携带 Save Identity）。
+5. PostgreSQL 实机迁移：CI 作业已通过；本地未单独执行。
 
-以上未解决问题不阻塞工程合并判断，但意味着真实数据验收只能是 PARTIAL。
+以上未解决问题不阻塞工程合并判断，但真实跨存档验收仍只能 PARTIAL。
