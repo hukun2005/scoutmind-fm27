@@ -66,6 +66,39 @@ public static class SaveIdentityTests
                 "不同文件身份不得得到同一指纹");
         });
 
+        harness.Run("身份：歧义解析不得作为当前存档指纹", () =>
+        {
+            var resolution = SaveIdentityResolver.Resolve(new SaveIdentityInput(
+                Process(),
+                new[]
+                {
+                    SaveFile("a.fm", fileId: "F1", mtime: Start),
+                    SaveFile("b.fm", fileId: "F2", mtime: Start.AddMinutes(5)),
+                }));
+
+            TestHarness.Equal(null, SaveIdentityBinding.CurrentFingerprint(resolution), "歧义时当前指纹必须是 null");
+        });
+
+        harness.Run("身份：唯一存档文件可作为当前存档指纹", () =>
+        {
+            var resolution = SaveIdentityResolver.Resolve(new SaveIdentityInput(
+                Process(), new[] { SaveFile("a.fm", fileId: "F7") }));
+
+            TestHarness.Equal(
+                SaveIdentityFingerprint.FromSaveFile("V1", "F7"),
+                SaveIdentityBinding.CurrentFingerprint(resolution),
+                "唯一文件应给出文件指纹");
+        });
+
+        harness.Run("身份：未解析结果不得作为当前存档指纹", () =>
+        {
+            var resolution = SaveIdentityResolver.Resolve(new SaveIdentityInput(
+                Process(pid: null, detected: false),
+                Array.Empty<SaveFileSnapshot>()));
+
+            TestHarness.Equal(null, SaveIdentityBinding.CurrentFingerprint(resolution), "无进程时当前指纹必须是 null");
+        });
+
         harness.Run("身份：多个未锁定存档视为歧义", () =>
         {
             var resolution = SaveIdentityResolver.Resolve(new SaveIdentityInput(
