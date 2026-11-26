@@ -1,56 +1,61 @@
-# V3.2.9 UID 作用域设计（只设计，不实现）
+# V3.2.9 UID 作用域设计与实现
 
-## 1. 原则
+状态：**已实现**（代码 + 迁移 + 测试）。真实 FM27 全库数字见 PHASE-0-DATA-AUDIT。
+
+## 1. 核心结论
 
 - UID 是**存档内关联键**，不是全球永久 ID。
-- 缺失 UID 不得默认为 0；哨兵值不得当作身份。
+- 缺失 UID 不默认为 0；`4294967295` / `-1` 等哨兵不是身份。
 - 不同存档中的相同 UID 不自动认定为同一球员。
-- 优先复用 `SaveIdentity` / `SaveSession` / `PlayerInstance`，不建第二套存档身份系统。
+- 复用既有 `SaveIdentity` / `SaveSession` / `PlayerInstance`，没有第二套存档身份系统。
 
-## 2. 现有基础
+## 2. 数据模型
 
-`PlayerInstance` 已有唯一约束 `(fm_save_id, save_local_uid, uid_occurrence)`，已经表达
-“同一存档内 UID 可重复出现（occurrence）”。这比“UID 全局唯一”更接近真实数据。
+`player_uid_observations`（只追加）：
 
-## 3. 建议新增（合并 V3.2.8.1 后）
+| 字段 | 说明 |
+| --- | --- |
+| `fm_save_id` | 存档作用域 |
+| `observation_key` | 幂等键：存档 + 指纹 + 会话 + 来源 + 实例 + 采集时间 的 SHA-256 |
+| `save_identity_fingerprint` | 复用 V3.2.8.1 的存档身份指纹 |
+| `session_key` | 采集会话 |
+| `player_instance_id` / `player_id` | 指向实例与实体（可空） |
+| `uid` | 原始文本（保留前导零 / 哨兵原值） |
+| `uid_status` | `valid` / `sentinel` / `missing` / `invalid` |
+| `status` | `Valid` / `Missing` / `Duplicate` / `Conflicted` / `Stale` / `Unsupported` |
+| `source_type` | `live_reader` / `scan` / `dump` / `import` |
+| `game_build` / `layout_version` | 版本作用域 |
+| `attribute_record_digest` | 姓名 + 生日 + UID 的摘要，不含地址 |
+| `evidence_hash` | 观测证据摘要 |
+| `conflicting_player_id` | 重复/冲突时的另一方，仅作证据 |
 
-`PlayerUidObservation`（观测表，只追加）：
+唯一约束是 `(fm_save_id, observation_key)`；**没有**跨存档 UID 唯一约束。
 
-- `id`
-- `fm_save_id`（外键）
-- `save_identity_fingerprint`（与 V3.2.8.1 作用域同口径）
-- `person_instance_id`（外键，可空）
-- `attribute_record_digest`（姓名/生日/UID 的 SHA-256，不含地址）
-- `uid`（字符串保存，保留前导零与原始表示）
-- `source_type`（live_reader / dump / import）
-- `game_build` / `layout_version`
-- `session_key`
-- `observed_at`
-- `confidence`
-- `status`（Valid / Missing / Duplicate / Conflicted / Stale / Unsupported）
-- `evidence_hash`
-
-唯一性建议：`(fm_save_id, uid, source_type, session_key, observed_at)` 或按采集批次去重；
-**不建立跨存档 UID 唯一约束**。
-
-## 4. 状态与判定
+## 3. 状态判定
 
 | 状态 | 条件 | 处理 |
 | --- | --- | --- |
-| Valid | 存档内唯一、非 0、非哨兵 | 可作为存档内关联键 |
-| Missing | 读不到/为 0 | 不得参与匹配，保留缺失原因 |
-| Duplicate | 同存档多条记录同 UID | 不自动合并；全部保留，进入人工审核 |
-| Conflicted | UID 一致但生日/姓名冲突 | `IdentityConflict`，不自动合并 |
-| Stale | 所属 Save Identity 或会话已变化 | 禁止继续使用，保留历史 |
+| Valid | 分类为 valid，且存档内只有一个球员实体使用该 UID | 可作为存档内关联键 |
+| Missing | 缺失 / 哨兵 / 0 / 非法 | 不参与匹配，保留原因 |
+| Duplicate | 同存档一个 UID 对应多个球员实体 | 不自动合并，写审核条目 |
+| Conflicted | UID 一致但同名/生日冲突 | 写审核条目，保留双方 |
+| Stale | 所属存档身份或会话变化 | 关联失效，保留历史 |
 | Unsupported | 布局/构建不支持 | 停止真实读取 |
 
-## 5. 测试方案
+## 4. 实现位置
 
-- 同存档唯一 UID / 重复 UID。
-- 不同存档相同 UID（必须不合并）。
-- 缺失 UID、Sentinel UID。
-- UID 变化、版本变化、布局变化。
-- 重复导入幂等、断点恢复。
-- 并发扫描不产生重复观测。
+- `backend/app/services/uid_scope.py`：分类、幂等观测、重复分组、统计。
+- `backend/app/models.py`：`PlayerUidObservation`。
+- `backend/alembic/versions/a1b2c3d4e5f6_player_identity_governance.py`：建表与索引。
+- 分类规则复用 `backend/app/ingestion/uid_status.py`，未重写哨兵逻辑。
 
-实现前这些用例全部为 `NOT_RUN`；本阶段不创建表、不写迁移。
+## 5. 测试
+
+`backend/tests/test_v329_uid_scope.py`（6 项，全部 PASS）：
+
+- 有效 UID 观测幂等；
+- 哨兵 / 缺失 / 0 均为 Missing，不是 0；
+- 指纹或会话变化产生新观测而不是覆盖；
+- 同存档重复 UID 可检出；
+- 不同存档相同 UID 不合并；
+- 属性摘要不含内存地址。

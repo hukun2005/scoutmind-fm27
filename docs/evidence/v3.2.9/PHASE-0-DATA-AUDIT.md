@@ -1,59 +1,75 @@
-# V3.2.9 Phase 0：全库身份数据审计（只读）
+# V3.2.9 全库身份数据审计（Phase 0）
 
-## 1. 审计范围与方法
+日期：2026-11-26
+状态：工程审计 **PASS**；真实 FM27 全库统计 **NOT_RUN**。
 
-- 只读代码与模型：`backend/app/models.py`、`backend/app/services/save_identity.py`、`live-reader` 校准与作用域代码。
-- 只读真实环境：FM27 进程/构建/布局、Save Identity 诊断、`players` 诊断命令。
-- 不启动全库扫描（任务书要求实现后才有全库批处理；本阶段未实现）。
-- 历史数字一律标注为「历史」，不作为当前结果。
+## 1. 审计方法
+
+- 静态审计：`backend/app/models.py`、`backend/app/ingestion/*`、`backend/app/services/*`、`backend/alembic/versions/*`。
+- 运行审计：`backend` 全量 pytest（结果见 TEST-MATRIX）、SQLite 迁移实测。
+- 真实环境：只读进程检查。
+- 历史数字全部标注为「历史」，不复制成当前结果。
 
 ## 2. 当前真实环境
 
-| 项目 | 值 |
+| 项目 | 值 | 来源 |
+| --- | --- | --- |
+| FM27 进程 | 运行中，pid 72012 | 本机只读进程检查 |
+| 游戏构建 | 26620374 | V3.2.8.1 证据（本次未重新读取） |
+| 插件版本 | 27.1 | 同上 |
+| 布局 | FM27_1 | 同上 |
+| 当前存档身份指纹 | `si:v1:file:b887415a…`（脱敏） | V3.2.8.1 证据（本次未重新读取） |
+
+## 3. 数量关系（必须分开统计）
+
+| 概念 | 表 | 本次真实值 |
+| --- | --- | --- |
+| Person 候选 | 由 live reader 决定，不落库 | NOT_RUN |
+| 属性记录 | `player_snapshots` + `player_attribute_values` | NOT_RUN |
+| UID | `player_instances.save_local_uid` / `player_uid_observations` | NOT_RUN |
+| Canonical Player | `players` | NOT_RUN |
+| 当前存档球员 | `player_instances` | NOT_RUN |
+
+不能假设 Person 数量 = 属性记录数量 = UID 数量。V3.2.9 的扫描统计只从数据库真实行计算，不在内存里估算。
+
+## 4. 数据库统计口径（实现后可用）
+
+| 指标 | 计算方式 |
 | --- | --- |
-| FM27 进程 | pid 72012 |
-| 构建号 | 26620374 |
-| 插件版本 | 27.1 |
-| 布局 | FM27_1（闸门 Verified，allow_scan=true） |
-| Save Identity | `si:v1:file:b887415a…`（VERIFIED，snapshot_eligible=true） |
-| 自动快照 | 关闭 |
+| Person 总数 | `count(players)` |
+| 存档内实例 | `count(player_instances where fm_save_id=?)` |
+| 唯一 UID | `count(distinct save_local_uid)` |
+| 重复 UID | 按 UID 分组后 `count(distinct player_id) > 1` 的组数 |
+| 缺失 UID | 观测状态 `Missing` |
+| 姓名读取成功 | 数据库层不单独统计；由快照/导入报告提供 |
+| 出生日期成功 | `players.birth_date is not null` |
+| 属性关联成功 | 扫描中 `matched_count` |
+| 冲突数 | `conflict_count` + 审核条目数 |
+| Verified / Stale / 未验证 | 本层不生产 Verified；Stale 由 `mark_save_links_stale` 产生 |
 
-## 3. 当前可测数据（只读、有限样本）
+## 5. 模型审计结论
 
-| 指标 | 本次观测 | 口径 |
+| 概念 | 现有实现 | 结论 |
 | --- | --- | --- |
-| 诊断命令定位到的球员记录 | 60 | `players` 命令默认上限样本 |
-| 该命令读到的姓名 | 0（`name: null`） | 该命令路径不读取姓名，不代表姓名不可读 |
-| 姓名/生日精确匹配 | 0/2 名历史核对球员 | 当前存档与历史核对存档不同，工具拒绝自动选择 |
-| Person 候选总数 | UNKNOWN | 未执行全库扫描 |
-| 属性记录总数 | UNKNOWN | 未执行全库扫描 |
-| UID 可读数量 | UNKNOWN（本次未逐条读取） | V3.2.8 历史样本为 1500/1500，不能当作当前结果 |
-| UID 重复数量 | UNKNOWN | 同上 |
-| 冲突数量 | UNKNOWN | 未执行全库关联 |
-| Verified / Stale / 未验证 | 0 / 0 / UNKNOWN | 进程内无 Canonical 持久化；Stale 为新增状态 |
-
-## 4. 现有模型审计
-
-| 概念 | 现有实现 | 可复用性 |
-| --- | --- | --- |
-| 球员实体 | `Player` | 可复用 |
-| 存档内实例 | `PlayerInstance`（`fm_save_id + save_local_uid + uid_occurrence` 唯一） | 已具备存档内 UID 作用域 |
-| 身份匹配审计 | `IdentityMatch` | 可扩展，不新建同义表 |
-| 身份冲突 | `IdentityConflict` / `IdentityConflictAction`（追加写） | 可直接承载同名/UID 冲突 |
-| 观测 canonical | `PlayerObservationCanonical`（按存档+实例+游戏日） | 可复用，不等于 Canonical Player |
-| 未解析球员 | `UnresolvedPlayerCandidate/Observation/Action` | 可作为待审核候选 |
-| 转会候选 | `TransferEventCandidate`（俱乐部变化不自动升级为成交） | 可复用 |
-| 存档身份 | `SaveIdentity` / `SaveEvidence` / `SaveSession` | Verified 作用域的权威来源 |
-| Verified 球员身份 | 仅 C# 决策 + 审计行，无持久化表 | 需在合并后设计（本阶段不实现） |
-
-## 5. 关键结论
-
-1. 现有模型已经区分「存档内 UID」与「球员实体」，不存在“把 UID 当全球 ID”的既有实现。
-2. 缺少的是：跨存档 Canonical Identity 的持久化与人工审核队列；本阶段不得在旧模型上并行开发。
-3. 全库统计必须在 V3.2.8.1 合并、批处理实现之后重新采集；当前只读审计不能给出全库数字。
+| 球员实体 | `players` | 复用为 Canonical 主表 |
+| 存档内实例 | `player_instances`（`fm_save_id + save_local_uid + uid_occurrence` 唯一） | 已是存档内 UID 作用域 |
+| 身份匹配审计 | `identity_matches` | 保留 |
+| 身份冲突 | `identity_conflicts` + `identity_conflict_actions` | 保留；V3.2.9 新增强化队列 |
+| 观测 canonical | `player_observation_canonicals` | 与 Canonical Player 不是同一概念 |
+| 未解析球员 | `unresolved_player_candidates` 等 | 保留 |
+| 转会候选 | `transfer_event_candidates` | 保留 |
+| 存档身份 | `save_identities` / `save_sessions` | 复用 |
+| UID 观测 | **新增** `player_uid_observations` | 本次实现 |
+| 身份关联 | **新增** `player_identity_links` | 本次实现 |
+| 审核队列 | **新增** `player_identity_review_items` / `_actions` | 本次实现 |
+| 批次状态 | **新增** `identity_scan_runs` | 本次实现 |
+| 跨存档候选 | **新增** `cross_save_identity_candidates` | 本次实现 |
 
 ## 6. 未解决问题
 
-- 真实全库 Person/属性记录/UID 统计（NOT_RUN）。
-- 同名冲突的当前数量（NOT_RUN）。
-- 跨存档候选（NOT_RUN，需多存档）。
+1. 真实全库 Person / 属性记录 / UID 统计：NOT_RUN。
+2. 真实重复 UID 与同名冲突数量：NOT_RUN。
+3. 真实跨存档 A/B/A：NOT_RUN。
+4. PostgreSQL 实机迁移：NOT_RUN（未配置 `SCOUTMIND_PG_TEST_URL`）。
+
+以上未解决问题不阻塞工程合并判断，但意味着真实数据验收只能是 PARTIAL。

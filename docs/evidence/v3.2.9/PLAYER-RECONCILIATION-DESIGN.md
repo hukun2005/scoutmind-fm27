@@ -1,62 +1,85 @@
-# V3.2.9 全库身份关联与 Canonical 持久化设计（只设计）
+# V3.2.9 全库球员身份关联设计与实现
 
-## 1. 现状
+状态：**已实现**（服务、API、批处理、迁移、测试）。
 
-- 已有 `Player`（实体）、`PlayerInstance`（存档内实例）、`IdentityMatch`（匹配审计）、
-  `IdentityConflict`/`IdentityConflictAction`（冲突与人工操作）、`UnresolvedPlayerCandidate`（未解析候选）。
-- 没有跨存档 Canonical Player 的持久化与审核队列。
-- V3.2.8.1 已把 Verified 绑定到 Save Identity / 会话 / 构建 / 布局。
+## 1. 六步流水线（不可跳步）
 
-## 2. 流水线（六步，禁止跳步）
+1. **候选发现**：只读取 `player_instances` 的 id / player_id / uid / 姓名 / 生日元数据。
+2. **字段读取**：缺失保持 NULL，不补 0、不猜生日。
+3. **身份匹配**：存档内 UID 优先；同名 / 同生日只用于判定冲突，不用于合并。
+4. **冲突识别**：同名、重复 UID、同名同生日不同 UID 全部进入审核。
+5. **人工审核**：确认同一人 / 不同人 / 保留独立 / 暂缓。
+6. **Canonical 更新**：只有第 5 步之后才写 `ConfirmedByHuman` 关联。
 
-1. 候选发现（只定位，不写 Verified）。
-2. 字段读取（缺失保持 null）。
-3. 身份匹配（UID + 生日 + 姓名 + 其他字段）。
-4. 冲突识别（多候选/同名/生日冲突）。
-5. 人工审核（确认/拒绝/保留独立/待调查）。
-6. Canonical 更新（仅在第 5 步之后）。
+扫描阶段最多写到 `Candidate` / `Conflicted` / `Unverified`，**永不写 Verified**。
 
-## 3. 匹配策略
+## 2. 有界批处理
 
-优先级：存档内 UID → 出生日期 → 规范化姓名 → 其他稳定字段 → 俱乐部（仅辅助）。
-禁止：只用姓名/生日/CA-PA 自动合并；字符串相似度直接合并；多候选取第一条。
+`identity_scan_runs` 保存批次状态：
 
-状态：`NoMatch`、`SingleCandidate`、`MultipleCandidates`、`VerifiedMatch`、`Conflicted`、`Rejected`、
-`PendingHumanReview`、`Stale`。`VerifiedMatch` 仍不等于 V3.2.8.1 的 Verified。
+- `scan_id`（存档内唯一，幂等重放）
+- `status`：Queued / Running / Paused / Completed / Failed / Cancelled
+- `cursor`：已处理的最大实例 id
+- `total_instances` / `processed_count` / `matched_count` / `conflict_count` / `failed_count`
+- `payload_checksum`：存档 + 指纹 + 构建 + 布局 + 实例规模的作用域摘要
+- `save_identity_fingerprint` / `game_build` / `layout_version`
+- `started_at` / `finished_at` / `error_code` / `error_message`
 
-## 4. 持久化建议（合并后实现）
+每批：
 
-- 优先扩展 `Player` 作为 canonical 实体，不新建第二张主表。
-- 新增 `PlayerIdentityLink`（设计稿）：
-  `canonical_player_id`、`fm_save_id`、`save_local_uid`、`source_record_id`、
-  `verification_status`、`confidence`、`linked_at`、`valid_from`、`valid_to`、`evidence_json`。
-- 历史不覆盖：姓名/俱乐部/UID 变化、审核记录、失效原因全部追加。
-- 迁移要求：新增 migration、不改已发布 migration、SQLite upgrade/downgrade/再 upgrade、PostgreSQL 兼容、
-  历史数据不丢失。
+1. 按 id 游标取 `batch_size` 条（上限 1000）；
+2. 逐条记录 UID 观测、判定冲突、写候选关联；
+3. 更新游标与计数；
+4. **提交一次**，然后进入下一批。
 
-## 5. 批处理与恢复
+单行失败只累加 `failed_count`，不拖垮整批。
 
-- 有界批次、每批进度与结果、可恢复、可重试、幂等。
-- 保存 `scan_id`、`save_id`、`batch_id`、`cursor`、计数、`payload_checksum`、时间戳。
-- 恢复前校验 Save Identity、进程、构建、布局、数据指纹；不匹配禁止复用旧指针。
-- 禁止一次性扫描无限内存、禁止超长事务。
+## 3. 断点恢复
 
-## 6. 同名冲突
+- 恢复前比较当前实例规模与创建批次时的规模：不一致 → `Failed` + `BATCH_CHECKSUM_MISMATCH`，不复用旧进度。
+- 恢复时必须携带当前存档身份指纹 / 构建 / 布局：不一致 → `Failed` + `SAVE_IDENTITY_MISMATCH`。
+- 旧指针（实例 id 之外的内存地址）从不持久化，因此不存在跨进程复用。
 
-同名不同生日 → `Conflicted`；同名同生日不同 UID → `PendingHumanReview`（不自动合并）；
-UID 一致但其他字段冲突 → `Conflicted`。所有冲突保留原始记录与证据，追加审计。
+## 4. 同名冲突
 
-## 7. 跨存档
+| 场景 | 结果 |
+| --- | --- |
+| 同名 + 同生日 + 不同 UID | `Conflicted`，审核条目 `same_name_same_birth_date` |
+| 同名 + 不同生日 | `Conflicted`，审核条目 `same_name_different_birth_date` |
+| 同名 + 至少一方生日未知 | `Conflicted`，审核条目 `same_name_unknown_birth_date` |
 
-使用姓名 + 生日 + 已验证历史映射 + 其他稳定字段生成候选；仅生成 `CrossSaveCandidate`，
-不得直接合并 Canonical。存档隔离：A 不得覆盖 B，A 的 UID 不得成为 B 的 UID。
+同名条目按「参与者集合」生成幂等键，双方各扫一次不会产生两条。
 
-## 8. 历史转会关联
+## 5. 重复 UID
 
-复用 `TransferEventCandidate` 与 `Transfer`；球员身份关联使用 `PlayerIdentityLink`。
-俱乐部变化、自由球员、退役都不改变身份；租借必须区分母俱乐部/租借俱乐部/时间/类型；
-附加条款不得混入基础转会费；身份不确定的交易保留待审核。
+同一存档内一个 UID 对应多个球员实体时：
 
-## 9. 明确未实现
+- 观测状态置为 `Duplicate`；
+- 生成 `uid_duplicate` 审核条目，保留全部球员 id；
+- 不合并、不删除任何实例。
 
-本阶段未创建任何表、迁移、API、前端页面或批处理代码；全部等待 V3.2.8.1 合并后执行。
+## 6. API
+
+| 方法 | 路径 | 作用 |
+| --- | --- | --- |
+| GET | `/identity/center/summary` | 全库统计与治理状态 |
+| GET | `/identity/center/queue` | 审核队列（分页/筛选） |
+| GET | `/identity/center/queue/{id}` | 条目详情与历史 |
+| POST | `/identity/center/queue/{id}/resolve` | 提交决定 |
+| GET | `/identity/center/players/{id}` | 球员身份详情 |
+| GET | `/identity/center/uid-map` | UID 作用域映射 |
+| GET | `/identity/center/cross-save` | 跨存档候选 |
+| POST | `/identity/center/cross-save/{id}/review` | 跨存档人工决定 |
+| GET | `/identity/center/history` | 审核历史 |
+| POST/GET | `/identity/scans` | 创建/列出扫描 |
+| GET | `/identity/scans/{id}` | 扫描详情 |
+| POST | `/identity/scans/{id}/pause\|resume\|cancel` | 状态控制 |
+| POST | `/identity/transfers/link` | 补齐转会身份关联 |
+
+## 7. 实现位置
+
+- `backend/app/services/identity_engine.py`
+- `backend/app/services/identity_review.py`
+- `backend/app/api/routes_identity_center.py`
+- `backend/tests/test_v329_reconciliation.py`（8 项）
+- `backend/tests/test_v329_identity_review.py`（8 项）
