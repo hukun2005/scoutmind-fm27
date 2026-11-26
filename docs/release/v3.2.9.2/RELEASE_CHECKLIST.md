@@ -47,7 +47,7 @@
 | D5 | 已知问题 | PASS |
 | D6 | 测试报告 | PASS |
 | D7 | 安全报告 | PASS |
-| D8 | 构建报告（含 SHA256） | PASS（Phase 8 填写） |
+| D8 | 构建报告（含 SHA256） | PASS（`2d5e31fc…ee91`，见 `BUILD_REPORT.md`） |
 | D9 | README / CHANGELOG / ROADMAP 更新 | PASS |
 
 ## E. 发布动作（需用户授权）
