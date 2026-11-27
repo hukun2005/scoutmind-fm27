@@ -17,6 +17,8 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import FmSave, PlayerInstance, TransferNegotiation, TransferOffer
 from ..services import transfer_director as director
+from ..services import transfer_radar as radar
+from ..services import transfer_strategy as strategy
 from .deps import get_active_save, instance_in_save_or_404
 
 router = APIRouter()
@@ -27,7 +29,7 @@ class PurchaseOfferRequest(BaseModel):
 
 
 class SaveOfferRequest(BaseModel):
-    direction: Literal["purchase", "sale"]
+    direction: Literal["purchase", "sale", "loan"]
     offer_type: str = Field(min_length=1, max_length=32)
     base_fee: float | None = Field(default=None, ge=0)
     immediate_payment: float | None = Field(default=None, ge=0)
@@ -38,13 +40,18 @@ class SaveOfferRequest(BaseModel):
     sell_on_pct: float | None = Field(default=None, ge=0, le=100)
     currency: str = Field(default="EUR", max_length=8)
     wage_impact: float | None = None
+    loan_fee: float | None = Field(default=None, ge=0)
+    wage_contribution_pct: float | None = Field(default=None, ge=0, le=100)
+    buy_option_fee: float | None = Field(default=None, ge=0)
+    buy_obligation_fee: float | None = Field(default=None, ge=0)
+    loan_months: int | None = Field(default=None, ge=1, le=36)
     risk_level: Literal["low", "medium", "high"] = "medium"
     rationale: dict[str, Any] = Field(default_factory=dict)
 
 
 class CreateNegotiationRequest(BaseModel):
     instance_id: int = Field(gt=0)
-    direction: Literal["purchase", "sale"]
+    direction: Literal["purchase", "sale", "loan"]
     offer_id: int | None = Field(default=None, gt=0)
     initial_ask: float | None = Field(default=None, ge=0)
     note: str | None = Field(default=None, max_length=256)
@@ -85,6 +92,138 @@ def overview(
     return director.overview(db, save.id, save.user_club_id)
 
 
+@router.get("/transfer-director/opportunities", summary="转会机会雷达：分页列表")
+def opportunities(
+    opportunity_type: Literal[
+        "listed", "loan_listed", "release_listed", "contract_expiring", "ai_inferred"
+    ] | None = Query(default=None, alias="type"),
+    club_id: int | None = Query(default=None, gt=0),
+    position: str | None = Query(default=None, max_length=32),
+    age_min: int | None = Query(default=None, ge=10, le=60),
+    age_max: int | None = Query(default=None, ge=10, le=60),
+    group: Literal["strong", "watch", "loan", "long_term", "not_recommended"] | None = Query(default=None),
+    search: str | None = Query(default=None, max_length=64),
+    sort: Literal["score", "contract", "age", "value", "newest"] = Query(default="score"),
+    limit: int = Query(default=30, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    if age_min is not None and age_max is not None and age_min > age_max:
+        raise HTTPException(status_code=400, detail={"code": "invalid_age_range", "message": "年龄下限不能大于上限"})
+    try:
+        return radar.list_opportunities(
+            db,
+            save.id,
+            opportunity_type=opportunity_type,
+            club_id=club_id,
+            position=position,
+            age_min=age_min,
+            age_max=age_max,
+            group=group,
+            search=search,
+            sort=sort,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"code": "invalid_filter", "message": str(exc)}) from exc
+
+
+@router.get("/transfer-director/opportunities/summary", summary="转会机会雷达：顶部统计与能力说明")
+def opportunities_summary(
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return radar.summary(db, save.id)
+
+
+@router.post("/transfer-director/opportunities/refresh", summary="重新扫描全部可读球员并记录变化")
+def refresh_opportunities(
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return radar.scan(db, save.id)
+
+
+@router.get("/transfer-director/opportunities/{instance_id}", summary="单个球员的全部机会与交易上下文")
+def opportunity_detail(
+    instance_id: int,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    instance = instance_in_save_or_404(db, instance_id, save)
+    payload = radar.player_opportunities(db, save.id, instance_id)
+    context = director.enrich_context(db, director.player_transfer_context(db, instance))
+    return {"opportunity": payload, "context": context}
+
+
+@router.get("/transfer-director/opportunity-events", summary="机会状态变化历史")
+def opportunity_events(
+    instance_id: int | None = Query(default=None, gt=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return radar.list_events(db, save.id, instance_id=instance_id, limit=limit, offset=offset)
+
+
+@router.get("/transfer-director/alerts", summary="转会机会提醒")
+def transfer_alerts(
+    unread_only: bool = Query(default=False),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return radar.list_alerts(db, save.id, unread_only=unread_only, limit=limit)
+
+
+@router.post("/transfer-director/alerts/{alert_id}/read", summary="标记提醒已读")
+def read_transfer_alert(
+    alert_id: int,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    try:
+        return radar.mark_alert_read(db, save.id, alert_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail={"code": "alert_not_found", "message": "提醒不存在"}) from exc
+
+
+@router.get("/transfer-director/strategy-cases", summary="历史成交策略案例列表")
+def strategy_cases(
+    transfer_type: Literal["permanent", "loan", "free"] | None = Query(default=None),
+    case_origin: Literal["imported", "demo", "negotiation"] | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return strategy.list_cases(
+        db, save.id, transfer_type=transfer_type, case_origin=case_origin, limit=limit, offset=offset
+    )
+
+
+@router.get("/transfer-director/strategy-cases/similar/{instance_id}", summary="相似成交案例匹配")
+def similar_strategy_cases(
+    instance_id: int,
+    limit: int = Query(default=10, ge=1, le=50),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    instance_in_save_or_404(db, instance_id, save)
+    return strategy.similar_cases(db, save.id, instance_id, limit=limit)
+
+
+@router.get("/transfer-director/strategy-insights", summary="成交策略归纳（带样本量与案例引用）")
+def strategy_insights(
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return strategy.insights(db, save.id)
+
+
 @router.get("/transfer-director/player/{instance_id}", summary="AI 交易分析：合同/条款/历史/估值")
 def player_analysis(
     instance_id: int,
@@ -95,6 +234,7 @@ def player_analysis(
     context = director.enrich_context(db, director.player_transfer_context(db, instance))
     context["purchase_preview"] = director.generate_purchase_offers(db, instance)
     context["sale_preview"] = director.generate_sale_offers(db, instance)
+    context["loan_preview"] = director.generate_loan_offers(db, instance)
     return context
 
 
@@ -119,10 +259,42 @@ def sale_offers(
     return director.generate_sale_offers(db, instance)
 
 
+@router.post("/transfer-director/player/{instance_id}/loan-offers", summary="生成三套租借方案")
+def loan_offers(
+    instance_id: int,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    instance = instance_in_save_or_404(db, instance_id, save)
+    return director.generate_loan_offers(db, instance)
+
+
+@router.post("/transfer-director/offers/loan", summary="生成三套租借方案（工作台入口）")
+def loan_offers_workspace(
+    instance_id: int = Query(..., gt=0),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    instance = instance_in_save_or_404(db, instance_id, save)
+    return director.generate_loan_offers(db, instance)
+
+
+@router.get("/transfer-director/offers/{offer_id}", summary="报价详情")
+def offer_detail(
+    offer_id: int,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    offer = db.get(TransferOffer, offer_id)
+    if offer is None or offer.fm_save_id != save.id:
+        raise HTTPException(status_code=404, detail={"code": "offer_not_found", "message": "报价方案不存在"})
+    return director.serialize_offer(offer)
+
+
 @router.get("/transfer-director/offers", summary="报价方案列表")
 def offers(
     instance_id: int | None = Query(default=None, gt=0),
-    direction: Literal["purchase", "sale"] | None = Query(default=None),
+    direction: Literal["purchase", "sale", "loan"] | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     save: FmSave = Depends(get_active_save),

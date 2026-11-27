@@ -39,10 +39,12 @@ from ..models import (
 from ..utils import fee_round, iso, utcnow
 
 OFFER_VERSION = "transfer-offer-1"
+LOAN_OFFER_VERSION = "transfer-loan-offer-1"
 REVIEW_VERSION = "negotiation-review-1"
 
 PURCHASE_TYPES = ("conservative", "competitive", "fast_close")
 SALE_TYPES = ("quick_sale", "fair_sale", "max_value")
+LOAN_TYPES = ("low_cost_loan", "development_loan", "loan_to_buy")
 NEGOTIATION_STATUSES = (
     "DRAFT",
     "PROPOSED",
@@ -681,6 +683,112 @@ def generate_sale_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
     }
 
 
+def generate_loan_offers(db: Session, instance: PlayerInstance) -> dict[str, Any]:
+    """V3.3.2-05-05：三套租借方案（低成本 / 发展型 / 租借后买断）。
+
+    金额全部由确定性规则从估值推导；未知估值不生成金额。租借费、工资承担与买断费
+    都是"建议条款"，不是当前合同事实。
+    """
+    snapshot = latest_snapshot(db, instance.id)
+    contract = _contract(db, instance, snapshot)
+    factors = _factor_bundle(db, instance, snapshot, contract)
+    base_info = _base_value(db, instance, snapshot)
+    availability = latest_availability(db, instance.id)
+    missing = list(contract["missing_fields"]) + ["loan_terms", "transfer_budget"]
+    warnings = list(base_info["warnings"])
+    if availability is None or availability.loan_listed is not True:
+        warnings.append("游戏内未标记可租借，报价可能被拒绝")
+    if latest_loan(db, instance.id) is not None:
+        warnings.append("该球员已存在租借关系，先确认原租借是否结束")
+    warnings.append("当前未获取可靠预算数据，租借方案不包含预算可行性保证")
+
+    if base_info["base"] is None:
+        return {
+            "instance_id": instance.id,
+            "direction": "loan",
+            "currency": "EUR",
+            "available": False,
+            "offers": [],
+            "factors": factors,
+            "basis": base_info,
+            "warnings": warnings,
+            "missing_fields": sorted(set(missing)),
+            "algorithm_version": LOAN_OFFER_VERSION,
+        }
+
+    adjusted = base_info["base"] * factors["combined_multiplier"]
+    annual_wage = contract["annual_wage"]
+    loan_months = 12
+    rationale_common = {
+        "basis": base_info["basis"],
+        "base": fee_round(base_info["base"]),
+        "adjusted_base": fee_round(adjusted),
+        "factors": factors,
+        "valuation": base_info["valuation"],
+        "missing_fields": sorted(set(missing)),
+        "loan_months": loan_months,
+        "note": "租借费、工资承担与买断费均为 AI 建议条款，不是当前合同已有条款",
+    }
+
+    def _loan_offer(offer_type: str, fee_pct: float, wage_pct: float, option_fee: float | None,
+                    obligation_fee: float | None, risk: str, reason: str) -> dict[str, Any]:
+        loan_fee = adjusted * fee_pct
+        buy_fee = option_fee if option_fee is not None else obligation_fee
+        return {
+            "offer_type": offer_type,
+            "currency": "EUR",
+            "base_fee": fee_round(loan_fee),
+            "immediate_payment": fee_round(loan_fee),
+            "installments_total": None,
+            "addons_potential": None,
+            "total_committed": fee_round(loan_fee),
+            "potential_total": fee_round(loan_fee + (buy_fee or 0)),
+            "sell_on_pct": None,
+            "wage_impact": fee_round(annual_wage * wage_pct / 100) if annual_wage is not None else None,
+            "loan_fee": fee_round(loan_fee),
+            "wage_contribution_pct": wage_pct,
+            "buy_option_fee": fee_round(option_fee) if option_fee is not None else None,
+            "buy_obligation_fee": fee_round(obligation_fee) if obligation_fee is not None else None,
+            "loan_months": loan_months,
+            "risk_level": risk,
+            "rationale": {**rationale_common, "reason": reason},
+            "algorithm_version": LOAN_OFFER_VERSION,
+        }
+
+    offers = [
+        _loan_offer(
+            "low_cost_loan", 0.01, 30, None, None, "low",
+            "只承担 1% 租借费与 30% 工资，成本最低，适合轮换与短租试探",
+        ),
+        _loan_offer(
+            "development_loan", 0.03, 50, adjusted * 0.95, None, "medium",
+            "承担 3% 租借费与 50% 工资，并保留 95% 估值的买断选择权，适合年轻球员发展",
+        ),
+        _loan_offer(
+            "loan_to_buy", 0.05, 70, None, adjusted, "high",
+            "承担 5% 租借费与 70% 工资，附带等值强制买断，适合确定要长期留下的目标",
+        ),
+    ]
+    return {
+        "instance_id": instance.id,
+        "direction": "loan",
+        "currency": "EUR",
+        "available": True,
+        "offers": offers,
+        "factors": factors,
+        "basis": {
+            "kind": base_info["basis"],
+            "base": fee_round(base_info["base"]),
+            "sample_size": base_info["sample_size"],
+            "confidence": base_info["confidence"],
+        },
+        "loan_listed": availability.loan_listed if availability is not None else None,
+        "warnings": warnings,
+        "missing_fields": sorted(set(missing)),
+        "algorithm_version": LOAN_OFFER_VERSION,
+    }
+
+
 def save_offer(db: Session, save_id: int, instance_id: int, direction: str, payload: dict[str, Any]) -> TransferOffer:
     offer = TransferOffer(
         fm_save_id=save_id,
@@ -696,6 +804,11 @@ def save_offer(db: Session, save_id: int, instance_id: int, direction: str, payl
         sell_on_pct=payload.get("sell_on_pct"),
         currency=str(payload.get("currency") or "EUR"),
         wage_impact=payload.get("wage_impact"),
+        loan_fee=payload.get("loan_fee"),
+        wage_contribution_pct=payload.get("wage_contribution_pct"),
+        buy_option_fee=payload.get("buy_option_fee"),
+        buy_obligation_fee=payload.get("buy_obligation_fee"),
+        loan_months=payload.get("loan_months"),
         risk_level=str(payload.get("risk_level") or "medium"),
         rationale_json=json.dumps(payload.get("rationale") or {}, ensure_ascii=False),
         algorithm_version=str(payload.get("algorithm_version") or OFFER_VERSION),
@@ -724,6 +837,11 @@ def serialize_offer(offer: TransferOffer) -> dict[str, Any]:
         "sell_on_pct": offer.sell_on_pct,
         "currency": offer.currency,
         "wage_impact": offer.wage_impact,
+        "loan_fee": offer.loan_fee,
+        "wage_contribution_pct": offer.wage_contribution_pct,
+        "buy_option_fee": offer.buy_option_fee,
+        "buy_obligation_fee": offer.buy_obligation_fee,
+        "loan_months": offer.loan_months,
         "risk_level": offer.risk_level,
         "rationale": _loads(offer.rationale_json),
         "algorithm_version": offer.algorithm_version,

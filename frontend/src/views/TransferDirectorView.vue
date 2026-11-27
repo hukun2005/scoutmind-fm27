@@ -4,19 +4,29 @@
  * 所有数字来自后端确定性引擎；页面只负责展示与记录，不计算金额。
  */
 
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   appendNegotiationEvent,
   createNegotiation,
+  generateLoanOffers,
   generatePurchaseOffers,
   generateSaleOffers,
   getClubTransferSummary,
   getDirectorOverview,
   getNegotiation,
+  getOpportunityDetail,
+  getOpportunitySummary,
   getPlayerTransferAnalysis,
+  getSimilarStrategyCases,
+  getStrategyInsights,
   listNegotiations,
+  listOpportunities,
+  listStrategyCases,
+  listTransferAlerts,
+  markTransferAlertRead,
+  refreshOpportunities,
   reviewNegotiation,
   saveOffer,
 } from '../api/transferDirector'
@@ -27,7 +37,12 @@ import type {
   NegotiationReview,
   Offer,
   OfferBundle,
+  Opportunity,
+  OpportunitySummary,
   PlayerTransferAnalysis,
+  StrategyCase,
+  StrategyInsight,
+  TransferAlert,
   TransferClause,
 } from '../api/transferDirector'
 import { listPlayers } from '../api/players'
@@ -39,9 +54,47 @@ import { formatDate, formatDateTime, formatMoney, formatPercent } from '../utils
 const route = useRoute()
 const router = useRouter()
 
+const section = ref(String(route.query.section ?? (route.query.tab ? 'workbench' : 'radar')))
 const activeTab = ref(String(route.query.tab ?? 'intel'))
 const overview = ref<DirectorOverview | null>(null)
 const loading = ref(false)
+
+const oppSummary = ref<OpportunitySummary | null>(null)
+const oppItems = ref<Opportunity[]>([])
+const oppTotal = ref(0)
+const oppLoading = ref(false)
+const oppFilters = reactive({
+  type: '',
+  group: '',
+  search: '',
+  position: '',
+  ageMin: null as number | null,
+  ageMax: null as number | null,
+  sort: 'score',
+  page: 1,
+  pageSize: 20,
+})
+const oppDetail = ref<{ opportunity: Opportunity; context: PlayerTransferAnalysis | null } | null>(null)
+const detailVisible = ref(false)
+const alerts = ref<TransferAlert[]>([])
+const alertsVisible = ref(false)
+
+const strategyCases = ref<StrategyCase[]>([])
+const strategyInsights = ref<{ available: boolean; patterns: StrategyInsight[]; totals?: Record<string, number>; message: string | null } | null>(null)
+const strategyLoading = ref(false)
+const similarCases = ref<StrategyCase[]>([])
+const similarMessage = ref<string | null>(null)
+
+const loan = ref<OfferBundle | null>(null)
+const loanLoading = ref(false)
+
+const OPPORTUNITY_LABELS: Record<string, string> = {
+  listed: '已挂牌',
+  loan_listed: '可租借',
+  release_listed: '解约挂牌',
+  contract_expiring: '合同到期',
+  ai_inferred: 'AI 推测机会',
+}
 
 const keyword = ref('')
 const candidates = ref<PlayerSummary[]>([])
@@ -124,6 +177,131 @@ async function loadOverview() {
   }
 }
 
+async function loadRadar() {
+  oppLoading.value = true
+  try {
+    const params: Record<string, unknown> = {
+      sort: oppFilters.sort,
+      limit: oppFilters.pageSize,
+      offset: (oppFilters.page - 1) * oppFilters.pageSize,
+    }
+    if (oppFilters.type) params.type = oppFilters.type
+    if (oppFilters.group) params.group = oppFilters.group
+    if (oppFilters.search.trim()) params.search = oppFilters.search.trim()
+    if (oppFilters.position.trim()) params.position = oppFilters.position.trim()
+    if (oppFilters.ageMin !== null) params.age_min = oppFilters.ageMin
+    if (oppFilters.ageMax !== null) params.age_max = oppFilters.ageMax
+    const [summary, listing] = await Promise.all([getOpportunitySummary(), listOpportunities(params as never)])
+    oppSummary.value = summary
+    oppItems.value = listing.items
+    oppTotal.value = listing.total
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  } finally {
+    oppLoading.value = false
+  }
+}
+
+async function refreshRadar() {
+  oppLoading.value = true
+  try {
+    const result = await refreshOpportunities()
+    ElMessage.success(
+      `扫描完成：新增 ${result.created ?? 0}，撤销 ${result.deactivated ?? 0}，提醒 ${result.alerts_created ?? 0}`,
+    )
+    await loadRadar()
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  } finally {
+    oppLoading.value = false
+  }
+}
+
+async function openOpportunity(row: Opportunity) {
+  try {
+    oppDetail.value = await getOpportunityDetail(row.instance_id)
+    detailVisible.value = true
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  }
+}
+
+async function workbenchFromOpportunity(instanceId: number) {
+  detailVisible.value = false
+  section.value = 'workbench'
+  selectedId.value = instanceId
+  await selectedAndLoad(instanceId)
+}
+
+async function loadAlerts() {
+  try {
+    const response = await listTransferAlerts({ limit: 50 })
+    alerts.value = response.items
+    alertsVisible.value = true
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  }
+}
+
+async function readAlert(alert: TransferAlert) {
+  if (alert.read_at) return
+  try {
+    await markTransferAlertRead(alert.alert_id)
+    alert.read_at = new Date().toISOString()
+    if (oppSummary.value) oppSummary.value.alerts_unread = Math.max(0, oppSummary.value.alerts_unread - 1)
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  }
+}
+
+async function loadStrategy() {
+  strategyLoading.value = true
+  try {
+    const [cases, insights] = await Promise.all([listStrategyCases({ limit: 30 }), getStrategyInsights()])
+    strategyCases.value = cases.items
+    strategyInsights.value = insights
+    await loadSimilar()
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  } finally {
+    strategyLoading.value = false
+  }
+}
+
+async function loadSimilar() {
+  if (!selectedId.value) {
+    similarCases.value = []
+    similarMessage.value = null
+    return
+  }
+  try {
+    const response = await getSimilarStrategyCases(selectedId.value)
+    similarCases.value = response.items
+    similarMessage.value = response.message
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  }
+}
+
+async function refreshLoan() {
+  if (!selectedId.value) return
+  loanLoading.value = true
+  try {
+    loan.value = await generateLoanOffers(selectedId.value)
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  } finally {
+    loanLoading.value = false
+  }
+}
+
+function contractTagType(value: number | null): 'success' | 'warning' | 'danger' | 'info' {
+  if (value == null) return 'info'
+  if (value <= 6) return 'danger'
+  if (value <= 12) return 'warning'
+  return 'success'
+}
+
 async function searchPlayers() {
   if (!keyword.value.trim()) {
     candidates.value = []
@@ -143,14 +321,18 @@ async function selectPlayer(instanceId: number) {
 }
 
 async function selectedAndLoad(instanceId: number) {
+  selectedId.value = instanceId
   analysisLoading.value = true
   purchase.value = null
   sale.value = null
+  loan.value = null
   review.value = null
   try {
     analysis.value = await getPlayerTransferAnalysis(instanceId)
     purchase.value = analysis.value.purchase_preview
     sale.value = analysis.value.sale_preview
+    loan.value = analysis.value.loan_preview ?? null
+    await loadSimilar()
     router.replace({ query: { ...route.query, instance_id: String(instanceId) } })
   } catch (error) {
     ElMessage.error((error as Error).message)
@@ -183,7 +365,7 @@ async function refreshSale() {
   }
 }
 
-async function saveDraft(offer: Offer, direction: 'purchase' | 'sale') {  if (!selectedId.value) return
+async function saveDraft(offer: Offer, direction: 'purchase' | 'sale' | 'loan') {  if (!selectedId.value) return
   try {
     await saveOffer(selectedId.value, { ...offer, direction, status: 'saved' })
     ElMessage.success('报价草稿已保存')
@@ -192,7 +374,7 @@ async function saveDraft(offer: Offer, direction: 'purchase' | 'sale') {  if (!s
   }
 }
 
-async function startNegotiation(offer: Offer, direction: 'purchase' | 'sale') {
+async function startNegotiation(offer: Offer, direction: 'purchase' | 'sale' | 'loan') {
   if (!selectedId.value) return
   try {
     const negotiation = await createNegotiation({
@@ -288,6 +470,9 @@ function offerTitle(type: string): string {
       quick_sale: '快速出售',
       fair_sale: '合理出售',
       max_value: '价值最大化',
+      low_cost_loan: '低成本租借',
+      development_loan: '发展型租借',
+      loan_to_buy: '租借后买断',
     }[type] ?? type
   )
 }
@@ -306,11 +491,61 @@ onMounted(async () => {
   if (Number.isFinite(instanceId) && instanceId > 0) {
     await selectedAndLoad(instanceId)
   }
+  if (section.value === 'strategy') await loadStrategy()
+  else await loadRadar()
 })
 
 watch([transferStatus, transferType], () => {
   loadTransfers()
 })
+
+watch(section, (value) => {
+  router.replace({ query: { ...route.query, section: value } })
+  if (value === 'strategy' && !strategyCases.value.length) loadStrategy()
+  if (value === 'radar' && !oppItems.value.length) loadRadar()
+})
+
+watch(
+  () => [oppFilters.type, oppFilters.group, oppFilters.sort],
+  () => {
+    oppFilters.page = 1
+    loadRadar()
+  },
+)
+
+watch(
+  () => oppFilters.search,
+  () => {
+    oppFilters.page = 1
+    loadRadar()
+  },
+)
+
+function changePage(page: number) {
+  oppFilters.page = page
+  loadRadar()
+}
+
+function formatScore(value: number | null | undefined): string {
+  return value == null ? '—' : value.toFixed(1)
+}
+
+function signalsOf(detail: Record<string, unknown> | undefined): string[] {
+  const value = detail?.signals
+  return Array.isArray(value) ? value.map((item) => String(item)) : []
+}
+
+const GROUP_LABELS: Record<string, string> = {
+  strong: '强烈推荐关注',
+  watch: '值得考察',
+  loan: '可租借机会',
+  long_term: '长期潜力目标',
+  not_recommended: '暂不推荐',
+}
+
+function directionLabel(direction: string): string {
+  return ({ purchase: '买入', sale: '出售', loan: '租借' } as Record<string, string>)[direction] ?? direction
+}
 </script>
 
 <template>
@@ -385,7 +620,292 @@ watch([transferStatus, transferType], () => {
       <span v-if="analysis" class="picked">已选：{{ selectedPlayerName }}</span>
     </section>
 
-    <el-tabs v-model="activeTab" class="director-tabs">
+    <el-tabs v-model="section" class="section-tabs">
+      <el-tab-pane label="机会雷达" name="radar">
+        <div class="radar-head">
+          <div class="radar-stats" v-if="oppSummary">
+            <div class="radar-stat"><span>已挂牌</span><strong>{{ oppSummary.counts.listed }}</strong></div>
+            <div class="radar-stat"><span>可租借</span><strong>{{ oppSummary.counts.loan_listed }}</strong></div>
+            <div class="radar-stat"><span>合同到期</span><strong>{{ oppSummary.counts.contract_expiring }}</strong></div>
+            <div class="radar-stat"><span>24h 新发现</span><strong>{{ oppSummary.counts.new_24h }}</strong></div>
+            <div class="radar-stat"><span>AI 推测</span><strong>{{ oppSummary.counts.ai_inferred }}</strong></div>
+          </div>
+          <div class="radar-actions">
+            <el-badge :value="oppSummary?.alerts_unread ?? 0" :hidden="!oppSummary?.alerts_unread">
+              <el-button @click="loadAlerts">提醒</el-button>
+            </el-badge>
+            <el-button type="primary" :loading="oppLoading" @click="refreshRadar">重新扫描</el-button>
+          </div>
+        </div>
+
+        <el-alert
+          v-if="oppSummary"
+          title="当前数据源不提供离队意愿字段，雷达不会把推测包装成“想离队”；AI 推测机会单独标注。真实存档中多数球员没有俱乐部归属，俱乐部信息可能为未知。"
+          type="info"
+          :closable="false"
+          show-icon
+          class="notice"
+        />
+
+        <div class="filters">
+          <el-input
+            v-model="oppFilters.search"
+            placeholder="搜索球员 / 俱乐部"
+            clearable
+            class="filter-wide"
+            @keyup.enter="loadRadar"
+            @clear="loadRadar"
+          />
+          <el-select v-model="oppFilters.type" placeholder="机会类型" clearable class="filter">
+            <el-option v-for="(label, key) in OPPORTUNITY_LABELS" :key="key" :label="label" :value="key" />
+          </el-select>
+          <el-select v-model="oppFilters.group" placeholder="推荐分组" clearable class="filter">
+            <el-option v-for="(label, key) in GROUP_LABELS" :key="key" :label="label" :value="key" />
+          </el-select>
+          <el-select v-model="oppFilters.sort" class="filter">
+            <el-option label="综合评分" value="score" />
+            <el-option label="合同到期" value="contract" />
+            <el-option label="年龄" value="age" />
+            <el-option label="身价" value="value" />
+            <el-option label="最新发现" value="newest" />
+          </el-select>
+          <el-button @click="loadRadar">筛选</el-button>
+        </div>
+
+        <el-table
+          :data="oppItems"
+          v-loading="oppLoading"
+          size="small"
+          class="table clickable-rows"
+          @row-click="openOpportunity"
+        >
+          <el-table-column label="球员" min-width="180">
+            <template #default="{ row }">
+              <strong>{{ row.player_name ?? '未知' }}</strong>
+              <el-tag
+                v-for="type in row.types"
+                :key="type"
+                size="small"
+                class="tag-gap"
+                :type="row.verified_status === 'inferred' ? 'info' : 'warning'"
+              >
+                {{ OPPORTUNITY_LABELS[type] ?? type }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="俱乐部" min-width="150">
+            <template #default="{ row }">{{ row.club_name ?? '未知' }}</template>
+          </el-table-column>
+          <el-table-column label="位置" width="100">
+            <template #default="{ row }">{{ row.position ?? '—' }}</template>
+          </el-table-column>
+          <el-table-column label="年龄" width="70">
+            <template #default="{ row }">{{ row.age ?? '—' }}</template>
+          </el-table-column>
+          <el-table-column label="身价" width="130" align="right">
+            <template #default="{ row }">{{ row.market_value != null ? formatMoney(row.market_value) : '未知' }}</template>
+          </el-table-column>
+          <el-table-column label="合同" width="150">
+            <template #default="{ row }">
+              <el-tag :type="contractTagType(row.contract_remaining_months)" size="small">
+                {{ row.contract_remaining_months != null ? `剩 ${row.contract_remaining_months} 个月` : '未知' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="综合评分" width="100" align="right">
+            <template #default="{ row }">{{ formatScore(row.scores.overall) }}</template>
+          </el-table-column>
+          <el-table-column label="推荐" width="120">
+            <template #default="{ row }">{{ GROUP_LABELS[row.recommendation_group] ?? '—' }}</template>
+          </el-table-column>
+        </el-table>
+        <el-empty
+          v-if="!oppLoading && !oppItems.length"
+          description="没有符合条件的机会；可点击「重新扫描」重新读取当前存档。"
+        />
+        <div class="pager">
+          <el-pagination
+            layout="total, prev, pager, next"
+            :total="oppTotal"
+            :page-size="oppFilters.pageSize"
+            :current-page="oppFilters.page"
+            @current-change="changePage"
+          />
+        </div>
+
+        <el-drawer v-model="detailVisible" title="机会详情" size="480px">
+          <template v-if="oppDetail">
+            <h3 class="drawer-title">
+              {{ oppDetail.opportunity.player_name ?? '未知球员' }}
+              <el-tag :type="oppDetail.opportunity.verified_status === 'inferred' ? 'info' : 'warning'" size="small">
+                {{ OPPORTUNITY_LABELS[oppDetail.opportunity.opportunity_type] ?? oppDetail.opportunity.opportunity_type }}
+              </el-tag>
+            </h3>
+            <el-descriptions :column="2" border size="small">
+              <el-descriptions-item label="俱乐部">{{ oppDetail.opportunity.club_name ?? '未知' }}</el-descriptions-item>
+              <el-descriptions-item label="位置">{{ oppDetail.opportunity.position ?? '—' }}</el-descriptions-item>
+              <el-descriptions-item label="年龄">{{ oppDetail.opportunity.age ?? '—' }}</el-descriptions-item>
+              <el-descriptions-item label="身价">
+                {{ oppDetail.opportunity.market_value != null ? formatMoney(oppDetail.opportunity.market_value) : '未知' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="合同到期">{{ formatDate(oppDetail.opportunity.contract_end) }}</el-descriptions-item>
+              <el-descriptions-item label="剩余月数">
+                {{ oppDetail.opportunity.contract_remaining_months ?? '未知' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="已挂牌">
+                {{ oppDetail.opportunity.listed == null ? '来源未提供' : oppDetail.opportunity.listed ? '是' : '否' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="可租借">
+                {{ oppDetail.opportunity.loan_listed == null ? '来源未提供' : oppDetail.opportunity.loan_listed ? '是' : '否' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="数据来源">{{ oppDetail.opportunity.source }}</el-descriptions-item>
+              <el-descriptions-item label="更新时间">{{ formatDateTime(oppDetail.opportunity.last_seen_at) }}</el-descriptions-item>
+            </el-descriptions>
+
+            <h4 class="section-title">评分维度</h4>
+            <el-descriptions :column="2" border size="small">
+              <el-descriptions-item label="球员实力">{{ formatScore(oppDetail.opportunity.scores.ability) }}</el-descriptions-item>
+              <el-descriptions-item label="阵容适配">{{ formatScore(oppDetail.opportunity.scores.squad_fit) }}</el-descriptions-item>
+              <el-descriptions-item label="机会强度">{{ formatScore(oppDetail.opportunity.scores.opportunity) }}</el-descriptions-item>
+              <el-descriptions-item label="财务可行">{{ formatScore(oppDetail.opportunity.scores.financial) }}</el-descriptions-item>
+              <el-descriptions-item label="综合推荐">{{ formatScore(oppDetail.opportunity.scores.overall) }}</el-descriptions-item>
+              <el-descriptions-item label="评分置信">{{ formatScore(oppDetail.opportunity.scores.confidence) }}</el-descriptions-item>
+            </el-descriptions>
+            <el-alert
+              v-if="oppDetail.opportunity.scores.financial == null"
+              title="当前没有可靠预算来源，财务可行性未计算；报价不会声称符合预算。"
+              type="info"
+              :closable="false"
+              show-icon
+              class="warning-line"
+            />
+            <template v-if="signalsOf(oppDetail.opportunity.detail).length">
+              <h4 class="section-title">AI 推测依据</h4>
+              <ul class="caps">
+                <li v-for="(signal, index) in signalsOf(oppDetail.opportunity.detail)" :key="index">{{ signal }}</li>
+              </ul>
+            </template>
+            <div class="offer-actions">
+              <el-button type="primary" @click="workbenchFromOpportunity(oppDetail.opportunity.instance_id)">
+                在报价工作台打开
+              </el-button>
+            </div>
+          </template>
+        </el-drawer>
+
+        <el-drawer v-model="alertsVisible" title="转会提醒" size="420px">
+          <el-empty v-if="!alerts.length" description="暂无提醒" :image-size="60" />
+          <div
+            v-for="alert in alerts"
+            :key="alert.alert_id"
+            class="alert-item"
+            :class="{ 'alert-item--read': alert.read_at }"
+            @click="readAlert(alert)"
+          >
+            <div class="alert-head">
+              <strong>{{ alert.title }}</strong>
+              <el-tag v-if="!alert.read_at" type="danger" size="small">未读</el-tag>
+            </div>
+            <p class="muted">{{ alert.message }}</p>
+            <span class="muted">{{ formatDateTime(alert.created_at) }}</span>
+          </div>
+        </el-drawer>
+      </el-tab-pane>
+
+      <el-tab-pane label="成交策略" name="strategy">
+        <div v-loading="strategyLoading">
+          <el-alert
+            v-if="strategyInsights?.message"
+            :title="strategyInsights.message"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="notice"
+          />
+          <div class="pattern-grid" v-if="strategyInsights?.patterns?.length">
+            <el-card v-for="pattern in strategyInsights.patterns" :key="pattern.key" shadow="never" class="pattern-card">
+              <div class="offer-head">
+                <strong>{{ pattern.label }}</strong>
+                <el-tag :type="pattern.sufficient_sample ? 'success' : 'info'" size="small">
+                  {{ pattern.sample_size }} 例
+                </el-tag>
+              </div>
+              <p class="rationale">{{ pattern.summary }}</p>
+              <p class="muted" v-if="pattern.case_ids.length">案例：{{ pattern.case_ids.join('、') }}</p>
+            </el-card>
+          </div>
+
+          <h3 class="section-title">最近成交案例（{{ strategyCases.length }}）</h3>
+          <el-table v-if="strategyCases.length" :data="strategyCases" size="small" class="table">
+            <el-table-column label="球员" min-width="150">
+              <template #default="{ row }">{{ row.player_name ?? row.case_id }}</template>
+            </el-table-column>
+            <el-table-column label="类型" width="100">
+              <template #default="{ row }">{{ TYPE_LABELS[row.transfer_type] ?? row.transfer_type }}</template>
+            </el-table-column>
+            <el-table-column label="成交费用" width="140" align="right">
+              <template #default="{ row }">{{ row.actual_fee != null ? formatMoney(row.actual_fee) : '未知' }}</template>
+            </el-table-column>
+            <el-table-column label="分期" width="110">
+              <template #default="{ row }">
+                {{ row.installments?.count ? `${row.installments.count} 期` : '无/未知' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="附加" width="120">
+              <template #default="{ row }">
+                {{ row.addons_potential != null ? formatMoney(row.addons_potential) : row.addons?.count ? `${row.addons.count} 条` : '未知' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="二转分成" width="100">
+              <template #default="{ row }">{{ row.sell_on_clause != null ? `${row.sell_on_clause}%` : '无/未知' }}</template>
+            </el-table-column>
+            <el-table-column label="数据" width="110">
+              <template #default="{ row }">
+                <el-tag :type="row.case_origin === 'demo' ? 'info' : 'success'" size="small">
+                  {{ row.case_origin === 'demo' ? '演示数据' : row.case_origin === 'negotiation' ? '谈判结果' : '导入数据' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="日期" width="110">
+              <template #default="{ row }">{{ formatDateTime(row.observed_at) }}</template>
+            </el-table-column>
+          </el-table>
+          <el-empty
+            v-else
+            description="当前存档没有真实成交案例（数据源不提供历史转会）；可在数据中心导入 CSV/JSON。"
+          />
+
+          <h3 class="section-title">
+            当前目标相似案例
+            <el-button size="small" text @click="loadSimilar">刷新</el-button>
+          </h3>
+          <el-alert v-if="similarMessage" :title="similarMessage" type="info" :closable="false" show-icon />
+          <el-table v-if="similarCases.length" :data="similarCases" size="small" class="table">
+            <el-table-column label="球员" min-width="140">
+              <template #default="{ row }">{{ row.player_name ?? row.case_id }}</template>
+            </el-table-column>
+            <el-table-column label="匹配度" width="100" align="right">
+              <template #default="{ row }">{{ row.match_pct != null ? `${row.match_pct}%` : '—' }}</template>
+            </el-table-column>
+            <el-table-column label="共同特征" min-width="200">
+              <template #default="{ row }">{{ (row.matched_features ?? []).join('、') || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="关键差异" min-width="180">
+              <template #default="{ row }">{{ (row.differences ?? []).join('、') || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="成交方式" width="110">
+              <template #default="{ row }">{{ TYPE_LABELS[row.transfer_type] ?? row.transfer_type }}</template>
+            </el-table-column>
+            <el-table-column label="成交费用" width="140" align="right">
+              <template #default="{ row }">{{ row.actual_fee != null ? formatMoney(row.actual_fee) : '未知' }}</template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-else description="在报价工作台选择一名球员后，这里会显示相似成交案例" :image-size="60" />
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane label="报价工作台" name="workbench">
+        <el-tabs v-model="activeTab" class="director-tabs">
       <el-tab-pane label="转会情报" name="intel">
         <div class="intel-grid">
           <el-card shadow="never" class="panel">
@@ -564,6 +1084,53 @@ watch([transferStatus, transferType], () => {
         </template>
       </el-tab-pane>
 
+      <el-tab-pane label="AI 租借报价" name="loan">
+        <el-empty v-if="!analysis" description="请先在上方搜索并选择一名球员" />
+        <template v-else>
+          <div class="contract-strip">
+            <span>可租借标记：{{ analysis.availability.loan_listed == null ? '来源未提供' : analysis.availability.loan_listed ? '可租借' : '未标记' }}</span>
+            <span>周薪：{{ contract?.wage != null ? formatMoney(contract.wage) : '未知' }}</span>
+            <span>合同剩余：{{ contract?.remaining_months != null ? `${contract.remaining_months} 个月` : '未知' }}</span>
+            <el-button size="small" @click="refreshLoan">重新生成</el-button>
+          </div>
+          <el-alert
+            v-for="(warning, index) in loan?.warnings ?? []"
+            :key="index"
+            :title="warning"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="warning-line"
+          />
+          <div class="offer-grid" v-loading="loanLoading">
+            <el-card v-for="offer in loan?.offers ?? []" :key="offer.offer_type" shadow="hover" class="offer-card">
+              <template #header>
+                <div class="offer-head">
+                  <strong>{{ offerTitle(offer.offer_type) }}</strong>
+                  <el-tag :type="riskTag(offer.risk_level)" size="small">风险 {{ offer.risk_level }}</el-tag>
+                </div>
+              </template>
+              <dl class="offer-facts">
+                <div><dt>租借费</dt><dd>{{ offer.loan_fee != null ? formatMoney(offer.loan_fee) : '未知' }}</dd></div>
+                <div><dt>工资承担</dt><dd>{{ offer.wage_contribution_pct != null ? `${offer.wage_contribution_pct}%` : '未知' }}</dd></div>
+                <div><dt>租期</dt><dd>{{ offer.loan_months != null ? `${offer.loan_months} 个月` : '未知' }}</dd></div>
+                <div><dt>买断选择权</dt><dd>{{ offer.buy_option_fee != null ? formatMoney(offer.buy_option_fee) : '无' }}</dd></div>
+                <div><dt>强制买断</dt><dd>{{ offer.buy_obligation_fee != null ? formatMoney(offer.buy_obligation_fee) : '无' }}</dd></div>
+                <div><dt>潜在总成本</dt><dd>{{ formatMoney(offer.potential_total) }}</dd></div>
+              </dl>
+              <p class="rationale">{{ String(offer.rationale.reason ?? '') }}</p>
+              <div class="offer-actions">
+                <el-button size="small" @click="saveDraft(offer, 'loan')">保存草稿</el-button>
+                <el-button size="small" type="primary" plain @click="startNegotiation(offer, 'loan')">
+                  记录谈判
+                </el-button>
+              </div>
+            </el-card>
+            <el-empty v-if="loan && !loan.offers.length" description="没有足够数据生成租借方案（不编造金额）" />
+          </div>
+        </template>
+      </el-tab-pane>
+
       <el-tab-pane label="合同与条款" name="contract">
         <el-empty v-if="!analysis" description="请先选择球员" />
         <template v-else>
@@ -645,7 +1212,7 @@ watch([transferStatus, transferType], () => {
               :class="{ 'neg-item--active': activeNegotiation?.negotiation_id === item.negotiation_id }"
               @click="openNegotiation(item.negotiation_id)"
             >
-              <span>#{{ item.negotiation_id }} · {{ item.direction === 'purchase' ? '买入' : '出售' }}</span>
+              <span>#{{ item.negotiation_id }} · {{ directionLabel(item.direction) }}</span>
               <el-tag size="small">{{ item.status }}</el-tag>
             </button>
           </el-card>
@@ -709,6 +1276,8 @@ watch([transferStatus, transferType], () => {
             </template>
           </el-card>
         </div>
+      </el-tab-pane>
+        </el-tabs>
       </el-tab-pane>
     </el-tabs>
   </div>
@@ -887,6 +1456,87 @@ watch([transferStatus, transferType], () => {
   display: grid;
   grid-template-columns: 280px 1fr;
   gap: 14px;
+}
+.section-tabs {
+  margin-top: 4px;
+}
+.radar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.radar-stats {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  padding: 12px 0;
+}
+.radar-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.radar-stat span {
+  font-size: 12px;
+  color: var(--sm-text-muted);
+}
+.radar-stat strong {
+  font-size: 22px;
+}
+.radar-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.filter-wide {
+  width: 220px;
+}
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.clickable-rows :deep(tr) {
+  cursor: pointer;
+}
+.tag-gap {
+  margin-left: 6px;
+}
+.alert-item {
+  border-bottom: 1px solid var(--sm-border, #ebeef5);
+  padding: 10px 0;
+  cursor: pointer;
+}
+.alert-item--read {
+  opacity: 0.55;
+}
+.alert-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.alert-item p {
+  margin: 4px 0;
+  font-size: 12px;
+}
+.pattern-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.pattern-card {
+  min-height: 120px;
+}
+.drawer-title {
+  margin: 0 0 12px;
+  font-size: 17px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .neg-item {
   width: 100%;
