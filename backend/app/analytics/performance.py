@@ -100,7 +100,8 @@ def performance_profile(session: Session, instance_id: int) -> dict[str, object]
         payload["trend"]["reason"] = "没有统计周期"  # type: ignore[index]
         payload["ability_vs_output"]["reason"] = "没有统计周期"  # type: ignore[index]
         return payload
-    metrics = _metrics(session, instance.fm_save_id, latest_row, group)
+    peers = _peer_values_for(session, instance.fm_save_id, group, [str(spec["key"]) for spec in POSITION_METRICS.get(group or "", ())])
+    metrics = _metrics(latest_row, group, peers)
     payload["season"] = {
         "period": latest_row.period,
         "competition": latest_row.competition,
@@ -144,6 +145,11 @@ def performance_board(
             .order_by(PlayerStatistic.observed_at.desc())
         )
     }
+    club_names = {
+        club_id: name
+        for club_id, name in session.execute(select(Club.id, Club.name).where(Club.fm_save_id == save_id)).all()
+    }
+    peer_cache: dict[str, dict[str, list[float]]] = {}
     entries: list[dict[str, object]] = []
     for row in rows:
         if slot and slot_of(row.position) != slot:
@@ -152,7 +158,11 @@ def performance_board(
         if statistic is None:
             continue
         group = position_group(row.position)
-        metrics = _metrics(session, save_id, statistic, group)
+        if group not in peer_cache:
+            peer_cache[group] = _peer_values_from(
+                rows, stats, group, [str(spec["key"]) for spec in POSITION_METRICS.get(group or "", ())]
+            )
+        metrics = _metrics(statistic, group, peer_cache[group])
         entries.append(
             {
                 "instance_id": int(row.instance_id),
@@ -162,7 +172,7 @@ def performance_board(
                 "slot": slot_of(row.position),
                 "slot_name": SLOT_NAMES_ZH.get(slot_of(row.position) or ""),
                 "position_group": group,
-                "club": session.get(Club, row.club_id).name if row.club_id else None,
+                "club": club_names.get(row.club_id) if row.club_id else None,
                 "ca": row.ca,
                 "minutes_played": statistic.minutes_played,
                 "period": statistic.period,
@@ -195,10 +205,11 @@ def performance_board(
     }
 
 
-def _metrics(session: Session, save_id: int, row: PlayerStatistic, group: str | None) -> list[dict[str, object]]:
+def _metrics(
+    row: PlayerStatistic, group: str | None, peers: dict[str, list[float]]
+) -> list[dict[str, object]]:
     specs = POSITION_METRICS.get(group or "", ())
     minutes = row.minutes_played
-    peers = _peer_values(session, save_id, group, [str(spec["key"]) for spec in specs])
     metrics: list[dict[str, object]] = []
     for spec in specs:
         key = str(spec["key"])
@@ -227,7 +238,25 @@ def _metrics(session: Session, save_id: int, row: PlayerStatistic, group: str | 
     return metrics
 
 
-def _peer_values(
+def _peer_values_from(
+    rows: list, stats: dict[int, PlayerStatistic], group: str | None, keys: list[str]
+) -> dict[str, list[float]]:
+    """同一位置组的每 90 分钟样本，直接从已加载的行计算，避免逐球员重复查询。"""
+    result: dict[str, list[float]] = {key: [] for key in keys}
+    for row in rows:
+        if position_group(row.position) != group:
+            continue
+        statistic = stats.get(int(row.instance_id))
+        if statistic is None or not statistic.minutes_played:
+            continue
+        for key in keys:
+            value = getattr(statistic, key, None)
+            if value is not None:
+                result[key].append(float(value) * 90 / float(statistic.minutes_played))
+    return {key: sorted(values) for key, values in result.items()}
+
+
+def _peer_values_for(
     session: Session, save_id: int, group: str | None, keys: list[str]
 ) -> dict[str, list[float]]:
     """Per-90 values of every same-position player in the save, used as the percentile sample."""

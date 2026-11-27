@@ -484,10 +484,17 @@ function openNote(): void {
 
 /** Persist the personal note; empty text clears it without touching tags or list. */
 async function saveNote(): Promise<void> {
-  const item = watchItem.value
-  if (!item) return
+  const id = instanceId.value
+  if (id === null) return
   noteSaving.value = true
   try {
+    // 备注属于关注名单；未关注时先自动关注，再写入备注。
+    if (!watchItem.value) {
+      await addWatchlistItem({ instance_id: id })
+      await loadWatchState()
+    }
+    const item = watchItem.value
+    if (!item) throw new Error('关注失败，无法保存备注')
     const updated = await patchWatchlistItem(item.id, { note: noteText.value.trim() })
     watchItem.value = { ...item, ...updated }
     noteOpen.value = false
@@ -629,7 +636,7 @@ void loadRoles()
             />
           </span>
         </el-tooltip>
-        <el-button v-if="watchItem" size="small" @click="openNote">编辑备注</el-button>
+        <el-button size="small" @click="openNote">编辑备注</el-button>
         <el-button size="small" @click="addToCompare">加入对比</el-button>
         <el-button size="small" @click="generateReport">生成球员报告</el-button>
         <el-button size="small" :loading="detailLoading" @click="reloadAll">刷新</el-button>
@@ -730,8 +737,8 @@ void loadRoles()
         <SectionCard title="档案" subtitle="字段全部来自后端，缺失显示为 —">
           <StatHeader :items="profileFacts" />
           <template #footer>
-            <span v-if="detail.notes">备注：{{ detail.notes }}</span>
-            <span v-else>备注：后端未提供备注字段。</span>
+            <span v-if="watchItem?.note">备注：{{ watchItem.note }}</span>
+            <span v-else>备注：暂无，可在「编辑备注」中添加。</span>
           </template>
         </SectionCard>
 
