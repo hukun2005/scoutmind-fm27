@@ -1,0 +1,27 @@
+{
+  "label": "before",
+  "database": "sqlite:///C:/Users/hukun/Desktop/FM27-realdata/v332_before.db",
+  "save_id": 2,
+  "instance_id": 93,
+  "cache": "on",
+  "results": {
+    "players_page1": {
+      "median_ms": 474.1
+    },
+    "players_search": {
+      "median_ms": 475.6
+    },
+    "player_profile": {
+      "median_ms": 2.2
+    },
+    "coverage": {
+      "median_ms": 220.2
+    },
+    "squad_overview": {
+      "median_ms": 346.2
+    },
+    "recruitment_page1": {
+      "error": "OperationalError: (sqlite3.OperationalError) too many SQL variables\n[SQL: SELECT players.id, players.full_name, players.normalized_name, players.birth_date, players.nationality, players.created_at, players.updated_at \nFROM players \nWHERE "
+    }
+  }
+}

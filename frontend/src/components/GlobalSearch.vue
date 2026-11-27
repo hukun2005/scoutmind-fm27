@@ -19,6 +19,7 @@ import type { SearchResultItem, SearchType } from '../types/search'
 import { metaNumber, metaText } from '../types/search'
 import { EMPTY, formatMoney } from '../utils/format'
 import { transferStatusLabel, transferTypeLabel } from '../utils/labels'
+import { clearRecent, recentFor, rememberRecent, type RecentEntry } from '../utils/recent'
 import EmptyState from './EmptyState.vue'
 import LoadingBlock from './LoadingBlock.vue'
 
@@ -37,15 +38,23 @@ const error = ref<ApiError | null>(null)
 const results = ref<SearchResultItem[]>([])
 const activeIndex = ref(0)
 const history = ref<string[]>(readHistory())
+const recent = ref<RecentEntry[]>(recentFor(session.activeSaveId))
 const inputRef = ref<HTMLInputElement | null>(null)
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let requestSeq = 0
 
-const categories: Array<{ key: 'players' | 'clubs' | 'transfers'; type: SearchType; label: string; empty: string }> = [
-  { key: 'players', type: 'players', label: '球员', empty: '没有匹配的球员' },
-  { key: 'clubs', type: 'clubs', label: '俱乐部', empty: '没有匹配的俱乐部' },
-  { key: 'transfers', type: 'transfers', label: '转会', empty: '没有匹配的转会记录' },
+const categories: Array<{
+  key: 'players' | 'clubs' | 'transfers' | 'watchlist'
+  entity: 'player' | 'club' | 'transfer' | 'watchlist'
+  type: SearchType
+  label: string
+  empty: string
+}> = [
+  { key: 'players', entity: 'player', type: 'players', label: '球员', empty: '没有匹配的球员' },
+  { key: 'clubs', entity: 'club', type: 'clubs', label: '俱乐部', empty: '没有匹配的俱乐部' },
+  { key: 'transfers', entity: 'transfer', type: 'transfers', label: '转会', empty: '没有匹配的转会记录' },
+  { key: 'watchlist', entity: 'watchlist', type: 'watchlist', label: '关注', empty: '没有匹配的关注球员' },
 ]
 
 /** 当前分类下要显示的分组。 */
@@ -54,7 +63,7 @@ const groups = computed(() =>
     .filter((category) => type.value === 'all' || type.value === category.type)
     .map((category) => ({
       ...category,
-      items: results.value.filter((item) => item.entity_type === category.key.slice(0, -1)),
+      items: results.value.filter((item) => item.entity_type === category.entity),
     })),
 )
 
@@ -66,6 +75,7 @@ const tabs: Array<{ value: SearchType; label: string }> = [
   { value: 'players', label: '球员' },
   { value: 'clubs', label: '俱乐部' },
   { value: 'transfers', label: '转会' },
+  { value: 'watchlist', label: '关注' },
 ]
 
 /** 读取本地搜索历史。 */
@@ -117,9 +127,10 @@ async function runSearch(): Promise<void> {
     const response = await searchAll(term, type.value, { saveId: session.activeSaveId, limit: 8 })
     if (seq !== requestSeq) return
     results.value = [
-      ...response.categories.players,
-      ...response.categories.clubs,
-      ...response.categories.transfers,
+      ...(response.categories.players ?? []),
+      ...(response.categories.clubs ?? []),
+      ...(response.categories.transfers ?? []),
+      ...(response.categories.watchlist ?? []),
     ]
     activeIndex.value = 0
   } catch (caught) {
@@ -146,11 +157,66 @@ function setType(value: SearchType): void {
   void runSearch()
 }
 
-/** 选择一条结果：记录搜索词并跳转。 */
+/** 选择一条结果：记录搜索词与最近访问并跳转。 */
 function openResult(item: SearchResultItem): void {
   remember(query.value || item.display_name)
+  rememberRecent({
+    entity_type: item.entity_type,
+    entity_id: item.entity_id,
+    display_name: item.display_name,
+    subtitle: item.subtitle,
+    navigation_target: item.navigation_target,
+    save_id: session.activeSaveId,
+  })
+  recent.value = recentFor(session.activeSaveId)
   router.push(item.navigation_target)
   close()
+}
+
+/** 打开最近访问的对象。 */
+function openRecent(entry: RecentEntry): void {
+  rememberRecent(entry)
+  recent.value = recentFor(session.activeSaveId)
+  router.push(entry.navigation_target)
+  close()
+}
+
+function forgetRecent(): void {
+  clearRecent(session.activeSaveId)
+  recent.value = []
+}
+
+/** 高亮匹配片段：先转义 HTML，再只包裹命中的文字。 */
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function highlight(text: string): string {
+  const term = query.value.trim()
+  if (!term) return escapeHtml(text)
+  const pattern = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig')
+  return text
+    .split(pattern)
+    .map((part, index) => (index % 2 === 1 ? `<mark>${escapeHtml(part)}</mark>` : escapeHtml(part)))
+    .join('')
+}
+
+/** 关注状态的显示文案。 */
+const WATCH_STATUS: Record<string, string> = {
+  watching: '关注中',
+  preparing: '准备引进',
+  paused: '暂缓观察',
+  done: '已完成',
+}
+
+/** 关注结果：名单 + 状态 + 备注。 */
+function watchMeta(item: SearchResultItem): string {
+  const listName = metaText(item.meta, 'list_name')
+  const status = metaText(item.meta, 'status')
+  const note = metaText(item.meta, 'note')
+  return [listName, status ? (WATCH_STATUS[status] ?? status) : null, note]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 /** 键盘：↑/↓/Enter/Esc。 */
@@ -231,6 +297,7 @@ watch(
     results.value = []
     error.value = null
     query.value = ''
+    recent.value = recentFor(session.activeSaveId)
     close()
   },
 )
@@ -273,8 +340,8 @@ onBeforeUnmount(() => {
           v-model="query"
           class="gs-input"
           type="search"
-          placeholder="搜索球员、俱乐部或转会记录"
-          aria-label="搜索球员、俱乐部或转会记录"
+          placeholder="搜索球员、俱乐部、转会或关注名单"
+          aria-label="搜索球员、俱乐部、转会或关注名单"
           autocomplete="off"
         />
         <button type="button" class="gs-esc" aria-label="关闭搜索" @click="close">Esc</button>
@@ -305,6 +372,22 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-else-if="query.trim() === ''" class="gs-history">
+          <div v-if="recent.length > 0">
+            <p class="gs-section__label">
+              最近访问
+              <button type="button" class="gs-clear" @click="forgetRecent">清空</button>
+            </p>
+            <button
+              v-for="entry in recent"
+              :key="`recent-${entry.entity_type}-${entry.entity_id}`"
+              type="button"
+              class="gs-recent"
+              @click="openRecent(entry)"
+            >
+              <span class="gs-recent__name">{{ entry.display_name }}</span>
+              <span class="gs-recent__sub">{{ entry.subtitle }}</span>
+            </button>
+          </div>
           <div v-if="history.length > 0">
             <p class="gs-section__label">最近搜索</p>
             <div class="gs-history__chips">
@@ -313,7 +396,9 @@ onBeforeUnmount(() => {
               </button>
             </div>
           </div>
-          <p v-else class="gs-hint">输入姓名、俱乐部或球员名开始搜索；本搜索只覆盖当前存档。</p>
+          <p v-if="recent.length === 0 && history.length === 0" class="gs-hint">
+            输入姓名、俱乐部或球员名开始搜索；本搜索只覆盖当前存档。
+          </p>
           <p class="gs-hint gs-hint--muted">支持 ↑ ↓ 选择，Enter 打开，Esc 关闭。</p>
         </div>
 
@@ -335,13 +420,14 @@ onBeforeUnmount(() => {
               @click="openResult(item)"
             >
               <span class="gs-result__icon" aria-hidden="true">
-                {{ item.entity_type === 'player' ? 'P' : item.entity_type === 'club' ? 'C' : 'T' }}
+                {{ item.entity_type === 'player' ? 'P' : item.entity_type === 'club' ? 'C' : item.entity_type === 'watchlist' ? 'W' : 'T' }}
               </span>
               <span class="gs-result__main">
-                <span class="gs-result__name">{{ item.display_name }}</span>
-                <span class="gs-result__sub">{{ item.subtitle }}</span>
+                <span class="gs-result__name" v-html="highlight(item.display_name)" />
+                <span class="gs-result__sub" v-html="highlight(item.subtitle)" />
                 <span v-if="item.entity_type === 'player'" class="gs-result__meta">{{ playerMeta(item) }}</span>
                 <span v-else-if="item.entity_type === 'transfer'" class="gs-result__meta">{{ transferMeta(item) }}</span>
+                <span v-else-if="item.entity_type === 'watchlist'" class="gs-result__meta">{{ watchMeta(item) }}</span>
               </span>
               <span
                 v-if="item.entity_type === 'player'"
@@ -586,6 +672,56 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sm-space-2);
+}
+
+.gs-clear {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--sm-accent-cyan);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.gs-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--sm-radius-sm);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gs-recent:hover {
+  background: rgba(34, 211, 238, 0.09);
+}
+
+.gs-recent__name {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-sm);
+}
+
+.gs-recent__sub {
+  overflow: hidden;
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gs-result__name mark,
+.gs-result__sub mark {
+  border-radius: 2px;
+  background: rgba(34, 211, 238, 0.24);
+  color: var(--sm-text-primary);
 }
 
 .gs-chip {

@@ -1,0 +1,139 @@
+{
+  "generated_at": "2026-11-27T14:48:15",
+  "database": "C:/Users/hukun/Desktop/FM27-realdata/v332_after.db",
+  "save_id": 2,
+  "overview": {
+    "save_id": 2,
+    "user_club_id": 17,
+    "player_count": 62229,
+    "players_with_wage": 50509,
+    "players_with_contract": 51539,
+    "unknown_contract_fields": 22410,
+    "transfer_count": 0,
+    "recent_transfers_30d": 0,
+    "loan_count": 0,
+    "clause_count": 0,
+    "identity_conflicts": 185,
+    "last_sync_at": "2026-11-27T03:19:32Z",
+    "offers": 0,
+    "negotiations": {},
+    "negotiations_total": 0,
+    "capabilities": {
+      "auto_transfer_history": false,
+      "auto_contract": true,
+      "auto_loan_terms": false,
+      "auto_budget": false
+    },
+    "message": "当前存档有 62229 名球员，其中 51539 名有合同到期日；转会记录 0 条。 当前数据源不提供历史转会，导入 CSV/JSON 后才能分析成交价格。"
+  },
+  "sample_player": {
+    "instance_id": 187,
+    "name": "CJ Olney",
+    "club_name": "Brooklyn FC",
+    "contract": {
+      "club_id": 51,
+      "contract_end": "2028-12-31",
+      "contract_start": null,
+      "wage": 1618,
+      "wage_period": "week",
+      "annual_wage": 84136.0,
+      "remaining_months": 29,
+      "contract_status": "active",
+      "contract_type": null,
+      "release_clause": null,
+      "observed_at": "2026-11-20T18:47:13Z",
+      "source": "fm27_live_reader",
+      "confidence": 1.0,
+      "listed": false,
+      "loan_listed": false,
+      "not_for_sale": false,
+      "missing_fields": [],
+      "warnings": []
+    },
+    "valuation": {
+      "low": null,
+      "mid": null,
+      "high": null,
+      "sample_size": 0,
+      "confidence": "insufficient",
+      "insufficient_sample": true,
+      "method": "similar_transfers_quantile",
+      "algorithm_version": "valuation-1",
+      "warnings": [
+        "可比成交只有 0 笔，低于最小样本 5，不给出估值区间",
+        "可以放宽位置、年龄或能力范围后重试，或改用成交价分位数参考"
+      ]
+    },
+    "purchase_offers": [
+      {
+        "offer_type": "conservative",
+        "total_committed": 2507884.33,
+        "immediate_payment": 2507884.33,
+        "potential_total": 2507884.33
+      },
+      {
+        "offer_type": "competitive",
+        "total_committed": 2950452.15,
+        "immediate_payment": 1770271.29,
+        "potential_total": 3097974.76
+      },
+      {
+        "offer_type": "fast_close",
+        "total_committed": 3481533.54,
+        "immediate_payment": 3481533.54,
+        "potential_total": 3655610.22
+      }
+    ],
+    "sale_offers": [
+      {
+        "offer_type": "quick_sale",
+        "total_committed": 2507884.33,
+        "sell_on_pct": null
+      },
+      {
+        "offer_type": "fair_sale",
+        "total_committed": 2950452.15,
+        "sell_on_pct": null
+      },
+      {
+        "offer_type": "max_value",
+        "total_committed": 3393019.98,
+        "sell_on_pct": 10.0
+      }
+    ],
+    "squad_impact": {
+      "position": "AML, ML, MC, AMC",
+      "same_position_peers": 1,
+      "squad_gap_risk": "high",
+      "wage_release": 84136.0,
+      "note": "同位置人数来自当前存档最新快照；人数为 1 时出售会直接造成位置缺口"
+    },
+    "missing_fields": [
+      "loan_terms",
+      "transfer_budget",
+      "transfer_clauses",
+      "transfer_history"
+    ]
+  },
+  "club_summary": {
+    "club_id": 17,
+    "club_name": "International Football Club",
+    "purchases": 0,
+    "sales": 0,
+    "incoming_by_type": {},
+    "outgoing_by_type": {},
+    "completed_incoming": 0,
+    "completed_outgoing": 0,
+    "cash_in_by_currency": {},
+    "cash_out_by_currency": {},
+    "agreed": 0,
+    "pending": 0,
+    "cancelled": 0,
+    "warning": "当前存档没有该俱乐部的转会记录；导入历史转会文件后才有数据"
+  },
+  "notes": [
+    "自动历史转会在真实存档不可用：transfer_history=0，按 BLOCKED_BY_SOURCE 记录",
+    "合同周薪/到期日来自 Native Reader 快照",
+    "真实存档没有转会记录，因此未创建演示谈判；谈判链路由自动化测试覆盖"
+  ]
+}

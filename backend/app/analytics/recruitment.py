@@ -211,6 +211,7 @@ class Candidate:
 
     instance_id: int
     player_id: int
+    snapshot_id: int
     name: str
     age: int | None
     position: str | None
@@ -243,6 +244,7 @@ def candidate_pool(
     max_value: int | None = None,
     max_wage: int | None = None,
     positions: list[str] | None = None,
+    load_attributes: bool = True,
 ) -> list[Candidate]:
     """Every player of one save with its newest snapshot, attributes and newest season statistics.
 
@@ -265,7 +267,8 @@ def candidate_pool(
     rows = session.execute(query).all()
     snapshot_ids = query.with_only_columns(base.c.snapshot_id).subquery()
     instance_ids = query.with_only_columns(base.c.instance_id).subquery()
-    readings = _attributes_for_snapshot_query(session, snapshot_ids)
+    # 推荐流程可以先只取快照字段，过滤后再按需加载属性；避免为 6 万球员加载 200 万条属性值。
+    readings = _attributes_for_snapshot_query(session, snapshot_ids) if load_attributes else {}
     stats = _statistics_for_instance_query(session, instance_ids)
     pool: list[Candidate] = []
     for row in rows:
@@ -274,6 +277,7 @@ def candidate_pool(
             Candidate(
                 instance_id=int(row.instance_id),
                 player_id=int(row.player_id),
+                snapshot_id=int(row.snapshot_id),
                 name=str(row.full_name),
                 age=row.age,
                 position=row.position,
@@ -1213,6 +1217,21 @@ def _attributes_for_snapshot_query(session: Session, snapshot_ids) -> dict[int, 
     result: dict[int, dict[str, float]] = {}
     for snapshot_id, key, value in rows:
         result.setdefault(int(snapshot_id), {})[str(key)] = float(value)
+    return result
+
+
+def _attributes_for_snapshot_id_list(session: Session, snapshot_ids: list[int]) -> dict[int, dict[str, float]]:
+    """Load attributes for an explicit list of snapshots, batched to stay under SQLite's variable limit."""
+    result: dict[int, dict[str, float]] = {}
+    for start in range(0, len(snapshot_ids), 500):
+        chunk = snapshot_ids[start : start + 500]
+        rows = session.execute(
+            select(PlayerAttributeValue.player_snapshot_id, PlayerAttribute.key, PlayerAttributeValue.value)
+            .join(PlayerAttribute, PlayerAttribute.id == PlayerAttributeValue.attribute_id)
+            .where(PlayerAttributeValue.player_snapshot_id.in_(chunk))
+        ).all()
+        for snapshot_id, key, value in rows:
+            result.setdefault(int(snapshot_id), {})[str(key)] = float(value)
     return result
 
 

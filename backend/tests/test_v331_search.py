@@ -21,7 +21,7 @@ def _seed(db) -> None:
 def test_empty_query_returns_empty_categories(client):
     body = client.get("/api/v1/search?q=%20%20").json()
     assert body["total"] == 0
-    assert body["categories"] == {"players": [], "clubs": [], "transfers": []}
+    assert body["categories"] == {"players": [], "clubs": [], "transfers": [], "watchlist": []}
 
 
 def test_player_and_transfer_search_return_navigation_targets(client, db, save):

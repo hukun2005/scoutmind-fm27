@@ -40,6 +40,7 @@ from ..models import (
     Transfer,
     TransferCandidate,
     TransferFeeComponent,
+    TransferStatusHistory,
 )
 from ..utils import iso, payload_checksum, utcnow
 from ..services.save_identity import record_audit
@@ -249,6 +250,8 @@ class ScanImporter:
             if previous is not None:
                 return self._replay(previous, raw, operation_id, matched_by="operation")
 
+        # 每次导入重新读取每个实例的最新快照观测时间，避免复用上一次导入的缓存。
+        self._latest_observed = {}
         try:
             job = self._begin_job(
                 save_id,
@@ -787,7 +790,13 @@ class ScanImporter:
                 outcome.players_updated += 1
             club = self._club_for(job.fm_save_id, record.club_uid, None, clubs)
             if club is not None:
-                instance.club_id = club.id
+                # 只在有可验证俱乐部时写入，不覆盖已关联的正确关系；记录来源与时间便于审计。
+                if instance.club_id != club.id:
+                    instance.club_id = club.id
+                    instance.club_linked_at = utcnow()
+                instance.club_link_source = "player_club_field"
+                if instance.club_linked_at is None:
+                    instance.club_linked_at = utcnow()
             self._create_snapshot(job, payload, record, instance, club, clubs, attribute_ids, outcome)
             self._upsert_statistics(job, payload, record, instance, outcome)
             outcome.players_imported += 1
@@ -854,6 +863,9 @@ class ScanImporter:
         )
         if exists is not None:
             outcome.snapshots_skipped += 1
+            # 旧库/直接写入的快照可能还没有引用：重复导入时补上，但不覆盖已有引用。
+            if instance.latest_snapshot_id is None:
+                instance.latest_snapshot_id = exists
             return
         known = {key: value for key, value in record.attributes.items() if key in ATTRIBUTE_KEYS}
         unknown = sorted(set(record.attributes) - ATTRIBUTE_KEYS)
@@ -873,6 +885,7 @@ class ScanImporter:
             wage=record.wage,
             contract_end=record.contract_end,
             club_id=club.id if club is not None else None,
+            club_uid=record.club_uid,
             position=record.position,
             minutes_played=record.minutes_played,
             appearances=record.appearances,
@@ -888,6 +901,28 @@ class ScanImporter:
         )
         self.session.add(snapshot)
         self.session.flush()
+        # 只有不早于现有最新快照的观测时间时才更新引用；历史回补不会覆盖新数据。
+        # last_seen_at 是导入时间戳，不能用来比较快照新旧，因此这里读一次真实的最新观测时间并缓存。
+        cache = getattr(self, "_latest_observed", None)
+        if cache is None:
+            cache = {}
+            self._latest_observed = cache
+        current_observed = cache.get(instance.id, "unset")
+        if current_observed == "unset":
+            current_observed = (
+                self.session.scalar(
+                    select(PlayerSnapshot.observed_at).where(
+                        PlayerSnapshot.id == instance.latest_snapshot_id
+                    )
+                )
+                if instance.latest_snapshot_id is not None
+                else None
+            )
+        if current_observed is None or observed_at >= current_observed:
+            instance.latest_snapshot_id = snapshot.id
+            cache[instance.id] = observed_at
+        else:
+            cache.setdefault(instance.id, current_observed)
         for key, value in known.items():
             self.session.add(
                 PlayerAttributeValue(
@@ -1215,9 +1250,21 @@ class ScanImporter:
             effective_fee = _effective_fee(record)
             if existing is not None:
                 if existing.status in {"pending", "future", "unknown"} and record.status != existing.status:
+                    previous_status = existing.status
                     existing.status = record.status
                     existing.effective_fee = effective_fee
                     existing.fee_paid = record.fee_paid
+                    self.session.add(
+                        TransferStatusHistory(
+                            transfer_id=existing.id,
+                            fm_save_id=job.fm_save_id,
+                            previous_status=previous_status,
+                            new_status=record.status,
+                            changed_at=utcnow(),
+                            source=payload.source,
+                            evidence_json=json.dumps({"import_job_id": job.id}, ensure_ascii=False),
+                        )
+                    )
                     outcome.transfers_updated += 1
                 else:
                     outcome.transfers_skipped += 1
@@ -1263,6 +1310,17 @@ class ScanImporter:
             )
             self.session.add(transfer)
             self.session.flush()
+            self.session.add(
+                TransferStatusHistory(
+                    transfer_id=transfer.id,
+                    fm_save_id=job.fm_save_id,
+                    previous_status=None,
+                    new_status=record.status,
+                    changed_at=utcnow(),
+                    source=payload.source,
+                    evidence_json=json.dumps({"import_job_id": job.id}, ensure_ascii=False),
+                )
+            )
             for component in record.fee_components:
                 self.session.add(
                     TransferFeeComponent(

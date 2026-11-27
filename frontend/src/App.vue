@@ -10,6 +10,8 @@ import { ElMessage } from 'element-plus'
 import AppIcon from './components/AppIcon.vue'
 import DemoBanner from './components/DemoBanner.vue'
 import GlobalSearch from './components/GlobalSearch.vue'
+import OnboardingPanel from './components/OnboardingPanel.vue'
+import { useOnboardingStore } from './stores/onboarding'
 import { useSessionStore } from './stores/session'
 import { formatInt } from './utils/format'
 
@@ -60,6 +62,8 @@ const NAV_GROUPS: NavGroup[] = [
       { key: 'transfers', label: '转会情报', to: '/transfers', icon: 'transfers', hint: '交易状态与费用' },
       { key: 'development', label: '球员发展', to: '/development', icon: 'development', hint: '成长变化与建议' },
       { key: 'performance', label: '表现分析', to: '/performance', icon: 'performance', hint: '分位置产出与能力对比' },
+      { key: 'director', label: 'AI 足球总监', to: '/director', icon: 'agent', hint: '阵容、引援、培养与出售的一体化建议' },
+      { key: 'transfer-director', label: 'AI 转会总监', to: '/transfer-director', icon: 'transfers', hint: '合同、报价与谈判记录' },
       { key: 'agent', label: 'AI 球探助手', to: '/agent', icon: 'agent', hint: '用自然语言提问，获得带证据的回答' },
     ],
   },
@@ -86,6 +90,7 @@ const NAV_GROUPS: NavGroup[] = [
 ]
 
 const session = useSessionStore()
+const onboarding = useOnboardingStore()
 const route = useRoute()
 
 const navOpen = ref(false)
@@ -166,6 +171,7 @@ watch(
 
 onMounted(() => {
   void session.load()
+  void onboarding.maybeOpen()
   window.addEventListener('keydown', onKeydown)
 })
 
@@ -324,6 +330,8 @@ onBeforeUnmount(() => {
         </div>
       </main>
     </div>
+
+    <OnboardingPanel />
   </div>
 </template>
 

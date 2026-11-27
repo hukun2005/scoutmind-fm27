@@ -185,6 +185,202 @@ TOOL_SPECS: dict[str, dict[str, Any]] = {
         },
         "execute": lambda session, save_id, args: tools.evaluate_player(session, save_id, int(args["instance_id"])),
     },
+    "transfer_contract": {
+        "description": "球员真实合同：周薪、到期日、剩余月份、挂牌状态（需要 instance_id）",
+        "parameters": {
+            "type": "object",
+            "properties": {"instance_id": {"type": "integer", "minimum": 1}},
+            "required": ["instance_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.get_player_contract(
+            session, save_id, int(args["instance_id"])
+        ),
+    },
+    "player_transfer_history": {
+        "description": "球员在当前存档的历史转会（需要 instance_id）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "instance_id": {"type": "integer", "minimum": 1},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+            "required": ["instance_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.get_player_transfer_history(
+            session, save_id, int(args["instance_id"]), limit=int(args.get("limit", 20))
+        ),
+    },
+    "club_transfer_history": {
+        "description": "俱乐部买入/卖出/租借/未来/取消汇总（需要 club_id）",
+        "parameters": {
+            "type": "object",
+            "properties": {"club_id": {"type": "integer", "minimum": 1}},
+            "required": ["club_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.get_club_transfer_history(
+            session, save_id, int(args["club_id"])
+        ),
+    },
+    "transfer_clauses": {
+        "description": "球员已确认/已导入的分期、浮动、二转分成与买断条款（需要 instance_id）",
+        "parameters": {
+            "type": "object",
+            "properties": {"instance_id": {"type": "integer", "minimum": 1}},
+            "required": ["instance_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.get_transfer_clauses(
+            session, save_id, int(args["instance_id"])
+        ),
+    },
+    "club_financial_context": {
+        "description": "俱乐部预算与工资空间；没有可靠来源时明确返回不可用",
+        "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+        "execute": lambda session, save_id, args: tools.get_club_financial_context(session, save_id),
+    },
+    "transfer_valuation": {
+        "description": "确定性转会估值（可比成交分位；样本不足拒绝给区间，需要 instance_id）",
+        "parameters": {
+            "type": "object",
+            "properties": {"instance_id": {"type": "integer", "minimum": 1}},
+            "required": ["instance_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.calculate_transfer_valuation(
+            session, save_id, int(args["instance_id"])
+        ),
+    },
+    "purchase_offers": {
+        "description": "生成三套买入报价方案（保守/竞争/快速，可选预算）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "instance_id": {"type": "integer", "minimum": 1},
+                "budget": {"type": "number", "minimum": 0},
+            },
+            "required": ["instance_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.generate_purchase_offers(
+            session, save_id, int(args["instance_id"]), budget=args.get("budget")
+        ),
+    },
+    "sale_offers": {
+        "description": "生成三套出售报价方案（快速/合理/价值最大化）",
+        "parameters": {
+            "type": "object",
+            "properties": {"instance_id": {"type": "integer", "minimum": 1}},
+            "required": ["instance_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.generate_sale_offers(
+            session, save_id, int(args["instance_id"])
+        ),
+    },
+    "loan_offers": {
+        "description": "生成三套租借报价方案（低成本/发展型/租借后买断）",
+        "parameters": {
+            "type": "object",
+            "properties": {"instance_id": {"type": "integer", "minimum": 1}},
+            "required": ["instance_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.generate_loan_offers(
+            session, save_id, int(args["instance_id"])
+        ),
+    },
+    "transfer_opportunities": {
+        "description": "全局转会机会雷达：挂牌/可租借/合同到期/AI 推测机会（可筛选类型与推荐分组）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": ["listed", "loan_listed", "release_listed", "contract_expiring", "ai_inferred"],
+                },
+                "group": {
+                    "type": "string",
+                    "enum": ["strong", "watch", "loan", "long_term", "not_recommended"],
+                },
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.get_transfer_opportunities(
+            session,
+            save_id,
+            opportunity_type=args.get("type"),
+            group=args.get("group"),
+            limit=int(args.get("limit", 20)),
+        ),
+    },
+    "transfer_strategy_cases": {
+        "description": "历史成交策略案例：案例库、相似案例匹配与规则归纳（可选 instance_id）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "instance_id": {"type": "integer", "minimum": 1},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.get_transfer_strategy_cases(
+            session, save_id, int(args["instance_id"]) if args.get("instance_id") else None,
+            limit=int(args.get("limit", 10)),
+        ),
+    },
+    "record_negotiation": {
+        "description": "记录用户真实谈判事件（不提交游戏内报价，需要 negotiation_id）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "negotiation_id": {"type": "integer", "minimum": 1},
+                "event_type": {
+                    "type": "string",
+                    "enum": [
+                        "draft_created",
+                        "offer_generated",
+                        "offer_submitted",
+                        "counter_received",
+                        "offer_revised",
+                        "accepted",
+                        "rejected",
+                        "withdrawn",
+                        "completed",
+                        "cancelled",
+                        "note",
+                    ],
+                },
+                "amount": {"type": "number", "minimum": 0},
+                "note": {"type": "string", "minLength": 1, "maxLength": 256},
+            },
+            "required": ["negotiation_id", "event_type"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.record_negotiation_event(
+            session,
+            save_id,
+            int(args["negotiation_id"]),
+            str(args["event_type"]),
+            amount=args.get("amount"),
+            data={"note": args["note"]} if args.get("note") else None,
+        ),
+    },
+    "negotiation_review": {
+        "description": "复盘一笔已完成谈判（需要 negotiation_id）",
+        "parameters": {
+            "type": "object",
+            "properties": {"negotiation_id": {"type": "integer", "minimum": 1}},
+            "required": ["negotiation_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.review_negotiation(
+            session, save_id, int(args["negotiation_id"])
+        ),
+    },
 }
 
 #: 禁止出现在参数里的键：存档/用户上下文只由服务端决定。

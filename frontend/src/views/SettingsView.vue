@@ -16,10 +16,12 @@ import type { DataHubStatus } from '../types/datahub'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
 import { useSessionStore } from '../stores/session'
+import { useOnboardingStore } from '../stores/onboarding'
 import { displayText, formatInt } from '../utils/format'
 import { getMotionPreference, setMotionPreference, type MotionPreference } from '../utils/preferences'
 
 const session = useSessionStore()
+const onboarding = useOnboardingStore()
 
 const health = ref<HealthResponse | null>(null)
 const hub = ref<DataHubStatus | null>(null)
@@ -231,6 +233,9 @@ onMounted(() => {
         ScoutMind FM27 把复杂的球队数据整理成容易理解的页面：球员、阵容、引援、转会、成长与 AI 分析都在本地完成，
         不需要网络，也不会上传你的存档。
       </p>
+      <div class="row">
+        <el-button size="small" @click="onboarding.reopen()">重新打开首次启动引导</el-button>
+      </div>
     </SectionCard>
 
     <details class="sm-details">

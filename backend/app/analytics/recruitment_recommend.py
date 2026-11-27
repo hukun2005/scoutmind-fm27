@@ -18,21 +18,18 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Club, Player, PlayerInstance, PlayerSnapshot
-from .recruitment import DIMENSION_WEIGHTS, candidate_pool, player_score
+from ..models import Club, Player
+from .recruitment import (
+    DIMENSION_WEIGHTS,
+    _attributes_for_snapshot_id_list,
+    _score_candidate,
+    build_score_context,
+    candidate_pool,
+)
 
 ALGORITHM_VERSION = "recruitment-recommend-1"
 
 DIMENSIONS = ("ability", "potential", "fit", "form", "value", "room")
-
-
-def _latest_club_id(session: Session, instance_id: int) -> int | None:
-    return session.scalar(
-        select(PlayerSnapshot.club_id)
-        .where(PlayerSnapshot.player_instance_id == instance_id)
-        .order_by(PlayerSnapshot.observed_at.desc())
-        .limit(1)
-    )
 
 
 def recommend(
@@ -51,15 +48,76 @@ def recommend(
     page: int = 1,
     page_size: int = 20,
 ) -> dict[str, Any]:
-    """返回分页后的推荐列表与每条的加权解释。"""
-    pool = candidate_pool(session, save_id)
-    clubs = {club.id: club for club in session.scalars(select(Club).where(Club.fm_save_id == save_id))}
-    nationalities = {
-        player.id: player.nationality
-        for player in session.scalars(
-            select(Player).where(Player.id.in_([item.player_id for item in pool] or [-1]))
-        )
+    """返回分页后的推荐列表与每条的加权解释（按存档 + 数据版本缓存 60 秒）。"""
+    from ..services import query_cache
+
+    params = {
+        "slot": slot,
+        "min_age": min_age,
+        "max_age": max_age,
+        "budget": budget,
+        "wage_cap": wage_cap,
+        "league": league,
+        "nationality": nationality,
+        "prefer": prefer,
+        "weights": weights or {},
+        "page": page,
+        "page_size": page_size,
     }
+    return query_cache.cached(
+        session,
+        save_id,
+        "recruitment_recommend",
+        params,
+        lambda: _recommend(
+            session,
+            save_id,
+            slot=slot,
+            min_age=min_age,
+            max_age=max_age,
+            budget=budget,
+            wage_cap=wage_cap,
+            league=league,
+            nationality=nationality,
+            prefer=prefer,
+            weights=weights,
+            page=page,
+            page_size=page_size,
+        ),
+    )
+
+
+def _recommend(
+    session: Session,
+    save_id: int,
+    *,
+    slot: str | None = None,
+    min_age: int | None = None,
+    max_age: int | None = None,
+    budget: float | None = None,
+    wage_cap: float | None = None,
+    league: str | None = None,
+    nationality: str | None = None,
+    prefer: str = "balanced",
+    weights: dict[str, float] | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    # 先只加载快照字段与统计，过滤后再加载命中球员的属性，避免为整个存档加载数百万条属性值。
+    pool = candidate_pool(session, save_id, load_attributes=False)
+    clubs = {club.id: club for club in session.scalars(select(Club).where(Club.fm_save_id == save_id))}
+    # 只有显式按国籍筛选时才加载国籍，并按 500 个 ID 分批，避免 5 万球员触发 SQLite 变量上限。
+    nationalities: dict[int, str | None] = {}
+    if nationality:
+        player_ids = [item.player_id for item in pool]
+        for start in range(0, len(player_ids), 500):
+            chunk = player_ids[start : start + 500]
+            nationalities.update(
+                {
+                    player.id: player.nationality
+                    for player in session.scalars(select(Player).where(Player.id.in_(chunk)))
+                }
+            )
     club_of: dict[int, Club | None] = {}
     gaps: list[str] = []
 
@@ -86,18 +144,27 @@ def recommend(
         player_nationality = nationalities.get(item.player_id)
         if nationality and (player_nationality or "").lower() != nationality.lower():
             continue
-        club_id = _latest_club_id(session, item.instance_id)
-        club = clubs.get(club_id) if club_id else None
+        club = clubs.get(item.club_id) if item.club_id else None
         club_of[item.instance_id] = club
         if league and (club is None or (club.league or "").lower() != league.lower()):
             continue
         filtered.append({"candidate": item, "club": club})
 
+    if filtered:
+        attributes = _attributes_for_snapshot_id_list(
+            session, [entry["candidate"].snapshot_id for entry in filtered]
+        )
+        for entry in filtered:
+            item = entry["candidate"]
+            item.attributes = attributes.get(item.snapshot_id, {})
+
     scored: list[dict[str, Any]] = []
     missing_counter: dict[str, int] = {}
+    # 同位置分位样本只构建一次；原实现对每个候选重复构建，5 万球员时会退化为 O(N²)。
+    score_context = build_score_context(session, pool)
     for entry in filtered:
         item = entry["candidate"]
-        detail = player_score(session, save_id, item.instance_id, pool)
+        detail = _score_candidate(session, item, pool, score_context)
         dims = {row["key"]: row for row in detail["dimensions"]}
         weights_used = dict(DIMENSION_WEIGHTS.get(item.position_group or "MF", DIMENSION_WEIGHTS["MF"]))
         weights_used.update(custom)
