@@ -63,6 +63,18 @@ import type {
   TransferClause,
 } from '../api/transferDirector'
 import { listPlayers } from '../api/players'
+import {
+  getOnlineLearningStatus,
+  listFocusClubs,
+  listLearningActivity,
+  pauseOnlineLearning,
+  resumeOnlineLearning,
+} from '../api/transferLearning'
+import type {
+  LearningActivity,
+  LearningClub,
+  OnlineLearningStatus,
+} from '../api/transferLearning'
 import { listTransfers } from '../api/transfers'
 import type { PlayerSummary } from '../types/players'
 import type { TransferListResponse } from '../types/transfers'
@@ -142,6 +154,50 @@ const learning = ref<LearningStatus | null>(null)
 const learningLoading = ref(false)
 const learningError = ref<string | null>(null)
 const learningTypes = computed(() => Object.entries(learning.value?.by_type ?? {}))
+
+// V3.3.2-08：在线持续学习状态、重点俱乐部与最近动态
+const onlineStatus = ref<OnlineLearningStatus | null>(null)
+const onlineFocus = ref<LearningClub[]>([])
+const onlineActivity = ref<LearningActivity[]>([])
+const onlineLoading = ref(false)
+const onlineError = ref<string | null>(null)
+const onlineBusy = ref(false)
+
+async function loadOnlineLearning() {
+  onlineLoading.value = true
+  onlineError.value = null
+  try {
+    const [status, focus, activity] = await Promise.all([
+      getOnlineLearningStatus(),
+      listFocusClubs(6),
+      listLearningActivity(6),
+    ])
+    if (!status || !status.counts || !status.coverage) {
+      throw new Error('学习状态数据不完整')
+    }
+    onlineStatus.value = status
+    onlineFocus.value = focus.items ?? []
+    onlineActivity.value = activity.items ?? []
+  } catch (error) {
+    onlineError.value = (error as Error).message
+  } finally {
+    onlineLoading.value = false
+  }
+}
+
+async function toggleOnlineLearning(pause: boolean) {
+  onlineBusy.value = true
+  try {
+    if (pause) await pauseOnlineLearning()
+    else await resumeOnlineLearning()
+    await loadOnlineLearning()
+    ElMessage.success(pause ? '已暂停自动学习' : '已恢复自动学习')
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  } finally {
+    onlineBusy.value = false
+  }
+}
 
 const clubHabitsVisible = ref(false)
 const clubHabits = ref<ClubHabits | null>(null)
@@ -811,6 +867,7 @@ onMounted(async () => {
     loadClubs(),
     loadClubOptions(),
     loadLearningStatus(),
+    loadOnlineLearning(),
   ])
   loading.value = false
   const instanceId = Number(route.query.instance_id)
@@ -830,6 +887,7 @@ watch(section, (value) => {
   router.replace({ query: { ...route.query, section: value } })
   if (value === 'strategy' && !strategyCases.value.length) loadStrategy()
   if (value === 'strategy' && !learning.value) loadLearningStatus()
+  if (value === 'strategy' && !onlineStatus.value) loadOnlineLearning()
   if (value === 'radar' && !oppItems.value.length) loadRadar()
 })
 
@@ -1304,6 +1362,90 @@ function directionLabel(direction: string): string {
       </el-tab-pane>
 
       <el-tab-pane label="成交策略" name="strategy">
+        <el-card shadow="never" class="learning-card" data-testid="online-learning-status">
+          <template #header>
+            <div class="offer-head">
+              <strong>在线持续学习</strong>
+              <div class="tag-gap">
+                <el-tag size="small" :type="onlineStatus?.enabled ? 'success' : 'info'">
+                  {{ onlineStatus?.status_label ?? '加载中' }}
+                </el-tag>
+                <el-button size="small" text :loading="onlineLoading" @click="loadOnlineLearning">刷新</el-button>
+                <el-button
+                  v-if="onlineStatus?.enabled"
+                  size="small"
+                  text
+                  :loading="onlineBusy"
+                  @click="toggleOnlineLearning(true)"
+                >暂停</el-button>
+                <el-button
+                  v-else
+                  size="small"
+                  text
+                  :loading="onlineBusy"
+                  @click="toggleOnlineLearning(false)"
+                >恢复</el-button>
+              </div>
+            </div>
+          </template>
+          <el-skeleton v-if="onlineLoading && !onlineStatus" :rows="3" animated />
+          <el-alert
+            v-else-if="onlineError"
+            :title="onlineError"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
+          <template v-else-if="onlineStatus">
+            <div class="learning-stats">
+              <div><span>已观察事件</span><strong>{{ onlineStatus.counts.events_observed ?? 0 }}</strong></div>
+              <div><span>已确认交易</span><strong>{{ onlineStatus.counts.confirmed_transfers ?? 0 }}</strong></div>
+              <div><span>全球俱乐部</span><strong>{{ onlineStatus.counts.global_clubs ?? 0 }}</strong></div>
+              <div><span>重点俱乐部</span><strong>{{ onlineStatus.counts.focus_clubs ?? 0 }}</strong></div>
+            </div>
+            <p class="muted">
+              最近监控 {{ formatDateTime(onlineStatus.last_monitor_at) }}
+              <span v-if="onlineStatus.last_learning_at"> · 最近学习 {{ formatDateTime(onlineStatus.last_learning_at) }}</span>
+            </p>
+            <el-alert
+              v-if="!onlineStatus.coverage?.transfer_history_available"
+              :title="onlineStatus.coverage?.note ?? '原生读取器不提供转会历史；只有导入的成交记录会计入学习'"
+              type="info"
+              :closable="false"
+              show-icon
+              class="notice"
+            />
+            <div v-if="onlineFocus.length" class="online-block">
+              <strong>重点学习俱乐部</strong>
+              <ul class="learning-patterns">
+                <li v-for="club in onlineFocus" :key="club.club_id">
+                  <div class="offer-head">
+                    <strong>{{ club.club_name ?? `俱乐部 ${club.club_id}` }}</strong>
+                    <el-tag size="small" type="info">{{ club.confidence.label }} · 样本 {{ club.sample_size }}</el-tag>
+                  </div>
+                  <p class="rationale">
+                    买入 {{ club.trade_counts?.buying ?? club.buying.completed }}
+                    · 卖出 {{ club.trade_counts?.selling ?? club.selling.completed }}
+                    · 租借 {{ club.trade_counts?.loans ?? 0 }}
+                  </p>
+                </li>
+              </ul>
+            </div>
+            <div v-if="onlineActivity.length" class="online-block">
+              <strong>最近学习动态</strong>
+              <ul class="learning-patterns">
+                <li v-for="item in onlineActivity" :key="item.activity_id">
+                  <div class="offer-head">
+                    <span>{{ item.title }}</span>
+                    <span class="muted">{{ formatDateTime(item.created_at) }}</span>
+                  </div>
+                </li>
+              </ul>
+            </div>
+            <p v-if="onlineStatus.latest_error" class="muted">最近一次学习未完成：{{ onlineStatus.latest_error }}</p>
+          </template>
+        </el-card>
+
         <el-card shadow="never" class="learning-card" data-testid="learning-status">
           <template #header>
             <div class="offer-head">
@@ -1544,6 +1686,13 @@ function directionLabel(direction: string): string {
             </el-tag>
             <span v-if="!purchase.currency" class="muted">货币单位未知，金额不能按默认币种理解</span>
           </div>
+          <p v-if="purchase?.learning_adjustment" class="muted" data-testid="purchase-learning-basis">
+            学习依据：{{
+              purchase.learning_adjustment.applied
+                ? `已参考 ${purchase.learning_adjustment.sample_size} 条真实成交样本调整报价`
+                : purchase.learning_adjustment.basis
+            }}
+          </p>
           <el-alert
             v-for="(warning, index) in purchase?.warnings ?? []"
             :key="index"
@@ -1603,6 +1752,13 @@ function directionLabel(direction: string): string {
             <el-tag size="small" :type="sale.currency ? 'info' : 'warning'">{{ currencyLabel(sale.currency) }}</el-tag>
             <span v-if="!sale.currency" class="muted">货币单位未知，金额不能按默认币种理解</span>
           </div>
+          <p v-if="sale?.learning_adjustment" class="muted" data-testid="sale-learning-basis">
+            学习依据：{{
+              sale.learning_adjustment.applied
+                ? `已参考 ${sale.learning_adjustment.sample_size} 条真实出售样本调整报价`
+                : sale.learning_adjustment.basis
+            }}
+          </p>
           <el-alert
             v-for="(warning, index) in sale?.warnings ?? []"
             :key="index"
@@ -1659,6 +1815,13 @@ function directionLabel(direction: string): string {
             <el-tag size="small" :type="loan.currency ? 'info' : 'warning'">{{ currencyLabel(loan.currency) }}</el-tag>
             <span v-if="!loan.currency" class="muted">货币单位未知，金额不能按默认币种理解</span>
           </div>
+          <p v-if="loan?.learning_adjustment" class="muted" data-testid="loan-learning-basis">
+            学习依据：{{
+              loan.learning_adjustment.applied
+                ? `已参考 ${loan.learning_adjustment.sample_size} 条真实租借样本调整报价`
+                : loan.learning_adjustment.basis
+            }}
+          </p>
           <el-alert
             v-for="(warning, index) in loan?.warnings ?? []"
             :key="index"
@@ -2308,6 +2471,13 @@ function directionLabel(direction: string): string {
 }
 .learning-version {
   margin: 8px 0 0;
+}
+.online-block {
+  margin-top: 12px;
+}
+.online-block > strong {
+  display: block;
+  margin-bottom: 6px;
 }
 .currency-row {
   display: flex;

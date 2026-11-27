@@ -10,6 +10,8 @@ TMP_ROOT = Path(tempfile.mkdtemp(prefix="scoutmind-tests-"))
 os.environ["SCOUTMIND_DATABASE_URL"] = f"sqlite:///{(TMP_ROOT / 'test.db').as_posix()}"
 os.environ["SCOUTMIND_DATA_DIR"] = str(TMP_ROOT / "data")
 os.environ.pop("SCOUTMIND_API_TOKEN", None)
+# V3.3.2-08：测试直接调用学习服务，避免导入接口在后台线程争用测试数据库。
+os.environ.setdefault("SCOUTMIND_LEARNING_AUTO_START", "0")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

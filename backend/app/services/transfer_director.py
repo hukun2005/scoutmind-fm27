@@ -562,10 +562,15 @@ def _offer(
 def generate_purchase_offers(
     db: Session, instance: PlayerInstance, budget: float | None = None
 ) -> dict[str, Any]:
+    from . import transfer_learning
+
     snapshot = latest_snapshot(db, instance.id)
     contract = _contract(db, instance, snapshot)
     factors = _factor_bundle(db, instance, snapshot, contract)
     base_info = _base_value(db, instance, snapshot)
+    learned = transfer_learning.learning_adjustment(
+        db, instance.fm_save_id, instance, base_info["base"], "purchase"
+    )
     currency = save_currency(db, instance.fm_save_id)
     missing = list(contract["missing_fields"]) + ["transfer_budget"]
     warnings = list(base_info["warnings"])
@@ -593,6 +598,7 @@ def generate_purchase_offers(
             "budget_status": budget_status or "provided",
             "budget_note": budget_note,
             "strategy_adjustment": strategy_adjustment(db, instance.fm_save_id, instance, None),
+            "learning_adjustment": learned,
             "warnings": warnings,
             "missing_fields": sorted(set(missing)),
             "algorithm_version": OFFER_VERSION,
@@ -602,6 +608,8 @@ def generate_purchase_offers(
     adjustment = strategy_adjustment(db, instance.fm_save_id, instance, adjusted)
     if adjustment["applied"]:
         adjusted = adjusted * float(adjustment["multiplier"])
+    if learned["applied"]:
+        adjusted = adjusted * float(learned["multiplier"])
     annual_wage = contract["annual_wage"]
     rationale_common = {
         "basis": base_info["basis"],
@@ -708,6 +716,7 @@ def generate_purchase_offers(
         "budget_status": budget_status,
         "budget_note": budget_note,
         "strategy_adjustment": adjustment,
+        "learning_adjustment": learned,
         "warnings": warnings,
         "missing_fields": sorted(set(missing)),
         "algorithm_version": OFFER_VERSION,
@@ -731,10 +740,15 @@ def _position_depth(db: Session, save_id: int, club_id: int | None, position: st
 
 
 def generate_sale_offers(db: Session, instance: PlayerInstance) -> dict[str, Any]:
+    from . import transfer_learning
+
     snapshot = latest_snapshot(db, instance.id)
     contract = _contract(db, instance, snapshot)
     factors = _factor_bundle(db, instance, snapshot, contract)
     base_info = _base_value(db, instance, snapshot)
+    learned = transfer_learning.learning_adjustment(
+        db, instance.fm_save_id, instance, base_info["base"], "sale"
+    )
     currency = save_currency(db, instance.fm_save_id)
     missing = list(contract["missing_fields"]) + ["other_club_offers"]
     warnings = list(base_info["warnings"])
@@ -760,6 +774,7 @@ def generate_sale_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
             "basis": base_info,
             "squad_impact": squad_impact,
             "strategy_adjustment": strategy_adjustment(db, instance.fm_save_id, instance, None),
+            "learning_adjustment": learned,
             "warnings": warnings,
             "missing_fields": sorted(set(missing)),
             "algorithm_version": OFFER_VERSION,
@@ -769,6 +784,8 @@ def generate_sale_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
     adjustment = strategy_adjustment(db, instance.fm_save_id, instance, adjusted)
     if adjustment["applied"]:
         adjusted = adjusted * float(adjustment["multiplier"])
+    if learned["applied"]:
+        adjusted = adjusted * float(learned["multiplier"])
     rationale_common = {
         "basis": base_info["basis"],
         "base": fee_round(base_info["base"]),
@@ -854,6 +871,7 @@ def generate_sale_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
         },
         "squad_impact": squad_impact,
         "strategy_adjustment": adjustment,
+        "learning_adjustment": learned,
         "warnings": warnings,
         "missing_fields": sorted(set(missing)),
         "algorithm_version": OFFER_VERSION,
@@ -866,10 +884,15 @@ def generate_loan_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
     金额全部由确定性规则从估值推导；未知估值不生成金额。租借费、工资承担与买断费
     都是"建议条款"，不是当前合同事实。
     """
+    from . import transfer_learning
+
     snapshot = latest_snapshot(db, instance.id)
     contract = _contract(db, instance, snapshot)
     factors = _factor_bundle(db, instance, snapshot, contract)
     base_info = _base_value(db, instance, snapshot)
+    learned = transfer_learning.learning_adjustment(
+        db, instance.fm_save_id, instance, base_info["base"], "loan"
+    )
     currency = save_currency(db, instance.fm_save_id)
     availability = latest_availability(db, instance.id)
     missing = list(contract["missing_fields"]) + ["loan_terms", "transfer_budget"]
@@ -892,6 +915,7 @@ def generate_loan_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
             "factors": factors,
             "basis": base_info,
             "strategy_adjustment": strategy_adjustment(db, instance.fm_save_id, instance, None),
+            "learning_adjustment": learned,
             "warnings": warnings,
             "missing_fields": sorted(set(missing)),
             "algorithm_version": LOAN_OFFER_VERSION,
@@ -901,6 +925,8 @@ def generate_loan_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
     adjustment = strategy_adjustment(db, instance.fm_save_id, instance, adjusted)
     if adjustment["applied"]:
         adjusted = adjusted * float(adjustment["multiplier"])
+    if learned["applied"]:
+        adjusted = adjusted * float(learned["multiplier"])
     annual_wage = contract["annual_wage"]
     loan_months = 12
     rationale_common = {
@@ -978,6 +1004,7 @@ def generate_loan_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
         },
         "loan_listed": availability.loan_listed if availability is not None else None,
         "strategy_adjustment": adjustment,
+        "learning_adjustment": learned,
         "warnings": warnings,
         "missing_fields": sorted(set(missing)),
         "algorithm_version": LOAN_OFFER_VERSION,

@@ -129,6 +129,18 @@ export interface Offer {
   source?: string
 }
 
+export interface LearningAdjustment {
+  applied: boolean
+  multiplier: number
+  before: number | null
+  after: number | null
+  sample_size: number
+  club_id: number | null
+  club_priority?: string | null
+  confidence?: { level: string; label: string; sample_size: number; quality_score?: number; basis?: string[] }
+  basis: string
+}
+
 export interface OfferBundle {
   instance_id: number
   direction: 'purchase' | 'sale' | 'loan'
@@ -143,6 +155,7 @@ export interface OfferBundle {
   budget_status?: 'unknown' | 'provided' | 'insufficient'
   budget_note?: string | null
   strategy_adjustment?: OfferAdjustment
+  learning_adjustment?: LearningAdjustment
   squad_impact?: Record<string, unknown>
   factors: Record<string, unknown>
   warnings: string[]

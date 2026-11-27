@@ -1898,3 +1898,113 @@ class BackgroundTask(TimestampMixin, Base):
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime)
     cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime)
 
+
+# ---------------------------------------------------------------------------
+# V3.3.2-08 在线持续学习
+#
+# 学习会话保存游标与状态；事件日志只追加并按存档内指纹去重；俱乐部画像保存
+# 增量统计；学习动态只记录真实事件或真实策略变化。不复制 transfer_history /
+# loan_records / player_availability / transfer_negotiations 等既有表。
+# ---------------------------------------------------------------------------
+
+
+class TransferLearningSession(TimestampMixin, Base):
+    """单个存档的在线学习会话：状态、游标、检查点与累计计数。"""
+
+    __tablename__ = "transfer_learning_sessions"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", name="uq_learning_session_save"),
+        Index("ix_learning_session_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), default="STOPPED", nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_monitor_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_learning_at: Mapped[datetime | None] = mapped_column(DateTime)
+    events_processed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    events_new: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    events_skipped: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    learning_cycles: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(512))
+    last_import_job_id: Mapped[int | None] = mapped_column(Integer)
+    cursor_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class TransferLearningEvent(TimestampMixin, Base):
+    """在线学习观测到的转会/市场事件（只追加）。
+
+    ``event_key`` 是存档内确定性指纹；唯一约束兜底重复读取、页面重复加载、
+    重启与存档切换造成的重复写入。``learning_eligible`` 只有真实成交/租借才为真，
+    挂牌变化、推测与用户报价事件不得进入价格统计。
+    """
+
+    __tablename__ = "transfer_learning_events"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", "event_key", name="uq_learning_event_save_key"),
+        Index("ix_learning_event_save_time", "fm_save_id", "observed_at"),
+        Index("ix_learning_event_save_type", "fm_save_id", "event_type"),
+        Index("ix_learning_event_save_player", "fm_save_id", "player_instance_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    event_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    transaction_type: Mapped[str | None] = mapped_column(String(16))
+    verification_status: Mapped[str] = mapped_column(String(16), default="CONFIRMED", nullable=False)
+    player_instance_id: Mapped[int | None] = mapped_column(ForeignKey("player_instances.id"), index=True)
+    player_identity: Mapped[str | None] = mapped_column(String(80))
+    buying_club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"), index=True)
+    selling_club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"), index=True)
+    amount: Mapped[float | None] = mapped_column(Float)
+    currency: Mapped[str | None] = mapped_column(String(8))
+    game_date: Mapped[date | None] = mapped_column(Date)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    learning_eligible: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class ClubTransferProfile(TimestampMixin, Base):
+    """单个存档内一家俱乐部的转会画像（增量统计）。
+
+    ``priority`` 为 ``global`` 或 ``focus``；与用户俱乐部发生过交易/谈判的俱乐部
+    自动升级为 focus。统计按买入/卖出/租借分开，多币种不混算。
+    """
+
+    __tablename__ = "club_transfer_profiles"
+    __table_args__ = (
+        UniqueConstraint("fm_save_id", "club_id", name="uq_club_profile_save_club"),
+        Index("ix_club_profile_save_priority", "fm_save_id", "priority"),
+        Index("ix_club_profile_save_sample", "fm_save_id", "sample_size"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    club_id: Mapped[int] = mapped_column(ForeignKey("clubs.id"), nullable=False, index=True)
+    priority: Mapped[str] = mapped_column(String(8), default="global", nullable=False)
+    last_event_id: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    sample_size: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    stats_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    confidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class TransferLearningActivity(TimestampMixin, Base):
+    """用户可读的学习动态；只由真实事件或真实策略变化产生。"""
+
+    __tablename__ = "transfer_learning_activities"
+    __table_args__ = (
+        Index("ix_learning_activity_save_time", "fm_save_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    activity_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    detail_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    event_id: Mapped[int | None] = mapped_column(ForeignKey("transfer_learning_events.id"))
+    club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"))
+

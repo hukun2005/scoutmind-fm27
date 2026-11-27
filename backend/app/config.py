@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     scan_batch_size: int = 500
     scan_task_timeout_seconds: int = 1800
     scan_max_attempts: int = 2
+    # V3.3.2-08：导入完成后是否自动触发在线学习。测试环境关闭，生产默认开启。
+    learning_auto_start: bool = True
     # 兼容旧名字（上一版配置），保留以免已有部署配置失效。
     max_multipart_files: int = 1
     # V3.2.7.3：旧客户端（不带 WriteContext）的写入开关。默认允许，但每次都会写审计事件；
