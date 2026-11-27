@@ -285,6 +285,206 @@ const review = {
   algorithm_version: 'negotiation-review-1',
 }
 
+const opportunityItem = {
+  opportunity_id: 1,
+  instance_id: 12,
+  player_name: 'Mario Bianchi',
+  club_id: null,
+  club_name: null,
+  position: 'ST',
+  age: 24,
+  market_value: 35_000_000,
+  wage: 45_000,
+  contract_end: '2028-06-30',
+  contract_remaining_months: 19,
+  contract_bucket: '24m',
+  listed: true,
+  loan_listed: false,
+  set_for_release: false,
+  opportunity_type: 'listed',
+  verified_status: 'confirmed',
+  confidence: 1.0,
+  source: 'player_availability',
+  is_primary: true,
+  scores: { ability: 80, squad_fit: 75, opportunity: 85, financial: null, overall: 82.3, confidence: 0.85 },
+  recommendation_group: 'strong',
+  detail: { signals: [], bucket: '24m', remaining_months: 19 },
+  types: ['listed', 'contract_expiring'],
+  first_seen_at: '2026-11-27T08:00:00Z',
+  last_seen_at: '2026-11-27T08:00:00Z',
+}
+
+const opportunitySummary = {
+  save_id: 1,
+  scan_version: 'transfer-radar-1',
+  last_scan_at: '2026-11-27T08:00:00Z',
+  counts: { listed: 12, loan_listed: 34, release_listed: 2, contract_expiring: 120, ai_inferred: 3, new_24h: 5 },
+  groups: { strong: 4, watch: 8, loan: 2, long_term: 1, not_recommended: 3 },
+  group_labels: {},
+  top_recommendations: [],
+  alerts_unread: 1,
+  capabilities: {
+    total_players: 4,
+    known_club_players: 4,
+    missing_contract: 1,
+    transfer_intent: 'unsupported',
+    transfer_budget: 'unsupported',
+  },
+  unsupported_fields: ['transfer_intent', 'transfer_budget'],
+  auto_scan: null,
+}
+
+const alerts = {
+  items: [
+    {
+      alert_id: 5,
+      instance_id: 12,
+      player_name: 'Mario Bianchi',
+      type: 'listed',
+      severity: 'info',
+      title: '新增挂牌球员：Mario Bianchi',
+      message: '已挂牌，更新时间 2026-11-27',
+      read_at: null,
+      created_at: '2026-11-27T08:00:00Z',
+    },
+  ],
+  unread: 1,
+}
+
+const strategyCases = {
+  items: [
+    {
+      case_id: 'transfer:1',
+      player_instance_id: 12,
+      player_name: 'Luca Ferri',
+      player_position: 'ST',
+      player_age: 24,
+      player_value: null,
+      contract_remaining: 12,
+      selling_club: 'Old Town',
+      buying_club: 'Kingsport City',
+      transfer_type: 'permanent',
+      transfer_status: 'completed',
+      actual_fee: 12_000_000,
+      base_fee: 12_000_000,
+      effective_fee: 12_000_000,
+      addons_potential: null,
+      installments: { count: 2, amount: 4_800_000 },
+      addons: { count: 0, amount: null },
+      loan_terms: null,
+      sell_on_clause: null,
+      deal_result: 'completed',
+      data_source: 'csv_import',
+      case_origin: 'imported',
+      confidence: 1.0,
+      observed_at: '2026-11-20T00:00:00Z',
+    },
+  ],
+  total: 1,
+  available: true,
+  message: null,
+}
+
+const strategyInsights = {
+  save_id: 1,
+  available: true,
+  patterns: [
+    {
+      key: 'installments',
+      label: '分期付款',
+      sample_size: 4,
+      sufficient_sample: true,
+      case_ids: ['transfer:1'],
+      summary: '分期付款在成交中多次出现；共 4 个案例，引用 transfer:1',
+    },
+    {
+      key: 'sell_on',
+      label: '二次转会分成',
+      sample_size: 1,
+      sufficient_sample: false,
+      case_ids: ['transfer:1'],
+      summary: '样本不足（1 < 3），暂不归纳策略',
+    },
+  ],
+  totals: { cases: 1, demo_cases: 0, imported_cases: 1 },
+  message: null,
+  min_sample: 3,
+}
+
+const loanBundle = {
+  instance_id: 12,
+  direction: 'loan',
+  currency: 'EUR',
+  available: true,
+  offers: [
+    {
+      offer_type: 'low_cost_loan',
+      currency: 'EUR',
+      base_fee: 350_000,
+      immediate_payment: 350_000,
+      installments_total: null,
+      addons_potential: null,
+      total_committed: 350_000,
+      potential_total: 350_000,
+      sell_on_pct: null,
+      wage_impact: 13_500,
+      loan_fee: 350_000,
+      wage_contribution_pct: 30,
+      buy_option_fee: null,
+      buy_obligation_fee: null,
+      loan_months: 12,
+      risk_level: 'low',
+      rationale: { reason: '只承担 1% 租借费与 30% 工资，成本最低' },
+      algorithm_version: 'transfer-loan-offer-1',
+    },
+    {
+      offer_type: 'development_loan',
+      currency: 'EUR',
+      base_fee: 1_050_000,
+      immediate_payment: 1_050_000,
+      installments_total: null,
+      addons_potential: null,
+      total_committed: 1_050_000,
+      potential_total: 34_300_000,
+      sell_on_pct: null,
+      wage_impact: 22_500,
+      loan_fee: 1_050_000,
+      wage_contribution_pct: 50,
+      buy_option_fee: 33_250_000,
+      buy_obligation_fee: null,
+      loan_months: 12,
+      risk_level: 'medium',
+      rationale: { reason: '保留 95% 估值的买断选择权' },
+      algorithm_version: 'transfer-loan-offer-1',
+    },
+    {
+      offer_type: 'loan_to_buy',
+      currency: 'EUR',
+      base_fee: 1_750_000,
+      immediate_payment: 1_750_000,
+      installments_total: null,
+      addons_potential: null,
+      total_committed: 1_750_000,
+      potential_total: 36_750_000,
+      sell_on_pct: null,
+      wage_impact: 31_500,
+      loan_fee: 1_750_000,
+      wage_contribution_pct: 70,
+      buy_option_fee: null,
+      buy_obligation_fee: 35_000_000,
+      loan_months: 12,
+      risk_level: 'high',
+      rationale: { reason: '附带等值强制买断' },
+      algorithm_version: 'transfer-loan-offer-1',
+    },
+  ],
+  basis: {},
+  factors: {},
+  warnings: ['游戏内未标记可租借，报价可能被拒绝'],
+  missing_fields: ['transfer_budget'],
+  algorithm_version: 'transfer-loan-offer-1',
+}
+
 async function mockApi(page: Page) {
   const calls: Array<{ path: string; method: string; body: unknown }> = []
   let negotiationState = { ...negotiation }
@@ -298,9 +498,29 @@ async function mockApi(page: Page) {
     if (method !== 'GET') calls.push({ path, method, body })
 
     if (path.endsWith('/meta/bootstrap')) return json(meta)
+    if (path.endsWith('/transfer-director/opportunities/summary')) return json(opportunitySummary)
+    if (path.endsWith('/transfer-director/opportunities/refresh') && method === 'POST') {
+      return json({ created: 3, updated: 1, deactivated: 0, events: 3, alerts_created: 1, scanned_players: 4 })
+    }
+    if (path.endsWith('/transfer-director/opportunities/12')) {
+      return json({ opportunity: { ...opportunityItem, items: [opportunityItem] }, context: analysis })
+    }
+    if (path.endsWith('/transfer-director/opportunities')) {
+      return json({ items: [opportunityItem], total: 1, limit: 20, offset: 0, sort: 'score' })
+    }
+    if (path.endsWith('/transfer-director/alerts')) return json(alerts)
+    if (path.endsWith('/transfer-director/alerts/5/read') && method === 'POST') {
+      return json({ alert_id: 5, read_at: '2026-11-27T09:00:00Z' })
+    }
+    if (path.endsWith('/transfer-director/strategy-cases/similar/12')) {
+      return json({ instance_id: 12, available: true, items: [{ ...strategyCases.items[0], match_pct: 82.5, matched_features: ['位置组相同', '年龄接近'], differences: [] }], total: 1, message: null })
+    }
+    if (path.endsWith('/transfer-director/strategy-cases')) return json(strategyCases)
+    if (path.endsWith('/transfer-director/strategy-insights')) return json(strategyInsights)
+    if (path.endsWith('/player/12/loan-offers') && method === 'POST') return json(loanBundle)
     if (path.endsWith('/transfer-director/overview')) return json(overview)
     if (path.endsWith('/transfer-director/club-summary')) return json(clubSummary)
-    if (path.endsWith('/transfer-director/player/12')) return json(analysis)
+    if (path.endsWith('/transfer-director/player/12')) return json({ ...analysis, loan_preview: loanBundle })
     if (path.endsWith('/player/12/purchase-offers')) return json(purchaseBundle)
     if (path.endsWith('/player/12/sale-offers')) return json(saleBundle)
     if (path.endsWith('/transfer-director/offers') && method === 'POST') {
@@ -346,7 +566,7 @@ test.beforeEach(async ({ page }) => {
 
 test('AI 转会总监：导航入口、总览与数据能力提示', async ({ page }) => {
   await mockApi(page)
-  await page.goto('/transfer-director')
+  await page.goto('/transfer-director?section=workbench')
 
   await expect(page.getByRole('heading', { name: 'AI 转会总监' })).toBeVisible()
   await expect(page.getByText('当前存档有 4 名球员')).toBeVisible()
@@ -409,7 +629,7 @@ test('合同与条款：缺失字段显示未知而不是 0', async ({ page }) =
 test('桌面端 1280×720 无横向溢出', async ({ page }) => {
   await mockApi(page)
   await page.setViewportSize({ width: 1280, height: 720 })
-  await page.goto('/transfer-director?instance_id=12')
+  await page.goto('/transfer-director?section=workbench&instance_id=12')
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   )
@@ -433,4 +653,52 @@ test('谈判记录：事件、幂等提示与复盘', async ({ page }) => {
   await page.getByRole('button', { name: '生成复盘' }).click()
   await expect(page.getByText('当前历史谈判样本不足，暂不形成可靠规律')).toBeVisible()
   await expect(page.getByText('2.9%')).toBeVisible()
+})
+
+test('机会雷达：统计、表格、未知俱乐部与详情抽屉', async ({ page }) => {
+  await mockApi(page)
+  await page.goto('/transfer-director')
+
+  await expect(page.locator('.radar-stat').filter({ hasText: '已挂牌' })).toBeVisible()
+  await expect(page.getByText('当前数据源不提供离队意愿字段')).toBeVisible()
+  await expect(page.getByRole('cell', { name: /Mario Bianchi/ })).toBeVisible()
+  await expect(page.getByRole('cell', { name: '未知' }).first()).toBeVisible()
+
+  await page.getByRole('cell', { name: /Mario Bianchi/ }).click()
+  await expect(page.getByText('机会详情')).toBeVisible()
+  await expect(page.getByText('当前没有可靠预算来源，财务可行性未计算')).toBeVisible()
+  await expect(page.getByRole('button', { name: '在报价工作台打开' })).toBeVisible()
+})
+
+test('机会雷达：提醒可标记已读', async ({ page }) => {
+  await mockApi(page)
+  await page.goto('/transfer-director')
+  await page.getByRole('button', { name: /提醒/ }).click()
+  await expect(page.getByText('新增挂牌球员：Mario Bianchi')).toBeVisible()
+  await page.getByText('新增挂牌球员：Mario Bianchi').click()
+  await expect(page.getByText('转会提醒')).toBeVisible()
+})
+
+test('成交策略：案例、样本量提示与相似案例', async ({ page }) => {
+  await mockApi(page)
+  await page.goto('/transfer-director?section=workbench&instance_id=12')
+  await page.getByRole('tab', { name: '成交策略' }).click()
+
+  await expect(page.getByText('分期付款在成交中多次出现')).toBeVisible()
+  await expect(page.getByText('样本不足（1 < 3），暂不归纳策略')).toBeVisible()
+  await expect(page.getByText('Luca Ferri').first()).toBeVisible()
+  await expect(page.getByText('位置组相同、年龄接近')).toBeVisible()
+  await expect(page.getByText('82.5%')).toBeVisible()
+})
+
+test('租借报价：三套方案与未标记可租借提示', async ({ page }) => {
+  await mockApi(page)
+  await page.goto('/transfer-director?tab=loan&instance_id=12')
+
+  await expect(page.getByText('低成本租借')).toBeVisible()
+  await expect(page.getByText('发展型租借')).toBeVisible()
+  await expect(page.getByText('租借后买断')).toBeVisible()
+  await expect(page.getByText('游戏内未标记可租借，报价可能被拒绝').first()).toBeVisible()
+  const buyoutCard = page.locator('.offer-card').filter({ hasText: '租借后买断' })
+  await expect(buyoutCard).toContainText('3500 万')
 })

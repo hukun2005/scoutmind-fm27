@@ -103,6 +103,11 @@ export interface Offer {
   potential_total: number | null
   sell_on_pct: number | null
   wage_impact: number | null
+  loan_fee?: number | null
+  wage_contribution_pct?: number | null
+  buy_option_fee?: number | null
+  buy_obligation_fee?: number | null
+  loan_months?: number | null
   risk_level: string
   rationale: Record<string, unknown>
   algorithm_version?: string
@@ -113,7 +118,7 @@ export interface Offer {
 
 export interface OfferBundle {
   instance_id: number
-  direction: 'purchase' | 'sale'
+  direction: 'purchase' | 'sale' | 'loan'
   currency: string
   available: boolean
   offers: Offer[]
@@ -124,6 +129,116 @@ export interface OfferBundle {
   warnings: string[]
   missing_fields: string[]
   algorithm_version: string
+}
+
+export interface OpportunityScores {
+  ability: number | null
+  squad_fit: number | null
+  opportunity: number | null
+  financial: number | null
+  overall: number | null
+  confidence: number | null
+}
+
+export interface Opportunity {
+  opportunity_id: number
+  instance_id: number
+  player_name: string | null
+  club_id: number | null
+  club_name: string | null
+  position: string | null
+  age: number | null
+  market_value: number | null
+  wage: number | null
+  contract_end: string | null
+  contract_remaining_months: number | null
+  contract_bucket: string | null
+  listed: boolean | null
+  loan_listed: boolean | null
+  set_for_release: boolean | null
+  opportunity_type: string
+  verified_status: 'confirmed' | 'inferred'
+  confidence: number | null
+  source: string
+  is_primary: boolean
+  scores: OpportunityScores
+  recommendation_group: string | null
+  detail: Record<string, unknown>
+  types: string[]
+  first_seen_at: string | null
+  last_seen_at: string | null
+}
+
+export interface OpportunitySummary {
+  save_id: number
+  scan_version: string
+  last_scan_at: string | null
+  counts: {
+    listed: number
+    loan_listed: number
+    release_listed: number
+    contract_expiring: number
+    ai_inferred: number
+    new_24h: number
+  }
+  groups: Record<string, number>
+  group_labels: Record<string, string>
+  top_recommendations: Array<Record<string, unknown>>
+  alerts_unread: number
+  capabilities: Record<string, unknown>
+  unsupported_fields: string[]
+  auto_scan: Record<string, unknown> | null
+}
+
+export interface StrategyCase {
+  case_id: string
+  player_instance_id: number | null
+  player_name: string | null
+  player_position: string | null
+  player_age: number | null
+  player_value: number | null
+  contract_remaining: number | null
+  selling_club: string | null
+  buying_club: string | null
+  transfer_type: string
+  transfer_status: string
+  actual_fee: number | null
+  base_fee: number | null
+  effective_fee: number | null
+  addons_potential: number | null
+  installments: { count: number; amount: number | null } | null
+  addons: { count: number; amount: number | null } | null
+  loan_terms: Record<string, unknown> | null
+  sell_on_clause: number | null
+  deal_result: string
+  data_source: string | null
+  case_origin: 'imported' | 'demo' | 'negotiation'
+  confidence: number | null
+  observed_at: string | null
+  match_pct?: number
+  matched_features?: string[]
+  differences?: string[]
+}
+
+export interface StrategyInsight {
+  key: string
+  label: string
+  sample_size: number
+  sufficient_sample: boolean
+  case_ids: string[]
+  summary: string
+}
+
+export interface TransferAlert {
+  alert_id: number
+  instance_id: number | null
+  player_name: string | null
+  type: string
+  severity: string
+  title: string
+  message: string
+  read_at: string | null
+  created_at: string | null
 }
 
 export interface LoanInfo {
@@ -164,6 +279,7 @@ export interface PlayerTransferAnalysis {
   valuation: ValuationSummary
   purchase_preview: OfferBundle
   sale_preview: OfferBundle
+  loan_preview?: OfferBundle
   missing_fields: string[]
   sources: Record<string, unknown>
 }
@@ -181,7 +297,7 @@ export interface Negotiation {
   negotiation_id: number
   instance_id: number
   offer_id: number | null
-  direction: 'purchase' | 'sale'
+  direction: 'purchase' | 'sale' | 'loan'
   status: string
   round_count: number
   initial_ask: number | null
@@ -248,7 +364,7 @@ export function listNegotiations(params: { instance_id?: number; status?: string
 
 export function createNegotiation(body: {
   instance_id: number
-  direction: 'purchase' | 'sale'
+  direction: 'purchase' | 'sale' | 'loan'
   offer_id?: number | null
   initial_ask?: number | null
   note?: string | null
@@ -273,4 +389,90 @@ export function reviewNegotiation(id: number): Promise<NegotiationReview> {
 
 export function getClubTransferSummary(clubId?: number): Promise<Record<string, unknown>> {
   return apiGet('/transfer-director/club-summary', { club_id: clubId })
+}
+
+export function generateLoanOffers(instanceId: number): Promise<OfferBundle> {
+  return apiPost<OfferBundle>(`/transfer-director/player/${instanceId}/loan-offers`)
+}
+
+export function getOpportunitySummary(): Promise<OpportunitySummary> {
+  return apiGet<OpportunitySummary>('/transfer-director/opportunities/summary')
+}
+
+export function listOpportunities(
+  params: {
+    type?: string
+    club_id?: number
+    position?: string
+    age_min?: number
+    age_max?: number
+    group?: string
+    search?: string
+    sort?: string
+    limit?: number
+    offset?: number
+  } = {},
+): Promise<{ items: Opportunity[]; total: number; limit: number; offset: number }> {
+  return apiGet('/transfer-director/opportunities', params)
+}
+
+export function getOpportunityDetail(
+  instanceId: number,
+): Promise<{ opportunity: Opportunity & { items?: Opportunity[] }; context: PlayerTransferAnalysis }> {
+  return apiGet(`/transfer-director/opportunities/${instanceId}`)
+}
+
+export function refreshOpportunities(): Promise<Record<string, unknown>> {
+  return apiPost('/transfer-director/opportunities/refresh')
+}
+
+export function listOpportunityEvents(
+  params: { instance_id?: number; limit?: number; offset?: number } = {},
+): Promise<{ items: Array<Record<string, unknown>>; total: number }> {
+  return apiGet('/transfer-director/opportunity-events', params)
+}
+
+export function listTransferAlerts(
+  params: { unread_only?: boolean; limit?: number } = {},
+): Promise<{ items: TransferAlert[]; unread: number }> {
+  return apiGet('/transfer-director/alerts', params)
+}
+
+export function markTransferAlertRead(alertId: number): Promise<Record<string, unknown>> {
+  return apiPost(`/transfer-director/alerts/${alertId}/read`)
+}
+
+export function listStrategyCases(
+  params: { transfer_type?: string; case_origin?: string; limit?: number; offset?: number } = {},
+): Promise<{
+  items: StrategyCase[]
+  total: number
+  available: boolean
+  message: string | null
+}> {
+  return apiGet('/transfer-director/strategy-cases', params)
+}
+
+export function getSimilarStrategyCases(
+  instanceId: number,
+  limit = 10,
+): Promise<{
+  instance_id: number
+  available: boolean
+  items: StrategyCase[]
+  total: number
+  message: string | null
+}> {
+  return apiGet(`/transfer-director/strategy-cases/similar/${instanceId}`, { limit })
+}
+
+export function getStrategyInsights(): Promise<{
+  save_id: number
+  available: boolean
+  patterns: StrategyInsight[]
+  totals?: Record<string, number>
+  message: string | null
+  min_sample: number
+}> {
+  return apiGet('/transfer-director/strategy-insights')
 }

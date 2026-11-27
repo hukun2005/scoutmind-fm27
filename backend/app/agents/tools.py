@@ -308,6 +308,9 @@ TOOL_NAMES = (
     "calculate_transfer_valuation",
     "generate_purchase_offers",
     "generate_sale_offers",
+    "generate_loan_offers",
+    "get_transfer_opportunities",
+    "get_transfer_strategy_cases",
     "record_negotiation_event",
     "review_negotiation",
 )
@@ -676,6 +679,79 @@ def generate_sale_offers(session: Session, save_id: int, instance_id: int) -> To
         result=result,
         summary=f"生成 {len(result['offers'])} 套出售方案",
         warnings=list(result.get("warnings") or []),
+    )
+
+
+def generate_loan_offers(session: Session, save_id: int, instance_id: int) -> ToolCall:
+    """``generate_loan_offers`` — 三套租借方案（低成本/发展型/租借后买断）。"""
+    director = _director()
+    instance = _instance_in_save(session, save_id, instance_id)
+    result = director.generate_loan_offers(session, instance)
+    return ToolCall(
+        name="generate_loan_offers",
+        arguments={"instance_id": instance_id},
+        result=result,
+        summary=f"生成 {len(result['offers'])} 套租借方案",
+        warnings=list(result.get("warnings") or []),
+    )
+
+
+def get_transfer_opportunities(
+    session: Session,
+    save_id: int,
+    opportunity_type: str | None = None,
+    group: str | None = None,
+    limit: int = 20,
+) -> ToolCall:
+    """``get_transfer_opportunities`` — 全局机会雷达（真实状态与 AI 推测定性分离）。"""
+    from ..services import transfer_radar
+
+    summary = transfer_radar.summary(session, save_id)
+    listing = transfer_radar.list_opportunities(
+        session, save_id, opportunity_type=opportunity_type, group=group, limit=limit, auto_scan=False
+    )
+    warnings = ["当前数据源不提供离队意愿字段，雷达不会把推测包装成“想离队”"]
+    if summary["capabilities"]["known_club_players"] < summary["capabilities"]["total_players"]:
+        warnings.append("多数球员没有俱乐部归属，俱乐部筛选只覆盖已知俱乐部")
+    return ToolCall(
+        name="get_transfer_opportunities",
+        arguments={"type": opportunity_type, "group": group, "limit": limit},
+        result={
+            "counts": summary["counts"],
+            "capabilities": summary["capabilities"],
+            "items": listing["items"],
+            "total": listing["total"],
+        },
+        summary=f"当前存档共 {listing['total']} 个机会（挂牌 {summary['counts']['listed']}，可租借 {summary['counts']['loan_listed']}）",
+        warnings=warnings,
+    )
+
+
+def get_transfer_strategy_cases(
+    session: Session, save_id: int, instance_id: int | None = None, limit: int = 10
+) -> ToolCall:
+    """``get_transfer_strategy_cases`` — 历史成交案例、相似案例与规则归纳。"""
+    from ..services import transfer_strategy
+
+    if instance_id is not None:
+        _instance_in_save(session, save_id, instance_id)
+        result = transfer_strategy.similar_cases(session, save_id, instance_id, limit=limit)
+        summary = f"匹配到 {result['total']} 个相似成交案例"
+        warnings = [] if result["available"] else [result["message"]]
+        arguments = {"instance_id": instance_id, "limit": limit}
+    else:
+        cases = transfer_strategy.list_cases(session, save_id, limit=limit)
+        insights = transfer_strategy.insights(session, save_id)
+        result = {"cases": cases, "insights": insights}
+        summary = f"案例库 {cases['total']} 条，可归纳策略 {sum(1 for p in insights['patterns'] if p['sufficient_sample'])} 条"
+        warnings = [] if cases["available"] else [cases["message"]]
+        arguments = {"limit": limit}
+    return ToolCall(
+        name="get_transfer_strategy_cases",
+        arguments=arguments,
+        result=result,
+        summary=summary,
+        warnings=[w for w in warnings if w],
     )
 
 

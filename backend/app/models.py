@@ -1678,6 +1678,12 @@ class TransferOffer(TimestampMixin, Base):
     sell_on_pct: Mapped[float | None] = mapped_column(Float)
     currency: Mapped[str] = mapped_column(String(8), default="EUR", nullable=False)
     wage_impact: Mapped[float | None] = mapped_column(Float)
+    # V3.3.2-05-05 租借条款：NULL 表示来源未提供或该方案不适用，绝不以 0 代替。
+    loan_fee: Mapped[float | None] = mapped_column(Float)
+    wage_contribution_pct: Mapped[float | None] = mapped_column(Float)
+    buy_option_fee: Mapped[float | None] = mapped_column(Float)
+    buy_obligation_fee: Mapped[float | None] = mapped_column(Float)
+    loan_months: Mapped[int | None] = mapped_column(Integer)
     risk_level: Mapped[str] = mapped_column(String(8), default="medium", nullable=False)
     rationale_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     algorithm_version: Mapped[str] = mapped_column(String(32), default="transfer-offer-1", nullable=False)
@@ -1736,4 +1742,73 @@ class NegotiationEvent(TimestampMixin, Base):
     event_data_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     source: Mapped[str] = mapped_column(String(32), default="user_confirmed", nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class TransferOpportunity(TimestampMixin, Base):
+    """当前存档的一次转会机会（物化结果，可由重扫重建）。
+
+    ``verified_status`` 区分游戏字段直接读取的 ``confirmed`` 与规则推测的 ``inferred``；
+    推断结果不得回写成挂牌/离队意愿。各评分为 NULL 表示该维度数据不足，不是 0 分。
+    """
+
+    __tablename__ = "transfer_opportunities"
+    __table_args__ = (
+        UniqueConstraint(
+            "fm_save_id", "player_instance_id", "opportunity_type", name="uq_opportunity_save_instance_type"
+        ),
+        Index("ix_opportunity_save_type_active", "fm_save_id", "opportunity_type", "active"),
+        Index("ix_opportunity_save_primary", "fm_save_id", "is_primary", "active"),
+        Index("ix_opportunity_save_score", "fm_save_id", "overall_score"),
+        Index("ix_opportunity_save_instance", "fm_save_id", "player_instance_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    opportunity_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    verified_status: Mapped[str] = mapped_column(String(12), default="confirmed", nullable=False)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # 每名球员只保留一个主机会（优先级 listed > loan_listed > release_listed > contract_expiring > ai_inferred），
+    # 供默认列表无重复分页；按类型筛选时仍可看到全部条目。
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    detail_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    ability_score: Mapped[float | None] = mapped_column(Float)
+    squad_fit_score: Mapped[float | None] = mapped_column(Float)
+    opportunity_score: Mapped[float | None] = mapped_column(Float)
+    financial_score: Mapped[float | None] = mapped_column(Float)
+    overall_score: Mapped[float | None] = mapped_column(Float)
+    recommendation_group: Mapped[str | None] = mapped_column(String(16))
+    score_confidence: Mapped[float | None] = mapped_column(Float)
+
+
+class TransferOpportunityEvent(TimestampMixin, Base):
+    """机会状态变化历史（只追加）。
+
+    只在状态真正变化时写入：首次发现、撤销、重新出现、合同分桶变化、推测信号变化。
+    幂等键包含 ``observed_at``，重复扫描同一时刻不会重复写。
+    """
+
+    __tablename__ = "transfer_opportunity_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "fm_save_id", "player_instance_id", "opportunity_type", "event_type", "observed_at",
+            name="uq_opportunity_event_dedup",
+        ),
+        Index("ix_opportunity_event_save_time", "fm_save_id", "observed_at"),
+        Index("ix_opportunity_event_save_instance", "fm_save_id", "player_instance_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    opportunity_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    previous_value: Mapped[str | None] = mapped_column(String(64))
+    new_value: Mapped[str | None] = mapped_column(String(64))
+    observed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
 

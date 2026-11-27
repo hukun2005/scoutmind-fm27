@@ -280,6 +280,58 @@ TOOL_SPECS: dict[str, dict[str, Any]] = {
             session, save_id, int(args["instance_id"])
         ),
     },
+    "loan_offers": {
+        "description": "生成三套租借报价方案（低成本/发展型/租借后买断）",
+        "parameters": {
+            "type": "object",
+            "properties": {"instance_id": {"type": "integer", "minimum": 1}},
+            "required": ["instance_id"],
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.generate_loan_offers(
+            session, save_id, int(args["instance_id"])
+        ),
+    },
+    "transfer_opportunities": {
+        "description": "全局转会机会雷达：挂牌/可租借/合同到期/AI 推测机会（可筛选类型与推荐分组）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": ["listed", "loan_listed", "release_listed", "contract_expiring", "ai_inferred"],
+                },
+                "group": {
+                    "type": "string",
+                    "enum": ["strong", "watch", "loan", "long_term", "not_recommended"],
+                },
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.get_transfer_opportunities(
+            session,
+            save_id,
+            opportunity_type=args.get("type"),
+            group=args.get("group"),
+            limit=int(args.get("limit", 20)),
+        ),
+    },
+    "transfer_strategy_cases": {
+        "description": "历史成交策略案例：案例库、相似案例匹配与规则归纳（可选 instance_id）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "instance_id": {"type": "integer", "minimum": 1},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+            "additionalProperties": False,
+        },
+        "execute": lambda session, save_id, args: tools.get_transfer_strategy_cases(
+            session, save_id, int(args["instance_id"]) if args.get("instance_id") else None,
+            limit=int(args.get("limit", 10)),
+        ),
+    },
     "record_negotiation": {
         "description": "记录用户真实谈判事件（不提交游戏内报价，需要 negotiation_id）",
         "parameters": {
