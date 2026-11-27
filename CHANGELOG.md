@@ -4,7 +4,7 @@
 
 ## [V3.3.2] - 2026-11-27
 
-查询性能深度优化 + 全局搜索升级 + AI 足球总监（Release Candidate）。
+查询性能深度优化 + 全局搜索升级 + AI 足球总监（Release Candidate）。PR [#25](https://github.com/hukun2005/scoutmind-fm27/pull/25)。
 
 ### 新增
 
