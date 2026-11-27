@@ -290,6 +290,15 @@ async def import_dump(
     except (ValueError, ProtocolError) as exc:
         raise HTTPException(status_code=422, detail={"code": "not_fmscout_dump", "message": str(exc)}) from exc
     outcome = ScanImporter(db).import_payload(target.id, validated, raw)
+    if settings.learning_auto_start:
+        from ..services import background_scan
+
+        try:
+            background_scan.create_task(
+                db, target.id, background_scan.TRANSFER_LEARNING, created_by="auto"
+            )
+        except Exception:  # noqa: BLE001 - 学习触发失败不影响导入结果
+            db.rollback()
     return {
         "report": report.payload(),
         "import": {

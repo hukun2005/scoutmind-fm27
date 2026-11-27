@@ -46,6 +46,20 @@ from .uploads import import_slot, read_request_payload, upload_slot
 router = APIRouter()
 
 
+def _trigger_online_learning(db: Session, save_id: int) -> None:
+    """导入成功后按存档触发增量学习；已有活跃任务时复用，失败不影响导入结果。"""
+    if not settings.learning_auto_start:
+        return
+    from ..services import background_scan
+
+    try:
+        background_scan.create_task(
+            db, save_id, background_scan.TRANSFER_LEARNING, created_by="auto"
+        )
+    except Exception:  # noqa: BLE001 - 学习触发失败不能破坏已完成的导入
+        db.rollback()
+
+
 def _require_write_fence(
     db: Session,
     save: FmSave,
@@ -313,6 +327,7 @@ async def import_transfers(
         _raise_write_rejected(db, target, rejection, operation_id=operation_id)
     except (ImportCancelled, OperationConflict, OperationRejected) as exc:
         raise _import_failure(exc) from exc
+    _trigger_online_learning(db, target.id)
     return _outcome_payload(outcome)
 
 
@@ -662,6 +677,7 @@ async def import_scan(
                 raise _import_failure(exc) from exc
         body = _outcome_payload(outcome)
         body["adapted_by"] = report
+        _trigger_online_learning(db, target_save.id)
         return body
     async with upload_slot(), import_slot():
         try:
@@ -687,6 +703,7 @@ async def import_scan(
             _raise_write_rejected(db, target_save, rejection, operation_id=operation_id)
         except (ImportCancelled, OperationConflict, OperationRejected) as exc:
             raise _import_failure(exc) from exc
+    _trigger_online_learning(db, target_save.id)
     return _outcome_payload(outcome)
 
 

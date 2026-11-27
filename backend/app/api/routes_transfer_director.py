@@ -426,7 +426,7 @@ def feedback(
 ) -> dict[str, Any]:
     instance_in_save_or_404(db, payload.instance_id, save)
     try:
-        return director.record_feedback(
+        result = director.record_feedback(
             db,
             save_id=save.id,
             instance_id=payload.instance_id,
@@ -440,6 +440,14 @@ def feedback(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "invalid_feedback", "message": str(exc)}) from exc
+    # V3.3.2-08：用户确认的谈判结果也是在线学习输入，异步增量处理，不阻塞响应。
+    try:
+        background_scan.create_task(
+            db, save.id, background_scan.TRANSFER_LEARNING, created_by="auto"
+        )
+    except Exception:  # noqa: BLE001 - 学习触发失败不影响反馈结果
+        db.rollback()
+    return result
 
 
 @router.get("/transfer-director/player/{instance_id}", summary="AI 交易分析：合同/条款/历史/估值")

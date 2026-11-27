@@ -32,7 +32,8 @@ FULL_SCAN = "FULL_SCAN"
 INCREMENTAL_SCAN = "INCREMENTAL_SCAN"
 CLUB_LINK_REPAIR = "CLUB_LINK_REPAIR"
 RECOVERY_SCAN = "RECOVERY_SCAN"
-TASK_TYPES = (FULL_SCAN, INCREMENTAL_SCAN, CLUB_LINK_REPAIR, RECOVERY_SCAN)
+TRANSFER_LEARNING = "TRANSFER_LEARNING"
+TASK_TYPES = (FULL_SCAN, INCREMENTAL_SCAN, CLUB_LINK_REPAIR, RECOVERY_SCAN, TRANSFER_LEARNING)
 SCAN_TYPES = (FULL_SCAN, INCREMENTAL_SCAN, RECOVERY_SCAN)
 
 LOCK_KEYS = {
@@ -40,6 +41,7 @@ LOCK_KEYS = {
     INCREMENTAL_SCAN: "scan",
     RECOVERY_SCAN: "scan",
     CLUB_LINK_REPAIR: "club_link",
+    TRANSFER_LEARNING: "learning",
 }
 
 ACTIVE_STATUSES = ("PENDING", "RUNNING", "CANCELLING")
@@ -123,6 +125,8 @@ def _current_stage(task: BackgroundTask) -> str:
         return "未完成"
     if task.task_type == CLUB_LINK_REPAIR:
         return "修复俱乐部关联"
+    if task.task_type == TRANSFER_LEARNING:
+        return "学习转会市场"
     if int(task.total or 0) > 0 and int(task.processed or 0) >= int(task.total or 0):
         return "更新机会"
     return "分析球员状态"
@@ -146,6 +150,8 @@ def _eta_seconds(task: BackgroundTask) -> int | None:
 def _resumable(task: BackgroundTask) -> bool:
     if task.task_type == CLUB_LINK_REPAIR:
         return True
+    if task.task_type == TRANSFER_LEARNING:
+        return _loads(task.checkpoint_json).get("cursor") is not None
     return _loads(task.checkpoint_json).get("last_instance_id") is not None
 
 
@@ -348,6 +354,44 @@ def _run_task(task_id: str) -> None:
             task.matched = int(result["linked"])
             task.failed = int(result["failed"])
             task.progress = 100.0
+        elif task.task_type == TRANSFER_LEARNING:
+            from . import transfer_learning
+
+            def learning_progress(processed: int, total: int, created: int, skipped: int, last_id: int) -> None:
+                if time.monotonic() - started > settings.scan_task_timeout_seconds:
+                    raise TaskTimeout("task_timeout")
+                session.refresh(task)
+                task.processed = int(processed)
+                task.total = int(total)
+                task.matched = int(created)
+                # 重复事件属于正常去重，不计为失败。
+                task.failed = 0
+                task.progress = round(processed / total * 100, 2) if total else 100.0
+                task.heartbeat_at = utcnow()
+                session.commit()
+
+            result = transfer_learning.process_incremental(
+                session,
+                save_id,
+                checkpoint=checkpoint,
+                token=task.task_id,
+                cancel_cb=lambda: _cancel_requested(session, task_id),
+                progress_cb=learning_progress,
+            )
+            task.total = int(result.get("total") or 0)
+            task.processed = int(result.get("processed") or 0)
+            task.matched = int(result.get("events_created") or 0)
+            task.failed = 0
+            task.progress = 100.0
+            task.checkpoint_json = json.dumps(
+                {"cursor": result.get("checkpoint") or {}}, ensure_ascii=False, sort_keys=True
+            )
+            task.status = "CANCELLED" if result.get("cancelled") else "COMPLETED"
+            task.finished_at = utcnow()
+            task.heartbeat_at = utcnow()
+            task.result_json = json.dumps(result, ensure_ascii=False, sort_keys=True, default=str)
+            session.commit()
+            return
         else:
             result = transfer_radar.scan_batched(
                 session,
@@ -428,7 +472,11 @@ def recover(session_factory=None) -> int:
                 task.error_code = "cancelled_on_restart"
                 continue
             checkpoint = _loads(task.checkpoint_json)
-            resumable = task.task_type == CLUB_LINK_REPAIR or checkpoint.get("last_instance_id") is not None
+            resumable = task.task_type == CLUB_LINK_REPAIR
+            if task.task_type == TRANSFER_LEARNING:
+                resumable = checkpoint.get("cursor") is not None
+            elif task.task_type != CLUB_LINK_REPAIR:
+                resumable = checkpoint.get("last_instance_id") is not None
             if resumable:
                 task.status = "PENDING"
                 task.heartbeat_at = None

@@ -14,6 +14,8 @@ from sqlalchemy.exc import IntegrityError
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PREVIOUS_REVISION = "a9f2c6d31b84"
 NEW_REVISION = "b1f4d7e82c90"
+# V3.3.2-08 起 head 前移到 c7d2f8a41b60；07 的迁移本身仍须可从任意后继 head 回滚。
+HEAD_REVISION = "c7d2f8a41b60"
 
 
 def _alembic(database_url: str, *args: str) -> None:
@@ -80,7 +82,7 @@ def test_upgrade_downgrade_upgrade_preserves_data(tmp_path) -> None:
     assert "transfer_feedback" in set(inspect(engine).get_table_names())
     with engine.connect() as connection:
         assert connection.execute(text("select count(*) from players")).scalar_one() == 1
-        assert connection.execute(text("select version_num from alembic_version")).scalar_one() == NEW_REVISION
+        assert connection.execute(text("select version_num from alembic_version")).scalar_one() == HEAD_REVISION
 
     insert_feedback = text(
         "insert into transfer_feedback "
@@ -102,6 +104,6 @@ def test_upgrade_downgrade_upgrade_preserves_data(tmp_path) -> None:
 
     _alembic(database_url, "upgrade", "head")
     with engine.connect() as connection:
-        assert connection.execute(text("select version_num from alembic_version")).scalar_one() == NEW_REVISION
+        assert connection.execute(text("select version_num from alembic_version")).scalar_one() == HEAD_REVISION
         assert connection.execute(text("select count(*) from transfer_feedback")).scalar_one() == 0
     engine.dispose()
