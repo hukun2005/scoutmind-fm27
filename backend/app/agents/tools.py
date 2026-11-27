@@ -300,6 +300,16 @@ TOOL_NAMES = (
     "simulate_transfer_offer",
     "analyze_own_club_deal",
     "evaluate_role",
+    "get_player_contract",
+    "get_player_transfer_history",
+    "get_club_transfer_history",
+    "get_transfer_clauses",
+    "get_club_financial_context",
+    "calculate_transfer_valuation",
+    "generate_purchase_offers",
+    "generate_sale_offers",
+    "record_negotiation_event",
+    "review_negotiation",
 )
 
 
@@ -514,3 +524,208 @@ def _money(value: object) -> str:
     if abs(amount) >= 10_000:
         return f"{amount / 10_000:.0f} 万"
     return f"{amount:.0f}"
+
+
+# ---------------------------------------------------------------------------
+# V3.3.2-05 AI Transfer Director 工具
+#
+# 这些工具只调用 services.transfer_director 的确定性计算；AI 不生成金额。
+# 所有工具在入口校验球员/谈判属于传入 save_id，越权直接抛 ValueError。
+# ---------------------------------------------------------------------------
+
+def _director():
+    from ..services import transfer_director
+
+    return transfer_director
+
+
+def _instance_in_save(session: Session, save_id: int, instance_id: int):
+    from ..models import PlayerInstance
+
+    instance = session.get(PlayerInstance, instance_id)
+    if instance is None or instance.fm_save_id != save_id:
+        raise ValueError("球员不存在或不属于当前存档")
+    return instance
+
+
+def get_player_contract(session: Session, save_id: int, instance_id: int) -> ToolCall:
+    """``get_player_contract`` — 真实合同字段；缺失字段明确列为 unknown。"""
+    director = _director()
+    instance = _instance_in_save(session, save_id, instance_id)
+    context = director.player_transfer_context(session, instance)
+    contract = context["contract"]
+    summary = (
+        f"周薪 {_money(contract['wage'])}，合同到期 {contract['contract_end'] or '未知'}，"
+        f"剩余 {contract['remaining_months'] if contract['remaining_months'] is not None else '未知'} 个月"
+    )
+    return ToolCall(
+        name="get_player_contract",
+        arguments={"instance_id": instance_id},
+        result=contract,
+        summary=summary,
+        warnings=list(contract.get("warnings") or []),
+    )
+
+
+def get_player_transfer_history(session: Session, save_id: int, instance_id: int, limit: int = 20) -> ToolCall:
+    """``get_player_transfer_history`` — 该球员在当前存档的历史转会。"""
+    director = _director()
+    instance = _instance_in_save(session, save_id, instance_id)
+    rows = director._transfer_rows(session, save_id, instance.id, limit=limit)
+    warnings = [] if rows else ["当前存档没有该球员的转会记录；没有记录不代表没有发生过转会"]
+    return ToolCall(
+        name="get_player_transfer_history",
+        arguments={"instance_id": instance_id, "limit": limit},
+        result={"items": rows, "total": len(rows)},
+        summary=f"找到 {len(rows)} 笔转会记录",
+        warnings=warnings,
+    )
+
+
+def get_club_transfer_history(session: Session, save_id: int, club_id: int) -> ToolCall:
+    """``get_club_transfer_history`` — 俱乐部买卖/租借/未来/取消汇总。"""
+    director = _director()
+    summary_data = director.club_transfer_summary(session, save_id, club_id)
+    return ToolCall(
+        name="get_club_transfer_history",
+        arguments={"club_id": club_id},
+        result=summary_data,
+        summary=f"买入 {summary_data['purchases']} 笔、卖出 {summary_data['sales']} 笔",
+        warnings=[summary_data["warning"]] if summary_data.get("warning") else [],
+    )
+
+
+def get_transfer_clauses(session: Session, save_id: int, instance_id: int) -> ToolCall:
+    """``get_transfer_clauses`` — 已导入/已确认的分期、浮动、二转、买断条款。"""
+    director = _director()
+    instance = _instance_in_save(session, save_id, instance_id)
+    clauses = director._clauses(session, save_id, instance.id)
+    warnings = [] if clauses else ["当前没有可验证的条款记录；未知条款不等于没有条款"]
+    return ToolCall(
+        name="get_transfer_clauses",
+        arguments={"instance_id": instance_id},
+        result={"items": clauses, "total": len(clauses)},
+        summary=f"找到 {len(clauses)} 条条款",
+        warnings=warnings,
+    )
+
+
+def get_club_financial_context(session: Session, save_id: int) -> ToolCall:
+    """``get_club_financial_context`` — 预算来源不存在时明确返回不可用。"""
+    from ..models import FmSave
+
+    save = session.get(FmSave, save_id)
+    return ToolCall(
+        name="get_club_financial_context",
+        arguments={},
+        result={
+            "available": False,
+            "user_club_id": save.user_club_id if save else None,
+            "transfer_budget": None,
+            "wage_budget": None,
+            "reason": "当前数据源不提供转会预算与工资预算；不要假设预算数字",
+        },
+        summary="未获取可靠预算数据",
+        warnings=["当前未获取可靠预算数据，报价方案不包含预算可行性保证"],
+    )
+
+
+def calculate_transfer_valuation(session: Session, save_id: int, instance_id: int) -> ToolCall:
+    """``calculate_transfer_valuation`` — 复用确定性估值；样本不足拒绝给区间。"""
+    director = _director()
+    _instance_in_save(session, save_id, instance_id)
+    valuation = director.valuation_summary(session, instance_id)
+    if valuation["insufficient_sample"]:
+        summary = f"可比成交仅 {valuation['sample_size']} 笔，拒绝给出估值区间"
+    else:
+        summary = f"估值 {_money(valuation['low'])} – {_money(valuation['high'])}（{valuation['confidence']}）"
+    return ToolCall(
+        name="calculate_transfer_valuation",
+        arguments={"instance_id": instance_id},
+        result=valuation,
+        summary=summary,
+        warnings=list(valuation.get("warnings") or []),
+    )
+
+
+def generate_purchase_offers(
+    session: Session, save_id: int, instance_id: int, budget: float | None = None
+) -> ToolCall:
+    """``generate_purchase_offers`` — 三套买入方案（确定性）。"""
+    director = _director()
+    instance = _instance_in_save(session, save_id, instance_id)
+    result = director.generate_purchase_offers(session, instance, budget=budget)
+    types = "、".join(offer["offer_type"] for offer in result["offers"]) or "无"
+    return ToolCall(
+        name="generate_purchase_offers",
+        arguments={"instance_id": instance_id, "budget": budget},
+        result=result,
+        summary=f"生成 {len(result['offers'])} 套买入方案（{types}）",
+        warnings=list(result.get("warnings") or []),
+    )
+
+
+def generate_sale_offers(session: Session, save_id: int, instance_id: int) -> ToolCall:
+    """``generate_sale_offers`` — 三套出售方案与阵容/工资影响。"""
+    director = _director()
+    instance = _instance_in_save(session, save_id, instance_id)
+    result = director.generate_sale_offers(session, instance)
+    return ToolCall(
+        name="generate_sale_offers",
+        arguments={"instance_id": instance_id},
+        result=result,
+        summary=f"生成 {len(result['offers'])} 套出售方案",
+        warnings=list(result.get("warnings") or []),
+    )
+
+
+def record_negotiation_event(
+    session: Session,
+    save_id: int,
+    negotiation_id: int,
+    event_type: str,
+    amount: float | None = None,
+    data: dict[str, object] | None = None,
+) -> ToolCall:
+    """``record_negotiation_event`` — 只记录用户真实谈判，不提交游戏内报价。"""
+    from ..models import TransferNegotiation
+
+    director = _director()
+    negotiation = session.get(TransferNegotiation, negotiation_id)
+    if negotiation is None or negotiation.fm_save_id != save_id:
+        raise ValueError("谈判记录不存在或不属于当前存档")
+    try:
+        event, duplicate = director.append_event(
+            session, negotiation, event_type=event_type, amount=amount, data=dict(data or {})
+        )
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
+    return ToolCall(
+        name="record_negotiation_event",
+        arguments={"negotiation_id": negotiation_id, "event_type": event_type, "amount": amount},
+        result={
+            "event_id": event.id,
+            "duplicate": duplicate,
+            "negotiation_status": negotiation.status,
+        },
+        summary=f"已记录 {event_type}，当前状态 {negotiation.status}",
+        warnings=[],
+    )
+
+
+def review_negotiation(session: Session, save_id: int, negotiation_id: int) -> ToolCall:
+    """``review_negotiation`` — 复盘已完成谈判。"""
+    from ..models import TransferNegotiation
+
+    director = _director()
+    negotiation = session.get(TransferNegotiation, negotiation_id)
+    if negotiation is None or negotiation.fm_save_id != save_id:
+        raise ValueError("谈判记录不存在或不属于当前存档")
+    review = director.review_negotiation(session, negotiation)
+    return ToolCall(
+        name="review_negotiation",
+        arguments={"negotiation_id": negotiation_id},
+        result=review,
+        summary=f"{review['outcome']}，{review['round_count']} 轮",
+        warnings=list(review.get("warnings") or []),
+    )

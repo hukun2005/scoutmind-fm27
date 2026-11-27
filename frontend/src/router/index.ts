@@ -83,6 +83,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'AI 足球总监' },
   },
   {
+    path: '/transfer-director',
+    name: 'transfer-director',
+    component: () => import('../views/TransferDirectorView.vue'),
+    meta: { title: 'AI 转会总监' },
+  },
+  {
     path: '/identity',
     name: 'identity',
     component: () => import('../views/IdentityResolutionView.vue'),

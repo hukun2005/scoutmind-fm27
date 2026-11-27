@@ -707,6 +707,12 @@ void loadRoles()
                 <ConfidenceTag :confidence="valuation?.confidence ?? null" />
               </div>
               <p class="player-hero__note">「—」表示该字段暂无数据，不会用 0 代替。</p>
+              <router-link
+                class="player-hero__transfer"
+                :to="`/transfer-director?instance_id=${summary.instance_id}&tab=purchase`"
+              >
+                AI 交易分析：合同 · 条款 · 买入/出售报价 · 谈判
+              </router-link>
               <div v-if="detail.tags.length > 0" class="player-hero__tags">
                 <el-tag v-for="tag in detail.tags" :key="tag" size="small" type="info" disable-transitions>{{ tag }}</el-tag>
               </div>
@@ -1437,6 +1443,23 @@ void loadRoles()
   margin-top: var(--sm-space-1);
   color: var(--sm-text-3);
   font-size: var(--sm-fs-2xs);
+}
+
+.player-hero__transfer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--sm-space-2);
+  padding: 6px 12px;
+  border: 1px solid rgba(64, 158, 255, 0.4);
+  border-radius: 999px;
+  color: var(--el-color-primary);
+  font-size: var(--sm-fs-2xs);
+  text-decoration: none;
+}
+
+.player-hero__transfer:hover {
+  background: rgba(64, 158, 255, 0.1);
 }
 
 .player-chip {

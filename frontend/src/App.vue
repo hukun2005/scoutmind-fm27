@@ -61,6 +61,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: 'development', label: '球员发展', to: '/development', icon: 'development', hint: '成长变化与建议' },
       { key: 'performance', label: '表现分析', to: '/performance', icon: 'performance', hint: '分位置产出与能力对比' },
       { key: 'director', label: 'AI 足球总监', to: '/director', icon: 'agent', hint: '阵容、引援、培养与出售的一体化建议' },
+      { key: 'transfer-director', label: 'AI 转会总监', to: '/transfer-director', icon: 'transfers', hint: '合同、报价与谈判记录' },
       { key: 'agent', label: 'AI 球探助手', to: '/agent', icon: 'agent', hint: '用自然语言提问，获得带证据的回答' },
     ],
   },
