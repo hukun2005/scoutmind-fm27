@@ -91,10 +91,22 @@ export interface ValuationSummary {
   warnings: string[]
 }
 
+export interface OfferAdjustment {
+  applied: boolean
+  multiplier?: number
+  before: number | null
+  after: number | null
+  sample_size?: number
+  confidence?: ConfidenceTier
+  case_ids?: string[]
+  basis?: string
+}
+
 export interface Offer {
   offer_id?: number
   offer_type: string
-  currency: string
+  currency: string | null
+  currency_known?: boolean
   base_fee: number | null
   immediate_payment: number | null
   installments_total: number | null
@@ -112,6 +124,7 @@ export interface Offer {
   rationale: Record<string, unknown>
   algorithm_version?: string
   budget_feasible?: boolean | null
+  strategy_adjustment?: OfferAdjustment
   status?: string
   source?: string
 }
@@ -119,11 +132,17 @@ export interface Offer {
 export interface OfferBundle {
   instance_id: number
   direction: 'purchase' | 'sale' | 'loan'
-  currency: string
+  currency: string | null
+  currency_known?: boolean
+  currency_source?: string | null
+  currency_note?: string | null
   available: boolean
   offers: Offer[]
   basis: Record<string, unknown>
   budget?: { provided: boolean; value: number | null }
+  budget_status?: 'unknown' | 'provided' | 'insufficient'
+  budget_note?: string | null
+  strategy_adjustment?: OfferAdjustment
   squad_impact?: Record<string, unknown>
   factors: Record<string, unknown>
   warnings: string[]
@@ -227,6 +246,71 @@ export interface StrategyInsight {
   sufficient_sample: boolean
   case_ids: string[]
   summary: string
+}
+
+export interface ConfidenceTier {
+  level: 'stable' | 'limited' | 'preliminary' | 'insufficient' | 'none'
+  label: string
+  sample_size: number
+  note?: string
+}
+
+export interface LearningPattern {
+  key: string
+  sample_size: number
+  confidence: ConfidenceTier
+  summary: string
+}
+
+export interface LearningStatus {
+  save_id: number
+  available: boolean
+  data_version: string
+  totals: {
+    cases: number
+    completed_transfers: number
+    negotiation_cases: number
+    demo_cases: number
+  }
+  by_type: Record<string, number>
+  confidence: ConfidenceTier
+  patterns: LearningPattern[]
+  message: string | null
+}
+
+export interface ClubHabitPattern extends LearningPattern {
+  label: string
+}
+
+export interface ClubHabits {
+  club_id: number
+  club_name: string
+  available: boolean
+  direction: 'selling' | 'buying'
+  observations: {
+    completed: number
+    loans: number
+    free: number
+    installments: number
+    addons: number
+    buyout: number
+  }
+  selling?: Record<string, number>
+  buying?: Record<string, number>
+  patterns: ClubHabitPattern[]
+  confidence: ConfidenceTier
+  message: string | null
+}
+
+export type FeedbackOutcome = 'completed' | 'rejected' | 'cancelled' | 'negotiating' | 'unknown'
+
+export interface FeedbackResult {
+  duplicate: boolean
+  feedback_id: number
+  outcome: FeedbackOutcome
+  learning_updated: boolean
+  data_version: string
+  message: string
 }
 
 export interface TransferAlert {
@@ -495,6 +579,11 @@ export interface BackgroundTask {
   save_id: number
   task_type: string
   status: BackgroundTaskStatus
+  status_key?: BackgroundTaskStatus
+  current_stage?: string
+  eta_seconds?: number | null
+  heartbeat_at?: string | null
+  resumable?: boolean
   progress: number
   total: number
   processed: number
@@ -615,4 +704,28 @@ export function listClubOpportunities(
   params: { type?: string; limit?: number; offset?: number } = {},
 ): Promise<{ items: Opportunity[]; total: number }> {
   return apiGet(`/transfer-director/clubs/${clubId}/opportunities`, params)
+}
+
+// ---------------------------------------------------------------------------
+// V3.3.2-07 学习状态、俱乐部画像与谈判反馈
+// ---------------------------------------------------------------------------
+
+export function getLearningStatus(): Promise<LearningStatus> {
+  return apiGet<LearningStatus>('/transfer-director/learning-status')
+}
+
+export function getClubHabits(clubId: number): Promise<ClubHabits> {
+  return apiGet<ClubHabits>(`/transfer-director/clubs/${clubId}/habits`)
+}
+
+export function submitFeedback(body: {
+  instance_id: number
+  direction: 'purchase' | 'sale' | 'loan'
+  outcome: FeedbackOutcome
+  amount?: number | null
+  offer_id?: number | null
+  negotiation_id?: number | null
+  note?: string | null
+}): Promise<FeedbackResult> {
+  return apiPost<FeedbackResult>('/transfer-director/feedback', body)
 }

@@ -1752,6 +1752,33 @@ class NegotiationEvent(TimestampMixin, Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
 
+class TransferFeedback(TimestampMixin, Base):
+    """V3.3.2-07 用户记录的谈判结果反馈。
+
+    只记录用户确认或导入的真实结果；``dedupe_key`` 由存档、球员、方向、结果、金额与备注
+    确定性哈希得到，同一反馈重复提交不会重复计入学习统计。只有 ``outcome=completed``
+    且金额有效时才会派生成交案例。
+    """
+
+    __tablename__ = "transfer_feedback"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_transfer_feedback_dedupe"),
+        Index("ix_transfer_feedback_save_instance", "fm_save_id", "player_instance_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    direction: Mapped[str] = mapped_column(String(8), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    amount: Mapped[float | None] = mapped_column(Float)
+    offer_id: Mapped[int | None] = mapped_column(ForeignKey("transfer_offers.id"))
+    negotiation_id: Mapped[int | None] = mapped_column(ForeignKey("transfer_negotiations.id"))
+    note: Mapped[str | None] = mapped_column(String(256))
+    source: Mapped[str] = mapped_column(String(32), default="user_confirmed", nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 class TransferOpportunity(TimestampMixin, Base):
     """当前存档的一次转会机会（物化结果，可由重扫重建）。
 

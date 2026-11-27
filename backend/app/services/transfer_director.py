@@ -11,11 +11,13 @@ AI 只负责解释这里的输出，不参与金额计算。所有读写都以 `
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..analytics.players import latest_snapshot
@@ -31,6 +33,7 @@ from ..models import (
     PlayerInstance,
     PlayerSnapshot,
     Transfer,
+    TransferFeedback,
     TransferFeeComponent,
     TransferNegotiation,
     TransferOffer,
@@ -41,6 +44,12 @@ from ..utils import fee_round, iso, utcnow
 OFFER_VERSION = "transfer-offer-1"
 LOAN_OFFER_VERSION = "transfer-loan-offer-1"
 REVIEW_VERSION = "negotiation-review-1"
+
+#: V3.3.2-07：币种未知时的存储占位符；序列化时映射回 null，绝不擅自换算。
+UNKNOWN_CURRENCY = "UNKNOWN"
+ADJUSTMENT_MIN_CASES = 3
+ADJUSTMENT_BOUNDS = (0.85, 1.15)
+FEEDBACK_OUTCOMES = ("completed", "rejected", "cancelled", "negotiating", "unknown")
 
 PURCHASE_TYPES = ("conservative", "competitive", "fast_close")
 SALE_TYPES = ("quick_sale", "fair_sale", "max_value")
@@ -113,6 +122,105 @@ def _clamp(value: float, low: float, high: float) -> float:
 
 def _annual_wage(weekly: float | None) -> float | None:
     return fee_round(weekly * 52) if weekly is not None else None
+
+
+def save_currency(db: Session, save_id: int) -> dict[str, Any]:
+    """当前存档的报价币种。
+
+    只信任导入历史转会明确记录的 ``currency_original``；``Transfer.currency`` 的默认值
+    EUR 不是证据。无法识别时返回未知，绝不换算。
+    """
+    row = db.scalar(
+        select(Transfer)
+        .where(Transfer.fm_save_id == save_id, Transfer.currency_original.is_not(None))
+        .order_by(Transfer.transfer_date.desc(), Transfer.id.desc())
+        .limit(1)
+    )
+    code = (row.currency_original or "").strip().upper() if row is not None else ""
+    if code:
+        return {
+            "currency": code,
+            "known": True,
+            "source": "transfer_history",
+            "note": None,
+        }
+    return {
+        "currency": None,
+        "known": False,
+        "source": None,
+        "note": "货币单位未知",
+    }
+
+
+def _currency_fields(info: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "currency": info["currency"],
+        "currency_known": info["known"],
+        "currency_source": info["source"],
+        "currency_note": info["note"],
+    }
+
+
+def strategy_adjustment(
+    db: Session, save_id: int, instance: PlayerInstance, base_amount: float | None
+) -> dict[str, Any]:
+    """历史案例对基础报价的确定性调整层。
+
+    只有"相似度达标、可用于统计、有真实成交金额"的案例达到 3 个才调整；倍数夹紧在
+    ``[0.85, 1.15]``，并完整保留调整前/后的数值与引用案例。
+    """
+    from . import transfer_strategy as strategy
+
+    empty = {
+        "applied": False,
+        "multiplier": 1.0,
+        "before": fee_round(base_amount),
+        "after": fee_round(base_amount),
+        "sample_size": 0,
+        "confidence": strategy.confidence_tier(0),
+        "case_ids": [],
+        "basis": "没有相似成交案例，沿用原有确定性规则",
+    }
+    if base_amount is None or base_amount <= 0:
+        return empty
+    try:
+        similar = strategy.similar_cases(db, save_id, instance.id, limit=20)["items"]
+    except ValueError:
+        similar = []
+    usable = [
+        case
+        for case in similar
+        if case.get("usable_for_stats")
+        and float(case.get("match_pct") or 0) >= strategy.SIMILARITY_THRESHOLD
+        and case.get("actual_fee") is not None
+    ]
+    if len(usable) < ADJUSTMENT_MIN_CASES:
+        return {
+            **empty,
+            "sample_size": len(usable),
+            "confidence": strategy.confidence_tier(len(usable)),
+            "case_ids": [str(case["case_id"]) for case in usable[:5]],
+            "basis": f"相似成交案例只有 {len(usable)} 个，低于最低样本 {ADJUSTMENT_MIN_CASES}，未调整报价",
+        }
+
+    fees = sorted(float(case["actual_fee"]) for case in usable)
+    middle = len(fees) // 2
+    median = fees[middle] if len(fees) % 2 else (fees[middle - 1] + fees[middle]) / 2
+    raw = median / float(base_amount)
+    multiplier = round(_clamp(raw, *ADJUSTMENT_BOUNDS), 4)
+    applied = abs(multiplier - 1.0) >= 0.0001
+    return {
+        "applied": applied,
+        "multiplier": multiplier if applied else 1.0,
+        "before": fee_round(base_amount),
+        "after": fee_round(base_amount * (multiplier if applied else 1.0)),
+        "sample_size": len(usable),
+        "confidence": strategy.confidence_tier(len(usable)),
+        "case_ids": [str(case["case_id"]) for case in usable[:5]],
+        "basis": "相似成交案例成交金额中位数与当前估值的比值（倍数限制在 0.85–1.15）"
+        if applied
+        else "相似案例中位成交金额与当前估值一致，无需调整",
+    }
 
 
 def _contract(db: Session, instance: PlayerInstance, snapshot: PlayerSnapshot | None) -> dict[str, Any]:
@@ -386,7 +494,7 @@ def _base_value(db: Session, instance: PlayerInstance, snapshot: PlayerSnapshot 
         return {
             "basis": "comparable_transfers",
             "base": float(valuation["mid"]),
-            "currency": "EUR",
+            "currency": None,
             "sample_size": valuation["sample_size"],
             "confidence": valuation["confidence"],
             "valuation": valuation,
@@ -396,7 +504,7 @@ def _base_value(db: Session, instance: PlayerInstance, snapshot: PlayerSnapshot 
         return {
             "basis": "market_value_only",
             "base": float(market_value),
-            "currency": "EUR",
+            "currency": None,
             "sample_size": 0,
             "confidence": "low",
             "valuation": valuation,
@@ -408,7 +516,7 @@ def _base_value(db: Session, instance: PlayerInstance, snapshot: PlayerSnapshot 
     return {
         "basis": "unavailable",
         "base": None,
-        "currency": "EUR",
+        "currency": None,
         "sample_size": 0,
         "confidence": "none",
         "valuation": valuation,
@@ -427,13 +535,16 @@ def _offer(
     wage_impact: float | None,
     risk_level: str,
     rationale: dict[str, Any],
+    currency: str | None = None,
+    currency_known: bool = False,
 ) -> dict[str, Any]:
     committed = base * committed_multiplier
     addons = committed * addons_share
     installments = committed * (1 - immediate_share)
     return {
         "offer_type": offer_type,
-        "currency": "EUR",
+        "currency": currency,
+        "currency_known": currency_known,
         "base_fee": fee_round(committed),
         "immediate_payment": fee_round(committed * immediate_share),
         "installments_total": fee_round(installments) if installments else None,
@@ -455,29 +566,42 @@ def generate_purchase_offers(
     contract = _contract(db, instance, snapshot)
     factors = _factor_bundle(db, instance, snapshot, contract)
     base_info = _base_value(db, instance, snapshot)
+    currency = save_currency(db, instance.fm_save_id)
     missing = list(contract["missing_fields"]) + ["transfer_budget"]
     warnings = list(base_info["warnings"])
+    if not currency["known"]:
+        warnings.append("当前存档货币单位未知，金额只保留数值，未做任何币种换算")
 
     if budget is None:
         warnings.append("当前未获取可靠预算数据，报价方案不包含预算可行性保证")
+        budget_status = "unknown"
+        budget_note = "预算状态未知，无法确认该报价符合俱乐部财政条件。"
+    else:
+        budget_status = None
+        budget_note = None
 
     if base_info["base"] is None:
         return {
             "instance_id": instance.id,
             "direction": "purchase",
-            "currency": "EUR",
+            **_currency_fields(currency),
             "available": False,
             "offers": [],
             "factors": factors,
             "basis": base_info,
             "budget": {"provided": budget is not None, "value": budget},
+            "budget_status": budget_status or "provided",
+            "budget_note": budget_note,
+            "strategy_adjustment": strategy_adjustment(db, instance.fm_save_id, instance, None),
             "warnings": warnings,
             "missing_fields": sorted(set(missing)),
             "algorithm_version": OFFER_VERSION,
         }
 
     adjusted = base_info["base"] * factors["combined_multiplier"]
-    wage = contract["wage"]
+    adjustment = strategy_adjustment(db, instance.fm_save_id, instance, adjusted)
+    if adjustment["applied"]:
+        adjusted = adjusted * float(adjustment["multiplier"])
     annual_wage = contract["annual_wage"]
     rationale_common = {
         "basis": base_info["basis"],
@@ -497,6 +621,8 @@ def generate_purchase_offers(
             sell_on_pct=None,
             wage_impact=annual_wage,
             risk_level="low",
+            currency=currency["currency"],
+            currency_known=currency["known"],
             rationale={
                 **rationale_common,
                 "reason": "一次性付清、低于估值 15%，先试探卖方底线；成交概率最低",
@@ -512,6 +638,8 @@ def generate_purchase_offers(
             sell_on_pct=None,
             wage_impact=annual_wage,
             risk_level="medium",
+            currency=currency["currency"],
+            currency_known=currency["known"],
             rationale={
                 **rationale_common,
                 "reason": "固定费用贴近估值，60% 首付 + 40% 分期，另留 5% 浮动条款",
@@ -527,6 +655,8 @@ def generate_purchase_offers(
             sell_on_pct=None,
             wage_impact=annual_wage,
             risk_level="high",
+            currency=currency["currency"],
+            currency_known=currency["known"],
             rationale={
                 **rationale_common,
                 "reason": "溢价 18% 并全额首付，用于必须拿下的目标；成本最高",
@@ -540,10 +670,31 @@ def generate_purchase_offers(
             offer["rationale"]["budget_note"] = "立即支付超过当前可用预算，需要调整分期或降低报价"
         else:
             offer["budget_feasible"] = None if budget is None else True
+        before_total = (
+            fee_round(float(offer["total_committed"]) / float(adjustment["multiplier"]))
+            if adjustment["applied"] and adjustment["multiplier"]
+            else offer["total_committed"]
+        )
+        offer["strategy_adjustment"] = {
+            "applied": adjustment["applied"],
+            "multiplier": adjustment["multiplier"],
+            "before": before_total,
+            "after": offer["total_committed"],
+            "case_ids": adjustment["case_ids"],
+        }
+        offer["rationale"]["case_ids"] = adjustment["case_ids"]
+
+    if budget is not None:
+        if any(offer["budget_feasible"] is False for offer in offers):
+            budget_status = "insufficient"
+            budget_note = "存在即时支付超过预算的方案，需要调整分期或降低报价"
+        else:
+            budget_status = "provided"
+            budget_note = None
     return {
         "instance_id": instance.id,
         "direction": "purchase",
-        "currency": "EUR",
+        **_currency_fields(currency),
         "available": True,
         "offers": offers,
         "factors": factors,
@@ -554,6 +705,9 @@ def generate_purchase_offers(
             "confidence": base_info["confidence"],
         },
         "budget": {"provided": budget is not None, "value": budget},
+        "budget_status": budget_status,
+        "budget_note": budget_note,
+        "strategy_adjustment": adjustment,
         "warnings": warnings,
         "missing_fields": sorted(set(missing)),
         "algorithm_version": OFFER_VERSION,
@@ -581,8 +735,11 @@ def generate_sale_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
     contract = _contract(db, instance, snapshot)
     factors = _factor_bundle(db, instance, snapshot, contract)
     base_info = _base_value(db, instance, snapshot)
+    currency = save_currency(db, instance.fm_save_id)
     missing = list(contract["missing_fields"]) + ["other_club_offers"]
     warnings = list(base_info["warnings"])
+    if not currency["known"]:
+        warnings.append("当前存档货币单位未知，金额只保留数值，未做任何币种换算")
     depth = _position_depth(db, instance.fm_save_id, instance.club_id,
                             snapshot.position if snapshot is not None else instance.position)
     squad_impact = {
@@ -596,18 +753,22 @@ def generate_sale_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
         return {
             "instance_id": instance.id,
             "direction": "sale",
-            "currency": "EUR",
+            **_currency_fields(currency),
             "available": False,
             "offers": [],
             "factors": factors,
             "basis": base_info,
             "squad_impact": squad_impact,
+            "strategy_adjustment": strategy_adjustment(db, instance.fm_save_id, instance, None),
             "warnings": warnings,
             "missing_fields": sorted(set(missing)),
             "algorithm_version": OFFER_VERSION,
         }
 
     adjusted = base_info["base"] * factors["combined_multiplier"]
+    adjustment = strategy_adjustment(db, instance.fm_save_id, instance, adjusted)
+    if adjustment["applied"]:
+        adjusted = adjusted * float(adjustment["multiplier"])
     rationale_common = {
         "basis": base_info["basis"],
         "base": fee_round(base_info["base"]),
@@ -626,6 +787,8 @@ def generate_sale_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
             sell_on_pct=None,
             wage_impact=(-contract["annual_wage"] if contract["annual_wage"] else None),
             risk_level="low",
+            currency=currency["currency"],
+            currency_known=currency["known"],
             rationale={
                 **rationale_common,
                 "reason": "低于估值 15% 快速成交，优先释放工资与名额",
@@ -641,6 +804,8 @@ def generate_sale_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
             sell_on_pct=None,
             wage_impact=(-contract["annual_wage"] if contract["annual_wage"] else None),
             risk_level="medium",
+            currency=currency["currency"],
+            currency_known=currency["known"],
             rationale={
                 **rationale_common,
                 "reason": "固定费用贴近估值，70% 即时收款，另 5% 浮动",
@@ -656,6 +821,8 @@ def generate_sale_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
             sell_on_pct=10.0,
             wage_impact=(-contract["annual_wage"] if contract["annual_wage"] else None),
             risk_level="high",
+            currency=currency["currency"],
+            currency_known=currency["known"],
             rationale={
                 **rationale_common,
                 "reason": "溢价 15% 并附加 10% 二次转会分成，等待时间与失败概率更高",
@@ -663,10 +830,19 @@ def generate_sale_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
             },
         ),
     ]
+    for offer in offers:
+        offer["strategy_adjustment"] = {
+            "applied": adjustment["applied"],
+            "multiplier": adjustment["multiplier"],
+            "before": offer["total_committed"],
+            "after": offer["total_committed"],
+            "case_ids": adjustment["case_ids"],
+        }
+        offer["rationale"]["case_ids"] = adjustment["case_ids"]
     return {
         "instance_id": instance.id,
         "direction": "sale",
-        "currency": "EUR",
+        **_currency_fields(currency),
         "available": True,
         "offers": offers,
         "factors": factors,
@@ -677,6 +853,7 @@ def generate_sale_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
             "confidence": base_info["confidence"],
         },
         "squad_impact": squad_impact,
+        "strategy_adjustment": adjustment,
         "warnings": warnings,
         "missing_fields": sorted(set(missing)),
         "algorithm_version": OFFER_VERSION,
@@ -693,9 +870,12 @@ def generate_loan_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
     contract = _contract(db, instance, snapshot)
     factors = _factor_bundle(db, instance, snapshot, contract)
     base_info = _base_value(db, instance, snapshot)
+    currency = save_currency(db, instance.fm_save_id)
     availability = latest_availability(db, instance.id)
     missing = list(contract["missing_fields"]) + ["loan_terms", "transfer_budget"]
     warnings = list(base_info["warnings"])
+    if not currency["known"]:
+        warnings.append("当前存档货币单位未知，金额只保留数值，未做任何币种换算")
     if availability is None or availability.loan_listed is not True:
         warnings.append("游戏内未标记可租借，报价可能被拒绝")
     if latest_loan(db, instance.id) is not None:
@@ -706,17 +886,21 @@ def generate_loan_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
         return {
             "instance_id": instance.id,
             "direction": "loan",
-            "currency": "EUR",
+            **_currency_fields(currency),
             "available": False,
             "offers": [],
             "factors": factors,
             "basis": base_info,
+            "strategy_adjustment": strategy_adjustment(db, instance.fm_save_id, instance, None),
             "warnings": warnings,
             "missing_fields": sorted(set(missing)),
             "algorithm_version": LOAN_OFFER_VERSION,
         }
 
     adjusted = base_info["base"] * factors["combined_multiplier"]
+    adjustment = strategy_adjustment(db, instance.fm_save_id, instance, adjusted)
+    if adjustment["applied"]:
+        adjusted = adjusted * float(adjustment["multiplier"])
     annual_wage = contract["annual_wage"]
     loan_months = 12
     rationale_common = {
@@ -728,6 +912,7 @@ def generate_loan_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
         "missing_fields": sorted(set(missing)),
         "loan_months": loan_months,
         "note": "租借费、工资承担与买断费均为 AI 建议条款，不是当前合同已有条款",
+        "case_ids": adjustment["case_ids"],
     }
 
     def _loan_offer(offer_type: str, fee_pct: float, wage_pct: float, option_fee: float | None,
@@ -736,7 +921,8 @@ def generate_loan_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
         buy_fee = option_fee if option_fee is not None else obligation_fee
         return {
             "offer_type": offer_type,
-            "currency": "EUR",
+            "currency": currency["currency"],
+            "currency_known": currency["known"],
             "base_fee": fee_round(loan_fee),
             "immediate_payment": fee_round(loan_fee),
             "installments_total": None,
@@ -769,10 +955,18 @@ def generate_loan_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
             "承担 5% 租借费与 70% 工资，附带等值强制买断，适合确定要长期留下的目标",
         ),
     ]
+    for offer in offers:
+        offer["strategy_adjustment"] = {
+            "applied": adjustment["applied"],
+            "multiplier": adjustment["multiplier"],
+            "before": offer["total_committed"],
+            "after": offer["total_committed"],
+            "case_ids": adjustment["case_ids"],
+        }
     return {
         "instance_id": instance.id,
         "direction": "loan",
-        "currency": "EUR",
+        **_currency_fields(currency),
         "available": True,
         "offers": offers,
         "factors": factors,
@@ -783,6 +977,7 @@ def generate_loan_offers(db: Session, instance: PlayerInstance) -> dict[str, Any
             "confidence": base_info["confidence"],
         },
         "loan_listed": availability.loan_listed if availability is not None else None,
+        "strategy_adjustment": adjustment,
         "warnings": warnings,
         "missing_fields": sorted(set(missing)),
         "algorithm_version": LOAN_OFFER_VERSION,
@@ -802,7 +997,7 @@ def save_offer(db: Session, save_id: int, instance_id: int, direction: str, payl
         total_committed=payload.get("total_committed"),
         potential_total=payload.get("potential_total"),
         sell_on_pct=payload.get("sell_on_pct"),
-        currency=str(payload.get("currency") or "EUR"),
+        currency=(str(payload.get("currency") or UNKNOWN_CURRENCY).strip()[:8] or UNKNOWN_CURRENCY),
         wage_impact=payload.get("wage_impact"),
         loan_fee=payload.get("loan_fee"),
         wage_contribution_pct=payload.get("wage_contribution_pct"),
@@ -823,6 +1018,7 @@ def save_offer(db: Session, save_id: int, instance_id: int, direction: str, payl
 
 
 def serialize_offer(offer: TransferOffer) -> dict[str, Any]:
+    currency_known = bool(offer.currency) and offer.currency != UNKNOWN_CURRENCY
     return {
         "offer_id": offer.id,
         "instance_id": offer.player_instance_id,
@@ -835,7 +1031,9 @@ def serialize_offer(offer: TransferOffer) -> dict[str, Any]:
         "total_committed": offer.total_committed,
         "potential_total": offer.potential_total,
         "sell_on_pct": offer.sell_on_pct,
-        "currency": offer.currency,
+        "currency": offer.currency if currency_known else None,
+        "currency_known": currency_known,
+        "currency_note": None if currency_known else "货币单位未知",
         "wage_impact": offer.wage_impact,
         "loan_fee": offer.loan_fee,
         "wage_contribution_pct": offer.wage_contribution_pct,
@@ -1198,3 +1396,142 @@ def overview(db: Session, save_id: int, user_club_id: int | None) -> dict[str, A
         },
         "message": message,
     }
+
+
+# ---------------------------------------------------------------------------
+# V3.3.2-07 B-08 谈判反馈与持续学习
+# ---------------------------------------------------------------------------
+
+FEEDBACK_MESSAGES = {
+    "completed": "已记录真实成交，将用于后续报价参考",
+    "rejected": "已记录谈判结果，被拒绝的报价不计入成交统计",
+    "cancelled": "已记录取消结果，不计入成交统计",
+    "negotiating": "已记录为谈判中，尚未计入成交统计",
+    "unknown": "已记录结果未知，不计入成交统计",
+}
+
+
+def _feedback_key(
+    save_id: int,
+    instance_id: int,
+    direction: str,
+    outcome: str,
+    amount: float | None,
+    note: str | None,
+) -> str:
+    raw = f"{save_id}|{instance_id}|{direction}|{outcome}|{'' if amount is None else f'{amount:.2f}'}|{note or ''}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _feedback_result(
+    db: Session,
+    save_id: int,
+    feedback: TransferFeedback,
+    *,
+    duplicate: bool,
+    learning_updated: bool,
+) -> dict[str, Any]:
+    from . import transfer_strategy as strategy
+
+    return {
+        "duplicate": duplicate,
+        "feedback_id": feedback.id,
+        "outcome": feedback.outcome,
+        "learning_updated": learning_updated,
+        "data_version": strategy.data_version(db, save_id),
+        "message": "该反馈已记录，不重复计入统计"
+        if duplicate
+        else FEEDBACK_MESSAGES.get(feedback.outcome, "已记录反馈"),
+    }
+
+
+def record_feedback(
+    db: Session,
+    *,
+    save_id: int,
+    instance_id: int,
+    direction: str,
+    outcome: str,
+    amount: float | None = None,
+    offer_id: int | None = None,
+    negotiation_id: int | None = None,
+    note: str | None = None,
+    source: str = "user_confirmed",
+) -> dict[str, Any]:
+    """记录用户确认的谈判结果。
+
+    * 只有 ``completed`` + 有效金额才派生 ``TransferNegotiation(status=COMPLETED)`` 成交案例；
+    * 相同反馈由 ``dedupe_key`` 唯一约束兜底，不重复计入统计；
+    * 写入后清空查询缓存，学习数据版本随之变化。
+    """
+    from . import query_cache
+
+    if outcome not in FEEDBACK_OUTCOMES:
+        raise ValueError("不支持的反馈结果")
+    if outcome == "completed" and (amount is None or float(amount) <= 0):
+        raise ValueError("真实成交必须提供有效金额")
+
+    key = _feedback_key(save_id, instance_id, direction, outcome, amount, note)
+    existing = db.scalar(select(TransferFeedback).where(TransferFeedback.dedupe_key == key))
+    if existing is not None:
+        return _feedback_result(db, save_id, existing, duplicate=True, learning_updated=False)
+
+    negotiation: TransferNegotiation | None = None
+    if negotiation_id is not None:
+        negotiation = db.get(TransferNegotiation, negotiation_id)
+        if negotiation is None or negotiation.fm_save_id != save_id:
+            raise ValueError("谈判记录不存在")
+    if offer_id is not None:
+        offer = db.get(TransferOffer, offer_id)
+        if offer is None or offer.fm_save_id != save_id:
+            raise ValueError("报价方案不存在")
+
+    feedback = TransferFeedback(
+        fm_save_id=save_id,
+        player_instance_id=instance_id,
+        direction=direction,
+        outcome=outcome,
+        amount=amount,
+        offer_id=offer_id,
+        negotiation_id=negotiation_id,
+        note=note,
+        source=source,
+        dedupe_key=key,
+    )
+    db.add(feedback)
+    learning_updated = False
+    if outcome == "completed":
+        if negotiation is None:
+            currency = save_currency(db, save_id)
+            negotiation = TransferNegotiation(
+                fm_save_id=save_id,
+                player_instance_id=instance_id,
+                offer_id=offer_id,
+                direction=direction,
+                status="COMPLETED",
+                round_count=1,
+                initial_ask=amount,
+                final_fee=amount,
+                currency=currency["currency"] or UNKNOWN_CURRENCY,
+                completed_at=utcnow(),
+                source=source,
+            )
+            db.add(negotiation)
+            db.flush()
+        else:
+            negotiation.status = "COMPLETED"
+            negotiation.final_fee = amount
+            negotiation.completed_at = utcnow()
+        feedback.negotiation_id = negotiation.id
+        learning_updated = True
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.scalar(select(TransferFeedback).where(TransferFeedback.dedupe_key == key))
+        if existing is None:
+            raise
+        return _feedback_result(db, save_id, existing, duplicate=True, learning_updated=False)
+    db.refresh(feedback)
+    query_cache.clear()
+    return _feedback_result(db, save_id, feedback, duplicate=False, learning_updated=learning_updated)

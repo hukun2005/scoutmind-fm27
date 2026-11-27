@@ -13,6 +13,8 @@ import { validateFmscoutDump } from '../api/status'
 import { fetchSquadCsvTemplate, uploadSquadCsv } from '../api/clubResolution'
 import type { SquadCsvResult, SquadCsvRow } from '../types/clubResolution'
 import { getSaveSummary } from '../api/saves'
+import { getDataHealth, runDiagnostics, runRepair } from '../api/system'
+import type { DataHealthResponse, DiagnosticsResponse } from '../api/system'
 import CapturePanel from '../components/CapturePanel.vue'
 import CoverageBar from '../components/CoverageBar.vue'
 import DataTable from '../components/DataTable.vue'
@@ -193,6 +195,107 @@ function runHubSync(): void {
 }
 
 void loadHubStatus()
+
+// ---------- V3.3.2-07 数据健康卡片：概览、检查与安全修复 ----------
+
+const health = ref<DataHealthResponse | null>(null)
+const healthLoading = ref(false)
+const healthError = ref<ApiError | null>(null)
+const diagnostics = ref<DiagnosticsResponse | null>(null)
+const checkLoading = ref(false)
+const healthRepairing = ref(false)
+
+const HEALTH_TAG_TYPES: Record<string, 'success' | 'warning' | 'danger'> = {
+  ok: 'success',
+  warn: 'warning',
+  error: 'danger',
+}
+
+/** True when the save has no players/clubs/transfers/opportunities at all. */
+const healthIsEmpty = computed(() => {
+  const value = health.value
+  if (!value) return false
+  return (
+    value.players.count === 0 &&
+    value.clubs.count === 0 &&
+    value.transfers.count === 0 &&
+    value.opportunities.active === 0
+  )
+})
+
+/** Load the unified data-health view (read-only). */
+async function loadDataHealth(): Promise<void> {
+  healthLoading.value = true
+  healthError.value = null
+  try {
+    health.value = await getDataHealth()
+  } catch (caught) {
+    healthError.value = asApiError(caught)
+    health.value = null
+  } finally {
+    healthLoading.value = false
+  }
+}
+
+void loadDataHealth()
+
+/** Run read-only diagnostics and show the per-check result inside the card. */
+async function runHealthDiagnostics(): Promise<void> {
+  if (checkLoading.value) return
+  checkLoading.value = true
+  diagnostics.value = null
+  try {
+    const result = await runDiagnostics()
+    diagnostics.value = result
+    const { pass, warn, fail } = result.summary
+    if (fail > 0) {
+      ElMessage.warning(`检查完成：${pass} 项通过，${warn} 项需要关注，${fail} 项未通过`)
+    } else {
+      ElMessage.success(`检查完成：${pass} 项通过，${warn} 项需要关注`)
+    }
+  } catch (caught) {
+    ElMessage.error(`检查失败：${asApiError(caught).message}`)
+  } finally {
+    checkLoading.value = false
+  }
+}
+
+/** Execute only safe repairs (club links) and refresh the health snapshot. */
+async function runHealthRepair(): Promise<void> {
+  if (healthRepairing.value) return
+  healthRepairing.value = true
+  try {
+    const result = await runRepair(['club_links'])
+    health.value = result.health
+    const linked = result.executed.reduce((sum, item) => sum + item.linked, 0)
+    ElMessage.success(`修复完成：已修复 ${formatInt(linked)} 处关联，跳过 ${result.skipped.length} 项`)
+  } catch (caught) {
+    ElMessage.error(`修复失败：${asApiError(caught).message}`)
+  } finally {
+    healthRepairing.value = false
+  }
+}
+
+/** Jump to the existing import panel instead of adding a second import flow. */
+function goToImport(): void {
+  const target = document.getElementById('import')
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  else window.location.hash = 'import'
+}
+
+/** Map a diagnostic check status to an Element Plus tag type. */
+function checkStatusType(status: string): 'success' | 'warning' | 'danger' {
+  if (status === 'pass') return 'success'
+  if (status === 'warn') return 'warning'
+  return 'danger'
+}
+
+/** Human label for a diagnostic check status. */
+function checkStatusLabel(status: string): string {
+  if (status === 'pass') return '通过'
+  if (status === 'warn') return '需关注'
+  return '未通过'
+}
 
 const imports = ref<ImportJob[]>([])
 const importsLoading = ref(false)
@@ -474,6 +577,7 @@ function handleFmscoutImport(options: UploadRequestOptions): Promise<void> {
 /** Reload everything on this page. */
 function reloadAll(): void {
   void loadHubStatus()
+  void loadDataHealth()
   void loadDataset()
   void loadCompatibility()
   void loadFmscoutInfo()
@@ -618,6 +722,98 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
       </template>
     </el-alert>
 
+    <SectionCard
+      title="数据健康"
+      subtitle="当前存档概况、检查与安全修复；只读诊断，不会改动原始数据"
+      data-testid="data-health-card"
+    >
+      <div v-if="healthLoading && !health" class="sm-stack">
+        <el-skeleton :rows="3" animated />
+      </div>
+      <ErrorState v-else-if="healthError" :error="healthError" compact @retry="loadDataHealth" />
+      <template v-else-if="health">
+        <div class="hub-status-grid">
+          <div class="hub-status-cell">
+            <span class="sm-label">当前存档</span>
+            <span class="sm-num">{{ health.save.name }}</span>
+            <span v-if="health.save.game_date" class="sm-text-2xs sm-text-faint">
+              游戏日期 {{ health.save.game_date }}
+            </span>
+          </div>
+          <div class="hub-status-cell">
+            <span class="sm-label">球员 / 俱乐部</span>
+            <span class="sm-num">{{ formatInt(health.players.count) }} / {{ formatInt(health.clubs.count) }}</span>
+          </div>
+          <div class="hub-status-cell">
+            <span class="sm-label">转会 / 机会</span>
+            <span class="sm-num">
+              {{ formatInt(health.transfers.count) }} / {{ formatInt(health.opportunities.active) }}
+            </span>
+          </div>
+          <div class="hub-status-cell">
+            <span class="sm-label">数据状态</span>
+            <span class="sm-num">
+              <el-tag size="small" :type="HEALTH_TAG_TYPES[health.status.level] ?? 'info'" disable-transitions>
+                {{ health.status.label }}
+              </el-tag>
+            </span>
+          </div>
+          <div class="hub-status-cell">
+            <span class="sm-label">最后更新</span>
+            <span class="sm-num">{{ formatDateTime(health.last_updated_at) }}</span>
+          </div>
+          <div class="hub-status-cell">
+            <span class="sm-label">后台任务</span>
+            <span class="sm-num">{{ formatInt(health.background.active) }}</span>
+            <span v-if="health.background.latest" class="sm-text-2xs sm-text-faint">
+              {{ health.background.latest.message }}
+            </span>
+          </div>
+        </div>
+
+        <ul v-if="health.status.reasons.length > 0" class="fmscout__list health-reasons">
+          <li v-for="reason in health.status.reasons" :key="reason">{{ reason }}</li>
+        </ul>
+        <p v-else-if="health.notes.length > 0" class="sm-text-2xs sm-text-faint">
+          {{ health.notes.join('；') }}
+        </p>
+
+        <el-alert
+          v-if="healthIsEmpty"
+          type="info"
+          :closable="false"
+          show-icon
+          title="还没有导入数据，请先点击一键导入"
+          class="health-empty"
+        />
+
+        <div class="health-actions">
+          <el-button type="primary" :loading="checkLoading" data-testid="data-check" @click="runHealthDiagnostics">
+            一键检查
+          </el-button>
+          <el-button data-testid="data-import" @click="goToImport">一键导入</el-button>
+          <el-button
+            :loading="healthRepairing"
+            :disabled="healthRepairing"
+            data-testid="data-repair"
+            @click="runHealthRepair"
+          >
+            一键修复
+          </el-button>
+        </div>
+
+        <ul v-if="diagnostics" class="health-checks">
+          <li v-for="check in diagnostics.checks" :key="check.key">
+            <span>{{ check.label }}</span>
+            <el-tag size="small" :type="checkStatusType(check.status)" disable-transitions>
+              {{ checkStatusLabel(check.status) }}
+            </el-tag>
+            <span v-if="check.detail" class="sm-text-2xs sm-text-faint">{{ check.detail }}</span>
+          </li>
+        </ul>
+      </template>
+    </SectionCard>
+
     <ErrorState v-if="hubError" :error="hubError" compact @retry="loadHubStatus" />
 
     <div class="sm-grid hub-grid">
@@ -660,7 +856,7 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
         </template>
       </SectionCard>
 
-      <SectionCard title="文件导入" subtitle="只需选择文件，格式与版本由系统自动识别">
+      <SectionCard id="import" title="文件导入" subtitle="只需选择文件，格式与版本由系统自动识别">
         <input
           ref="hubFileInput"
           type="file"
@@ -1676,6 +1872,38 @@ ScoutMind.LiveReader.exe scan --out D:\scans\scan.json</pre>
 
 .hub-status-cell .sm-num {
   font-weight: var(--sm-fw-semibold);
+}
+
+.health-reasons {
+  margin-top: var(--sm-space-3);
+}
+
+.health-empty {
+  margin-top: var(--sm-space-3);
+}
+
+.health-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm-space-2);
+  margin-top: var(--sm-space-3);
+}
+
+.health-checks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+  margin-top: var(--sm-space-3);
+  padding: 0;
+  list-style: none;
+  font-size: var(--sm-fs-xs);
+}
+
+.health-checks li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sm-space-2);
 }
 
 .dev-diagnostics {

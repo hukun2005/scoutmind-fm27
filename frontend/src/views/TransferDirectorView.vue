@@ -15,9 +15,11 @@ import {
   generateLoanOffers,
   generatePurchaseOffers,
   generateSaleOffers,
+  getClubHabits,
   getClubLinkHealth,
   getClubTransferSummary,
   getDirectorOverview,
+  getLearningStatus,
   getNegotiation,
   getOpportunityDetail,
   getOpportunitySummary,
@@ -36,14 +38,18 @@ import {
   repairClubLinks,
   reviewNegotiation,
   saveOffer,
+  submitFeedback,
 } from '../api/transferDirector'
 import type {
   BackgroundTask,
+  ClubHabits,
   ClubLinkHealth,
   ClubPlayerRow,
   ContractInfo,
   DirectorClub,
   DirectorOverview,
+  FeedbackOutcome,
+  LearningStatus,
   Negotiation,
   NegotiationReview,
   Offer,
@@ -111,6 +117,12 @@ const CLUB_PLAYER_PAGE_SIZE = 12
 const ACTIVE_SCAN_STATUSES = ['PENDING', 'RUNNING', 'CANCELLING']
 const scanRunning = computed(() => !!scanTask.value && ACTIVE_SCAN_STATUSES.includes(scanTask.value.status))
 const scanPercent = computed(() => Math.min(100, Math.max(0, Math.round(Number(scanTask.value?.progress ?? 0)))))
+/** Remaining minutes, only when the backend can estimate an ETA. */
+const scanEtaMinutes = computed(() => {
+  const seconds = scanTask.value?.eta_seconds
+  if (seconds === null || seconds === undefined) return null
+  return Math.ceil(seconds / 60)
+})
 const healthMissingCount = computed(
   () => clubLinkHealth.value?.states?.MISSING_SOURCE_FIELD ?? 0,
 )
@@ -124,6 +136,36 @@ const strategyInsights = ref<{ available: boolean; patterns: StrategyInsight[]; 
 const strategyLoading = ref(false)
 const similarCases = ref<StrategyCase[]>([])
 const similarMessage = ref<string | null>(null)
+
+// V3.3.2-07：交易策略学习、俱乐部画像与交易结果反馈
+const learning = ref<LearningStatus | null>(null)
+const learningLoading = ref(false)
+const learningError = ref<string | null>(null)
+const learningTypes = computed(() => Object.entries(learning.value?.by_type ?? {}))
+
+const clubHabitsVisible = ref(false)
+const clubHabits = ref<ClubHabits | null>(null)
+const clubHabitsLoading = ref(false)
+
+const feedbackVisible = ref(false)
+const feedbackSubmitting = ref(false)
+const feedbackBundle = ref<OfferBundle | null>(null)
+const feedbackOffer = ref<Offer | null>(null)
+const feedbackOutcome = ref<FeedbackOutcome>('completed')
+const feedbackAmount = ref<number | null>(null)
+const feedbackNote = ref('')
+const feedbackAmountValid = computed(
+  () => feedbackOutcome.value !== 'completed' || (feedbackAmount.value !== null && feedbackAmount.value > 0),
+)
+
+const CLUB_OBSERVATION_LABELS: Record<string, string> = {
+  completed: '完成交易',
+  loans: '租借',
+  free: '自由转会',
+  installments: '分期',
+  addons: '附加条款',
+  buyout: '买断',
+}
 
 const loan = ref<OfferBundle | null>(null)
 const loanLoading = ref(false)
@@ -471,6 +513,93 @@ async function loadSimilar() {
   }
 }
 
+/** Learning status: how many real cases the strategy engine can learn from. */
+async function loadLearningStatus() {
+  learningLoading.value = true
+  learningError.value = null
+  try {
+    const data = await getLearningStatus()
+    // 防御未实现该接口的旧后端/测试桩：返回空对象时按“暂无学习数据”处理，避免整页渲染失败。
+    learning.value = data && data.totals && data.confidence ? data : null
+  } catch (error) {
+    learningError.value = (error as Error).message
+    learning.value = null
+  } finally {
+    learningLoading.value = false
+  }
+}
+
+/** Club habits: selling/buying patterns for the selected player's club. */
+async function openClubHabits() {
+  const clubId = analysis.value?.player.club_id
+  if (!clubId) return
+  clubHabits.value = null
+  clubHabitsVisible.value = true
+  clubHabitsLoading.value = true
+  try {
+    const data = await getClubHabits(clubId)
+    if (!data || !data.observations) {
+      clubHabitsVisible.value = false
+      ElMessage.warning('暂无足够数据')
+      return
+    }
+    clubHabits.value = data
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+    clubHabitsVisible.value = false
+  } finally {
+    clubHabitsLoading.value = false
+  }
+}
+
+function observationEntries(value: object | undefined): Array<[string, number]> {
+  return Object.entries(value ?? {}) as Array<[string, number]>
+}
+
+/** Never imply a currency when the backend says it is unknown. */
+function currencyLabel(currency: string | null | undefined): string {
+  return currency ? currency : '货币单位未知'
+}
+
+/** Open the feedback dialog for one offer, remembering its bundle direction. */
+function openFeedback(offer: Offer, bundle: OfferBundle | null) {
+  if (!bundle) return
+  feedbackBundle.value = bundle
+  feedbackOffer.value = offer
+  feedbackOutcome.value = 'completed'
+  feedbackAmount.value = offer.total_committed ?? offer.base_fee ?? null
+  feedbackNote.value = ''
+  feedbackVisible.value = true
+}
+
+/** Record the real-world outcome so the strategy engine can learn from it. */
+async function submitOfferFeedback() {
+  if (!selectedId.value || !feedbackBundle.value) return
+  if (!feedbackAmountValid.value) {
+    ElMessage.warning('成交金额必须大于 0')
+    return
+  }
+  feedbackSubmitting.value = true
+  try {
+    const result = await submitFeedback({
+      instance_id: selectedId.value,
+      direction: feedbackBundle.value.direction,
+      outcome: feedbackOutcome.value,
+      amount: feedbackAmount.value ?? null,
+      offer_id: feedbackOffer.value?.offer_id ?? null,
+      note: feedbackNote.value.trim() || null,
+    })
+    if (result.duplicate) ElMessage.info('该反馈已记录')
+    else ElMessage.success(result.message)
+    feedbackVisible.value = false
+    await loadLearningStatus()
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  } finally {
+    feedbackSubmitting.value = false
+  }
+}
+
 async function refreshLoan() {
   if (!selectedId.value) return
   loanLoading.value = true
@@ -681,6 +810,7 @@ onMounted(async () => {
     loadClubLinkHealth(),
     loadClubs(),
     loadClubOptions(),
+    loadLearningStatus(),
   ])
   loading.value = false
   const instanceId = Number(route.query.instance_id)
@@ -699,6 +829,7 @@ watch([transferStatus, transferType], () => {
 watch(section, (value) => {
   router.replace({ query: { ...route.query, section: value } })
   if (value === 'strategy' && !strategyCases.value.length) loadStrategy()
+  if (value === 'strategy' && !learning.value) loadLearningStatus()
   if (value === 'radar' && !oppItems.value.length) loadRadar()
 })
 
@@ -815,6 +946,14 @@ function directionLabel(direction: string): string {
         />
       </el-select>
       <span v-if="analysis" class="picked">已选：{{ selectedPlayerName }}</span>
+      <el-button
+        v-if="analysis?.player.club_id"
+        size="small"
+        data-testid="club-habits-open"
+        @click="openClubHabits"
+      >
+        查看俱乐部交易画像
+      </el-button>
     </section>
 
     <el-tabs v-model="section" class="section-tabs">
@@ -847,10 +986,17 @@ function directionLabel(direction: string): string {
             :status="scanTask?.status === 'FAILED' ? 'exception' : undefined"
             :stroke-width="10"
           />
+          <span v-if="scanTask?.current_stage" class="scan-progress-text">
+            当前阶段：{{ scanTask.current_stage }}
+          </span>
           <span class="scan-progress-text">
             已处理 {{ scanTask?.processed ?? 0 }} / {{ scanTask?.total || '…' }} 名球员
             <template v-if="scanTask?.failed">（失败 {{ scanTask.failed }}）</template>
           </span>
+          <span v-if="scanEtaMinutes !== null" class="scan-progress-text">
+            预计剩余约 {{ scanEtaMinutes }} 分钟
+          </span>
+          <el-tag v-if="scanTask?.resumable" type="info" size="small">可继续</el-tag>
           <span v-if="scanTask?.status === 'CANCELLING'" class="scan-progress-text">正在安全取消…</span>
           <span v-else-if="scanTask?.status === 'FAILED'" class="scan-progress-text">{{ scanTask?.message }}</span>
         </div>
@@ -1158,6 +1304,56 @@ function directionLabel(direction: string): string {
       </el-tab-pane>
 
       <el-tab-pane label="成交策略" name="strategy">
+        <el-card shadow="never" class="learning-card" data-testid="learning-status">
+          <template #header>
+            <div class="offer-head">
+              <strong>交易策略学习</strong>
+              <el-button size="small" text :loading="learningLoading" @click="loadLearningStatus">刷新</el-button>
+            </div>
+          </template>
+          <el-skeleton v-if="learningLoading && !learning" :rows="3" animated />
+          <el-alert
+            v-else-if="learningError"
+            :title="learningError"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
+          <template v-else-if="learning">
+            <div class="learning-stats">
+              <div><span>有效案例</span><strong>{{ learning.totals.cases }}</strong></div>
+              <div><span>成交案例</span><strong>{{ learning.totals.completed_transfers }}</strong></div>
+              <div>
+                <span>置信度</span>
+                <strong>{{ learning.confidence.label }}（样本 {{ learning.confidence.sample_size }}）</strong>
+              </div>
+            </div>
+            <div v-if="learningTypes.length" class="learning-types">
+              <el-tag v-for="[type, count] in learningTypes" :key="type" size="small" class="tag-gap">
+                {{ TYPE_LABELS[type] ?? type }} {{ count }}
+              </el-tag>
+            </div>
+            <el-alert
+              v-if="!learning.available || learning.totals.cases === 0"
+              :title="learning.message ?? '当前存档没有真实成交案例，学习暂不可用'"
+              type="info"
+              :closable="false"
+              show-icon
+              class="notice"
+            />
+            <ul v-if="learning.patterns.length" class="learning-patterns">
+              <li v-for="pattern in learning.patterns" :key="pattern.key">
+                <div class="offer-head">
+                  <strong>{{ TYPE_LABELS[pattern.key] ?? pattern.key }}</strong>
+                  <el-tag size="small" type="info">{{ pattern.sample_size }} 例 · {{ pattern.confidence.label }}</el-tag>
+                </div>
+                <p class="rationale">{{ pattern.summary }}</p>
+              </li>
+            </ul>
+            <p class="muted learning-version">数据版本 {{ learning.data_version }}</p>
+          </template>
+        </el-card>
+
         <div v-loading="strategyLoading">
           <el-alert
             v-if="strategyInsights?.message"
@@ -1341,6 +1537,13 @@ function directionLabel(direction: string): string {
             <el-input-number v-model="budget" :min="0" :step="100000" controls-position="right" />
             <el-button @click="refreshPurchase">重新生成</el-button>
           </div>
+          <div v-if="purchase" class="currency-row">
+            <span class="sm-label">报价币种</span>
+            <el-tag size="small" :type="purchase.currency ? 'info' : 'warning'">
+              {{ currencyLabel(purchase.currency) }}
+            </el-tag>
+            <span v-if="!purchase.currency" class="muted">货币单位未知，金额不能按默认币种理解</span>
+          </div>
           <el-alert
             v-for="(warning, index) in purchase?.warnings ?? []"
             :key="index"
@@ -1367,6 +1570,7 @@ function directionLabel(direction: string): string {
                 <div><dt>固定承诺</dt><dd>{{ formatMoney(offer.total_committed) }}</dd></div>
                 <div><dt>潜在总成本</dt><dd>{{ formatMoney(offer.potential_total) }}</dd></div>
                 <div><dt>工资影响</dt><dd>{{ offer.wage_impact != null ? `${formatMoney(offer.wage_impact)}/年` : '未知' }}</dd></div>
+                <div><dt>货币</dt><dd>{{ currencyLabel(offer.currency) }}</dd></div>
               </dl>
               <p class="rationale">{{ String(offer.rationale.reason ?? '') }}</p>
               <p class="muted" v-if="offer.budget_feasible === false">立即支付超过预算，需要调整结构</p>
@@ -1374,6 +1578,9 @@ function directionLabel(direction: string): string {
                 <el-button size="small" @click="saveDraft(offer, 'purchase')">保存草稿</el-button>
                 <el-button size="small" type="primary" plain @click="startNegotiation(offer, 'purchase')">
                   记录谈判
+                </el-button>
+                <el-button size="small" data-testid="feedback-open" @click="openFeedback(offer, purchase)">
+                  记录结果
                 </el-button>
               </div>
             </el-card>
@@ -1390,6 +1597,11 @@ function directionLabel(direction: string): string {
             <span>缺口风险：{{ analysis.sale_preview.squad_impact?.squad_gap_risk ?? '未知' }}</span>
             <span>工资释放：{{ analysis.contract.annual_wage != null ? formatMoney(analysis.contract.annual_wage) : '未知' }}</span>
             <el-button size="small" @click="refreshSale">重新生成</el-button>
+          </div>
+          <div v-if="sale" class="currency-row">
+            <span class="sm-label">报价币种</span>
+            <el-tag size="small" :type="sale.currency ? 'info' : 'warning'">{{ currencyLabel(sale.currency) }}</el-tag>
+            <span v-if="!sale.currency" class="muted">货币单位未知，金额不能按默认币种理解</span>
           </div>
           <el-alert
             v-for="(warning, index) in sale?.warnings ?? []"
@@ -1415,12 +1627,16 @@ function directionLabel(direction: string): string {
                 <div><dt>浮动条款</dt><dd>{{ offer.addons_potential != null ? formatMoney(offer.addons_potential) : '未知' }}</dd></div>
                 <div><dt>潜在总额</dt><dd>{{ formatMoney(offer.potential_total) }}</dd></div>
                 <div><dt>二转分成</dt><dd>{{ offer.sell_on_pct != null ? `${offer.sell_on_pct}%` : '无' }}</dd></div>
+                <div><dt>货币</dt><dd>{{ currencyLabel(offer.currency) }}</dd></div>
               </dl>
               <p class="rationale">{{ String(offer.rationale.reason ?? '') }}</p>
               <div class="offer-actions">
                 <el-button size="small" @click="saveDraft(offer, 'sale')">保存草稿</el-button>
                 <el-button size="small" type="primary" plain @click="startNegotiation(offer, 'sale')">
                   记录谈判
+                </el-button>
+                <el-button size="small" data-testid="feedback-open" @click="openFeedback(offer, sale)">
+                  记录结果
                 </el-button>
               </div>
             </el-card>
@@ -1437,6 +1653,11 @@ function directionLabel(direction: string): string {
             <span>周薪：{{ contract?.wage != null ? formatMoney(contract.wage) : '未知' }}</span>
             <span>合同剩余：{{ contract?.remaining_months != null ? `${contract.remaining_months} 个月` : '未知' }}</span>
             <el-button size="small" @click="refreshLoan">重新生成</el-button>
+          </div>
+          <div v-if="loan" class="currency-row">
+            <span class="sm-label">报价币种</span>
+            <el-tag size="small" :type="loan.currency ? 'info' : 'warning'">{{ currencyLabel(loan.currency) }}</el-tag>
+            <span v-if="!loan.currency" class="muted">货币单位未知，金额不能按默认币种理解</span>
           </div>
           <el-alert
             v-for="(warning, index) in loan?.warnings ?? []"
@@ -1462,12 +1683,16 @@ function directionLabel(direction: string): string {
                 <div><dt>买断选择权</dt><dd>{{ offer.buy_option_fee != null ? formatMoney(offer.buy_option_fee) : '无' }}</dd></div>
                 <div><dt>强制买断</dt><dd>{{ offer.buy_obligation_fee != null ? formatMoney(offer.buy_obligation_fee) : '无' }}</dd></div>
                 <div><dt>潜在总成本</dt><dd>{{ formatMoney(offer.potential_total) }}</dd></div>
+                <div><dt>货币</dt><dd>{{ currencyLabel(offer.currency) }}</dd></div>
               </dl>
               <p class="rationale">{{ String(offer.rationale.reason ?? '') }}</p>
               <div class="offer-actions">
                 <el-button size="small" @click="saveDraft(offer, 'loan')">保存草稿</el-button>
                 <el-button size="small" type="primary" plain @click="startNegotiation(offer, 'loan')">
                   记录谈判
+                </el-button>
+                <el-button size="small" data-testid="feedback-open" @click="openFeedback(offer, loan)">
+                  记录结果
                 </el-button>
               </div>
             </el-card>
@@ -1625,6 +1850,86 @@ function directionLabel(direction: string): string {
         </el-tabs>
       </el-tab-pane>
     </el-tabs>
+
+    <el-dialog v-model="feedbackVisible" title="记录交易结果" width="480px">
+      <div class="feedback-form">
+        <p class="muted" v-if="feedbackBundle">
+          方向：{{ directionLabel(feedbackBundle.direction) }} · 方案：{{ feedbackOffer ? offerTitle(feedbackOffer.offer_type) : '—' }}
+        </p>
+        <div class="feedback-row">
+          <span class="sm-label">结果</span>
+          <el-select v-model="feedbackOutcome" class="feedback-field">
+            <el-option label="已成交" value="completed" />
+            <el-option label="被拒绝" value="rejected" />
+            <el-option label="用户取消" value="cancelled" />
+            <el-option label="谈判中" value="negotiating" />
+            <el-option label="未知结果" value="unknown" />
+          </el-select>
+        </div>
+        <div class="feedback-row">
+          <span class="sm-label">成交金额</span>
+          <el-input-number
+            v-model="feedbackAmount"
+            :min="0"
+            :step="100000"
+            controls-position="right"
+            class="feedback-field"
+          />
+        </div>
+        <p v-if="!feedbackAmountValid" class="feedback-hint">成交时金额必填且必须大于 0</p>
+        <div class="feedback-row">
+          <span class="sm-label">备注</span>
+          <el-input v-model="feedbackNote" type="textarea" :rows="3" class="feedback-field" placeholder="可选" />
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="feedbackVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :disabled="!feedbackAmountValid"
+          :loading="feedbackSubmitting"
+          @click="submitOfferFeedback"
+        >
+          提交
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="clubHabitsVisible" title="俱乐部交易画像" width="560px">
+      <el-skeleton v-if="clubHabitsLoading" :rows="4" animated />
+      <template v-else-if="clubHabits">
+        <h3 class="drawer-title">{{ clubHabits.club_name }}</h3>
+        <p class="muted">
+          方向：{{ clubHabits.direction === 'selling' ? '卖方' : '买方' }} · 置信度
+          {{ clubHabits.confidence.label }}（样本 {{ clubHabits.confidence.sample_size }}）
+        </p>
+        <template v-if="clubHabits.available">
+          <el-descriptions :column="3" border size="small" class="desc">
+            <el-descriptions-item
+              v-for="[key, count] in observationEntries(clubHabits.observations)"
+              :key="key"
+              :label="CLUB_OBSERVATION_LABELS[key] ?? key"
+            >
+              {{ count }}
+            </el-descriptions-item>
+          </el-descriptions>
+          <ul v-if="clubHabits.patterns.length" class="learning-patterns">
+            <li v-for="pattern in clubHabits.patterns" :key="pattern.key">
+              <div class="offer-head">
+                <strong>{{ pattern.label }}</strong>
+                <el-tag size="small" type="info">{{ pattern.sample_size }} 例</el-tag>
+              </div>
+              <p class="rationale">{{ pattern.summary }}</p>
+            </li>
+          </ul>
+        </template>
+        <template v-else>
+          <el-empty description="暂无足够数据" :image-size="60" />
+          <p v-if="clubHabits.message" class="muted">{{ clubHabits.message }}</p>
+        </template>
+      </template>
+      <el-empty v-else description="暂无数据" :image-size="60" />
+    </el-dialog>
   </div>
 </template>
 
@@ -1959,6 +2264,80 @@ function directionLabel(direction: string): string {
 }
 .muted {
   color: var(--sm-text-muted);
+  font-size: 12px;
+}
+.learning-card {
+  margin-bottom: 12px;
+}
+.learning-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin-bottom: 8px;
+}
+.learning-stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.learning-stats span {
+  font-size: 12px;
+  color: var(--sm-text-muted);
+}
+.learning-stats strong {
+  font-size: 18px;
+}
+.learning-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.learning-patterns {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.learning-patterns li {
+  padding: 8px 10px;
+  border: 1px solid var(--sm-border, #ebeef5);
+  border-radius: 8px;
+}
+.learning-version {
+  margin: 8px 0 0;
+}
+.currency-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+.feedback-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.feedback-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.feedback-row .sm-label {
+  width: 76px;
+  flex: 0 0 auto;
+  padding-top: 6px;
+}
+.feedback-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.feedback-hint {
+  margin: 0 0 0 86px;
+  color: var(--el-color-danger, #f56c6c);
   font-size: 12px;
 }
 @media (max-width: 1100px) {

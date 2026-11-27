@@ -107,6 +107,48 @@ def _loads(raw: str | None) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _current_stage(task: BackgroundTask) -> str:
+    """用户可读的当前阶段；不暴露内部状态机。"""
+    if task.status == "PENDING":
+        return "排队中"
+    if task.status == "CANCELLING":
+        return "正在取消"
+    if task.status == "CANCELLED":
+        return "已取消"
+    if task.status == "COMPLETED":
+        return "已完成"
+    if task.status == "PARTIAL":
+        return "部分完成"
+    if task.status == "FAILED":
+        return "未完成"
+    if task.task_type == CLUB_LINK_REPAIR:
+        return "修复俱乐部关联"
+    if int(task.total or 0) > 0 and int(task.processed or 0) >= int(task.total or 0):
+        return "更新机会"
+    return "分析球员状态"
+
+
+def _eta_seconds(task: BackgroundTask) -> int | None:
+    """只有样本足够（已处理 ≥ 50）且仍在运行时才估算剩余时间，不编造。"""
+    if task.status != "RUNNING" or task.started_at is None:
+        return None
+    total = int(task.total or 0)
+    processed = int(task.processed or 0)
+    if total <= 0 or processed < 50:
+        return None
+    elapsed = (utcnow() - task.started_at).total_seconds()
+    if elapsed <= 0:
+        return None
+    remaining = max(0, total - processed)
+    return max(0, int(round(elapsed / processed * remaining)))
+
+
+def _resumable(task: BackgroundTask) -> bool:
+    if task.task_type == CLUB_LINK_REPAIR:
+        return True
+    return _loads(task.checkpoint_json).get("last_instance_id") is not None
+
+
 def serialize(task: BackgroundTask) -> dict[str, Any]:
     """对外的最小状态视图：不暴露堆栈、SQL 或内部对象。"""
     return {
@@ -114,6 +156,11 @@ def serialize(task: BackgroundTask) -> dict[str, Any]:
         "save_id": task.fm_save_id,
         "task_type": task.task_type,
         "status": task.status,
+        "status_key": task.status,
+        "current_stage": _current_stage(task),
+        "eta_seconds": _eta_seconds(task),
+        "heartbeat_at": iso(task.heartbeat_at),
+        "resumable": _resumable(task),
         "progress": round(float(task.progress or 0.0), 2),
         "total": int(task.total or 0),
         "processed": int(task.processed or 0),

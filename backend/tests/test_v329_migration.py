@@ -11,6 +11,14 @@ from sqlalchemy import create_engine, inspect, text
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PREVIOUS_REVISION = "b5d9c2e7f4a1"
+
+
+def _head_revision() -> str:
+    """当前迁移 head；新增后续迁移时无需修改本测试的期望值。"""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    return ScriptDirectory.from_config(Config(str(BACKEND_DIR / "alembic.ini"))).get_current_head()
 NEW_TABLES = {
     "player_uid_observations",
     "player_identity_links",
@@ -90,7 +98,7 @@ def test_upgrade_downgrade_upgrade_preserves_existing_data(tmp_path) -> None:
         assert connection.execute(text("select count(*) from players")).scalar_one() == 1
         assert connection.execute(text("select save_local_uid from player_instances")).scalar_one() == "EXIST-1"
         version = connection.execute(text("select version_num from alembic_version")).scalar_one()
-    assert version == "a9f2c6d31b84"
+    assert version == _head_revision()
     assert {"background_tasks"} <= tables
     instance_columns = {column["name"] for column in inspect(engine).get_columns("player_instances")}
     assert {"club_link_source", "club_linked_at"} <= instance_columns

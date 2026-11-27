@@ -48,7 +48,7 @@ class SaveOfferRequest(BaseModel):
     total_committed: float | None = Field(default=None, ge=0)
     potential_total: float | None = Field(default=None, ge=0)
     sell_on_pct: float | None = Field(default=None, ge=0, le=100)
-    currency: str = Field(default="EUR", max_length=8)
+    currency: str | None = Field(default=None, max_length=8)
     wage_impact: float | None = None
     loan_fee: float | None = Field(default=None, ge=0)
     wage_contribution_pct: float | None = Field(default=None, ge=0, le=100)
@@ -84,6 +84,17 @@ class AppendEventRequest(BaseModel):
     amount: float | None = Field(default=None, ge=0)
     data: dict[str, Any] = Field(default_factory=dict)
     occurred_at: datetime | None = None
+    source: Literal["user_confirmed", "local_import"] = "user_confirmed"
+
+
+class FeedbackRequest(BaseModel):
+    instance_id: int = Field(gt=0)
+    direction: Literal["purchase", "sale", "loan"]
+    outcome: Literal["completed", "rejected", "cancelled", "negotiating", "unknown"]
+    amount: float | None = Field(default=None, ge=0)
+    offer_id: int | None = Field(default=None, gt=0)
+    negotiation_id: int | None = Field(default=None, gt=0)
+    note: str | None = Field(default=None, max_length=256)
     source: Literal["user_confirmed", "local_import"] = "user_confirmed"
 
 
@@ -379,6 +390,56 @@ def strategy_insights(
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     return strategy.insights(db, save.id)
+
+
+# ---------------------------------------------------------------------------
+# V3.3.2-07 学习状态、俱乐部画像与谈判反馈
+# ---------------------------------------------------------------------------
+
+
+@router.get("/transfer-director/learning-status", summary="策略学习状态与置信度")
+def learning_status(
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return strategy.learning_status(db, save.id)
+
+
+@router.get("/transfer-director/clubs/{club_id}/habits", summary="俱乐部交易画像")
+def club_habits(
+    club_id: int,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    club_in_save_or_404(db, club_id, save)
+    try:
+        return strategy.club_habits(db, save.id, club_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail={"code": "club_not_found", "message": str(exc)}) from exc
+
+
+@router.post("/transfer-director/feedback", summary="记录谈判结果反馈（幂等）")
+def feedback(
+    payload: FeedbackRequest,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    instance_in_save_or_404(db, payload.instance_id, save)
+    try:
+        return director.record_feedback(
+            db,
+            save_id=save.id,
+            instance_id=payload.instance_id,
+            direction=payload.direction,
+            outcome=payload.outcome,
+            amount=payload.amount,
+            offer_id=payload.offer_id,
+            negotiation_id=payload.negotiation_id,
+            note=payload.note,
+            source=payload.source,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "invalid_feedback", "message": str(exc)}) from exc
 
 
 @router.get("/transfer-director/player/{instance_id}", summary="AI 交易分析：合同/条款/历史/估值")
