@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..analytics.players import PlayerFilter, latest_snapshot_subquery, list_players
-from ..models import Alert, Club, PlayerInstance, PlayerSnapshot, Watchlist, WatchlistItem, WatchRule
+from ..models import Alert, Club, Player, PlayerInstance, PlayerSnapshot, Watchlist, WatchlistItem, WatchRule
 from ..utils import iso, utcnow
 
 WATCH_STATUSES = ("watching", "preparing", "paused", "done")
@@ -44,33 +44,51 @@ def list_items(
     使用 ``latest_snapshot_subquery`` 一次取回实例、球员与最新快照，避免按行查询（N+1）。
     缺失字段保持 ``None``，由前端显示「暂无数据」，不补 0。
     """
-    latest = latest_snapshot_subquery()
     stmt = (
-        select(
-            WatchlistItem,
-            Watchlist.name.label("list_name"),
-            latest.c.instance_id,
-            latest.c.full_name,
-            latest.c.age,
-            latest.c.position,
-            latest.c.ca,
-            latest.c.pa,
-            latest.c.market_value,
-            latest.c.contract_end,
-            latest.c.club_id,
-            latest.c.source,
-        )
+        select(WatchlistItem, Watchlist.name.label("list_name"))
         .join(Watchlist, Watchlist.id == WatchlistItem.watchlist_id)
-        .outerjoin(latest, latest.c.instance_id == WatchlistItem.player_instance_id)
         .where(Watchlist.fm_save_id == save_id)
     )
     if list_id is not None:
         stmt = stmt.where(Watchlist.id == list_id)
     if status:
         stmt = stmt.where(WatchlistItem.status == status)
-    if query:
-        stmt = stmt.where(func.lower(latest.c.full_name).like(f"%{query.strip().lower()}%"))
     rows = session.execute(stmt.order_by(WatchlistItem.created_at.desc())).all()
+
+    instance_ids = [item.player_instance_id for item, _name in rows]
+    instances = {
+        instance.id: instance
+        for instance in session.scalars(
+            select(PlayerInstance).where(PlayerInstance.id.in_(instance_ids))
+        )
+    } if instance_ids else {}
+    players = {
+        player.id: player
+        for player in session.scalars(
+            select(Player).where(Player.id.in_({instance.player_id for instance in instances.values()}))
+        )
+    } if instances else {}
+    instance_names = {
+        instance_id: players[instance.player_id].full_name
+        for instance_id, instance in instances.items()
+        if instance.player_id in players
+    }
+
+    # 姓名筛选在内存中完成，避免为此扫描全部快照。
+    if query:
+        needle = query.strip().lower()
+        rows = [
+            (item, name)
+            for item, name in rows
+            if needle in instance_names.get(item.player_instance_id, "").lower()
+        ]
+        instance_ids = [item.player_instance_id for item, _name in rows]
+
+    latest = latest_snapshot_subquery(instance_ids if instance_ids else None)
+    snapshots = {
+        row.instance_id: row
+        for row in session.execute(select(latest).where(latest.c.instance_id.in_(instance_ids))).all()
+    } if instance_ids else {}
 
     clubs = {
         club_id: name
@@ -79,26 +97,29 @@ def list_items(
         ).all()
     }
     payload: list[dict[str, object]] = []
-    for row in rows:
-        item: WatchlistItem = row[0]
-        instance_id = row.instance_id if row.instance_id is not None else item.player_instance_id
+    for item, list_name in rows:
+        instance_id = item.player_instance_id
+        snapshot = snapshots.get(instance_id)
+        instance = instances.get(instance_id)
+        player = players.get(instance.player_id) if instance else None
+        club_id = (snapshot.club_id if snapshot else None) or (instance.club_id if instance else None)
         payload.append(
             {
                 "id": item.id,
                 "instance_id": instance_id,
                 "list_id": item.watchlist_id,
-                "list_name": row.list_name,
+                "list_name": list_name,
                 "player": {
                     "instance_id": instance_id,
-                    "name": row.full_name,
-                    "age": row.age,
-                    "position": row.position,
-                    "ca": row.ca,
-                    "pa": row.pa,
-                    "market_value": row.market_value,
-                    "contract_end": row.contract_end.isoformat() if row.contract_end else None,
-                    "club": clubs.get(row.club_id) if row.club_id else None,
-                    "source": row.source,
+                    "name": snapshot.full_name if snapshot else (player.full_name if player else None),
+                    "age": snapshot.age if snapshot else None,
+                    "position": snapshot.position if snapshot else (instance.position if instance else None),
+                    "ca": snapshot.ca if snapshot else None,
+                    "pa": snapshot.pa if snapshot else None,
+                    "market_value": snapshot.market_value if snapshot else None,
+                    "contract_end": snapshot.contract_end.isoformat() if snapshot and snapshot.contract_end else None,
+                    "club": clubs.get(club_id) if club_id else None,
+                    "source": snapshot.source if snapshot else None,
                 },
                 "status": item.status or "watching",
                 "tag": item.tag,

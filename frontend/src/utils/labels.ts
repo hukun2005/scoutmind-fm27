@@ -306,6 +306,8 @@ export const CONFIDENCE_LABELS: Record<string, string> = {
   low: '低',
   medium: '中',
   high: '高',
+  insufficient: '数据不足',
+  unknown: '数据不足',
 }
 
 /**

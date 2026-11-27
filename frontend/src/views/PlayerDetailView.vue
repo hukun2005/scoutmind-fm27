@@ -690,6 +690,7 @@ void loadRoles()
                 <span class="player-chip">合同到期 <strong>{{ formatDate(summary.contract_end) }}</strong></span>
                 <ConfidenceTag :confidence="valuation?.confidence ?? null" />
               </div>
+              <p class="player-hero__note">「—」表示该字段暂无数据，不会用 0 代替。</p>
               <div v-if="detail.tags.length > 0" class="player-hero__tags">
                 <el-tag v-for="tag in detail.tags" :key="tag" size="small" type="info" disable-transitions>{{ tag }}</el-tag>
               </div>
@@ -1414,6 +1415,12 @@ void loadRoles()
   align-items: center;
   gap: var(--sm-space-2);
   margin-top: var(--sm-space-1);
+}
+
+.player-hero__note {
+  margin-top: var(--sm-space-1);
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
 }
 
 .player-chip {

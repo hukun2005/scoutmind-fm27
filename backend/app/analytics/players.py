@@ -41,13 +41,18 @@ class PlayerFilter:
     sort: str = "-updated_at"
 
 
-def latest_snapshot_subquery():
-    """One row per instance: its most recent snapshot joined with the instance and club."""
-    newest = (
-        select(PlayerSnapshot.player_instance_id, func.max(PlayerSnapshot.observed_at).label("observed_at"))
-        .group_by(PlayerSnapshot.player_instance_id)
-        .subquery()
-    )
+def latest_snapshot_subquery(instance_ids: list[int] | None = None):
+    """One row per instance: its most recent snapshot joined with the instance and club.
+
+    ``instance_ids`` 可把聚合范围限制在一小批实例（例如关注名单），避免为几个关注项扫描全部快照；
+    不传时保持原有全量行为。
+    """
+    newest_stmt = select(
+        PlayerSnapshot.player_instance_id, func.max(PlayerSnapshot.observed_at).label("observed_at")
+    ).group_by(PlayerSnapshot.player_instance_id)
+    if instance_ids is not None:
+        newest_stmt = newest_stmt.where(PlayerSnapshot.player_instance_id.in_(instance_ids))
+    newest = newest_stmt.subquery()
     return (
         select(
             PlayerInstance.id.label("instance_id"),
