@@ -13,7 +13,14 @@ from sqlalchemy.exc import IntegrityError
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PREVIOUS_REVISION = "e7c2b9a41f60"
-NEW_REVISION = "a9f2c6d31b84"
+
+
+def _head_revision() -> str:
+    """当前迁移 head；新增后续迁移时无需修改本测试的期望值。"""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    return ScriptDirectory.from_config(Config(str(BACKEND_DIR / "alembic.ini"))).get_current_head()
 
 
 def _alembic(database_url: str, *args: str) -> None:
@@ -107,7 +114,7 @@ def test_upgrade_downgrade_upgrade_preserves_data(tmp_path) -> None:
         assert connection.execute(text("select count(*) from players")).scalar_one() == 1
         assert connection.execute(text("select club_id from player_instances")).scalar_one() == 1
         assert connection.execute(text("select scan_token from transfer_opportunities")).scalar_one() is None
-        assert connection.execute(text("select version_num from alembic_version")).scalar_one() == NEW_REVISION
+        assert connection.execute(text("select version_num from alembic_version")).scalar_one() == _head_revision()
 
     # 同存档同锁键的活跃任务由部分唯一索引兜底，不能只靠应用层。
     insert_task = text(
@@ -143,6 +150,6 @@ def test_upgrade_downgrade_upgrade_preserves_data(tmp_path) -> None:
 
     _alembic(database_url, "upgrade", "head")
     with engine.connect() as connection:
-        assert connection.execute(text("select version_num from alembic_version")).scalar_one() == NEW_REVISION
+        assert connection.execute(text("select version_num from alembic_version")).scalar_one() == _head_revision()
         assert connection.execute(text("select club_id from player_instances")).scalar_one() == 1
     engine.dispose()

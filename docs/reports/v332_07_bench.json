@@ -1,0 +1,35 @@
+{
+  "scenario": "v332_07_learning_and_quotes",
+  "results": [
+    {
+      "size": 1000,
+      "cases": 1000,
+      "learning_status_ms": 103.1,
+      "learning_peak_mb": 5.4,
+      "list_cases_p50_ms": 20.4,
+      "club_habits_ms": 1.7,
+      "purchase_quote_ms": 36.9,
+      "adjustment_applied": true
+    },
+    {
+      "size": 10000,
+      "cases": 10000,
+      "learning_status_ms": 773.1,
+      "learning_peak_mb": 46.0,
+      "list_cases_p50_ms": 191.6,
+      "club_habits_ms": 15.4,
+      "purchase_quote_ms": 289.5,
+      "adjustment_applied": true
+    },
+    {
+      "size": 60000,
+      "cases": 60000,
+      "learning_status_ms": 4723.3,
+      "learning_peak_mb": 273.8,
+      "list_cases_p50_ms": 1398.4,
+      "club_habits_ms": 101.8,
+      "purchase_quote_ms": 1441.2,
+      "adjustment_applied": true
+    }
+  ]
+}

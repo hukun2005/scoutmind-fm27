@@ -10,6 +10,8 @@ import { ElMessage } from 'element-plus'
 import AppIcon from './components/AppIcon.vue'
 import DemoBanner from './components/DemoBanner.vue'
 import GlobalSearch from './components/GlobalSearch.vue'
+import OnboardingPanel from './components/OnboardingPanel.vue'
+import { useOnboardingStore } from './stores/onboarding'
 import { useSessionStore } from './stores/session'
 import { formatInt } from './utils/format'
 
@@ -88,6 +90,7 @@ const NAV_GROUPS: NavGroup[] = [
 ]
 
 const session = useSessionStore()
+const onboarding = useOnboardingStore()
 const route = useRoute()
 
 const navOpen = ref(false)
@@ -168,6 +171,7 @@ watch(
 
 onMounted(() => {
   void session.load()
+  void onboarding.maybeOpen()
   window.addEventListener('keydown', onKeydown)
 })
 
@@ -326,6 +330,8 @@ onBeforeUnmount(() => {
         </div>
       </main>
     </div>
+
+    <OnboardingPanel />
   </div>
 </template>
 
