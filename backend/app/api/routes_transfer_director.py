@@ -16,12 +16,22 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import FmSave, PlayerInstance, TransferNegotiation, TransferOffer
+from ..services import background_scan
+from ..services import club_linkage
 from ..services import transfer_director as director
 from ..services import transfer_radar as radar
 from ..services import transfer_strategy as strategy
-from .deps import get_active_save, instance_in_save_or_404
+from .deps import club_in_save_or_404, get_active_save, instance_in_save_or_404
 
 router = APIRouter()
+
+
+class CreateScanRequest(BaseModel):
+    task_type: Literal["FULL_SCAN", "INCREMENTAL_SCAN", "CLUB_LINK_REPAIR", "RECOVERY_SCAN"] = "FULL_SCAN"
+
+
+class ClubLinkRepairRequest(BaseModel):
+    dry_run: bool = False
 
 
 class PurchaseOfferRequest(BaseModel):
@@ -144,6 +154,153 @@ def refresh_opportunities(
     save: FmSave = Depends(get_active_save),
 ) -> dict[str, Any]:
     return radar.scan(db, save.id)
+
+
+# ---------------------------------------------------------------------------
+# V3.3.2-05.2 后台扫描任务
+# ---------------------------------------------------------------------------
+
+
+@router.post("/transfer-director/scans", status_code=202, summary="创建后台扫描任务")
+def create_scan(
+    payload: CreateScanRequest | None = None,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    task_type = payload.task_type if payload is not None else "FULL_SCAN"
+    try:
+        task, reused = background_scan.create_task(db, save.id, task_type, created_by="local")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"code": "invalid_task_type", "message": str(exc)}) from exc
+    return {"task": task, "reused": reused}
+
+
+@router.get("/transfer-director/scans", summary="当前存档的后台任务列表")
+def list_scans(
+    active_only: bool = Query(default=False),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return background_scan.list_tasks(db, save.id, active_only=active_only, limit=limit)
+
+
+@router.get("/transfer-director/scans/{task_id}", summary="后台任务状态")
+def scan_detail(
+    task_id: str,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    task = background_scan.get_task(db, save.id, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail={"code": "task_not_found", "message": "任务不存在"})
+    return task
+
+
+@router.post("/transfer-director/scans/{task_id}/cancel", summary="取消后台任务（幂等）")
+def cancel_scan(
+    task_id: str,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    task = background_scan.cancel_task(db, save.id, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail={"code": "task_not_found", "message": "任务不存在"})
+    return task
+
+
+# ---------------------------------------------------------------------------
+# V3.3.2-05.2 俱乐部关联健康度、安全回填与全局聚合
+# ---------------------------------------------------------------------------
+
+
+@router.get("/transfer-director/club-links/health", summary="俱乐部关联健康度")
+def club_link_health(
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return club_linkage.health(db, save.id)
+
+
+@router.post("/transfer-director/club-links/repair", summary="修复可验证的俱乐部关联（幂等）")
+def repair_club_links(
+    payload: ClubLinkRepairRequest | None = None,
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return club_linkage.repair(db, save.id, dry_run=bool(payload.dry_run) if payload is not None else False)
+
+
+@router.get("/transfer-director/club-links/repair/status", summary="最近一次关联修复结果与健康度")
+def club_link_repair_status(
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return {"latest": club_linkage.latest_repair_audit(db, save.id), "health": club_linkage.health(db, save.id)}
+
+
+@router.get("/transfer-director/clubs", summary="全局俱乐部列表（分页）")
+def director_clubs(
+    search: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return club_linkage.clubs(db, save.id, search=search, limit=limit, offset=offset)
+
+
+@router.get("/transfer-director/clubs/unlinked/players", summary="无俱乐部归属球员（区分原因）")
+def director_unlinked_players(
+    state: Literal["all", "UNRESOLVED", "MISSING_SOURCE_FIELD"] = Query(default="all"),
+    search: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    return club_linkage.unlinked_players(
+        db, save.id, state=state, search=search, limit=limit, offset=offset
+    )
+
+
+@router.get("/transfer-director/clubs/{club_id}/players", summary="指定俱乐部球员（分页）")
+def director_club_players(
+    club_id: int,
+    state: Literal[
+        "all", "listed", "loan_listed", "release_listed", "contract_expiring", "ai_inferred", "unlinked"
+    ] = Query(default="all"),
+    sort: Literal["score", "age", "contract", "name"] = Query(default="score"),
+    search: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    club_in_save_or_404(db, club_id, save)
+    try:
+        return club_linkage.club_players(
+            db, save.id, club_id, state=state, sort=sort, search=search, limit=limit, offset=offset
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail={"code": "club_not_found", "message": str(exc)}) from exc
+
+
+@router.get("/transfer-director/clubs/{club_id}/opportunities", summary="指定俱乐部的转会机会（分页）")
+def director_club_opportunities(
+    club_id: int,
+    opportunity_type: Literal[
+        "listed", "loan_listed", "release_listed", "contract_expiring", "ai_inferred"
+    ] | None = Query(default=None, alias="type"),
+    limit: int = Query(default=30, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    club_in_save_or_404(db, club_id, save)
+    return radar.list_opportunities(
+        db, save.id, opportunity_type=opportunity_type, club_id=club_id, limit=limit, offset=offset
+    )
 
 
 @router.get("/transfer-director/opportunities/{instance_id}", summary="单个球员的全部机会与交易上下文")

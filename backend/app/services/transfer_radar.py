@@ -16,13 +16,15 @@
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..analytics.squad import squad_overview, user_club
+from ..config import settings
 from ..ingestion.attributes import position_group, slot_of
 from ..models import (
     Alert,
@@ -39,7 +41,7 @@ from ..models import (
 )
 from ..utils import iso, utcnow
 
-SCAN_VERSION = "transfer-radar-1"
+SCAN_VERSION = "transfer-radar-2"
 OPPORTUNITY_TYPES = ("listed", "loan_listed", "release_listed", "contract_expiring", "ai_inferred")
 CONFIRMED_TYPES = {"listed", "loan_listed", "release_listed", "contract_expiring"}
 
@@ -134,37 +136,6 @@ def _squad_need(db: Session, save_id: int) -> dict[str, dict[str, float]]:
     return needs
 
 
-def _latest_availability(db: Session, save_id: int) -> dict[int, PlayerAvailability]:
-    ranked = (
-        select(
-            PlayerAvailability.id.label("availability_id"),
-            func.row_number()
-            .over(
-                partition_by=PlayerAvailability.player_instance_id,
-                order_by=(PlayerAvailability.observed_at.desc(), PlayerAvailability.id.desc()),
-            )
-            .label("rn"),
-        )
-        .join(PlayerInstance, PlayerInstance.id == PlayerAvailability.player_instance_id)
-        .where(PlayerInstance.fm_save_id == save_id)
-        .subquery()
-    )
-    rows = db.scalars(
-        select(PlayerAvailability).join(ranked, ranked.c.availability_id == PlayerAvailability.id).where(ranked.c.rn == 1)
-    )
-    return {row.player_instance_id: row for row in rows}
-
-
-def _scan_rows(db: Session, save_id: int) -> list[tuple[PlayerInstance, PlayerSnapshot, str | None]]:
-    rows = db.execute(
-        select(PlayerInstance, PlayerSnapshot, Player.full_name)
-        .join(PlayerSnapshot, PlayerSnapshot.id == PlayerInstance.latest_snapshot_id)
-        .join(Player, Player.id == PlayerInstance.player_id)
-        .where(PlayerInstance.fm_save_id == save_id)
-    ).all()
-    return [(row[0], row[1], row[2]) for row in rows]
-
-
 def _score_entry(
     *,
     entry_type: str,
@@ -240,6 +211,28 @@ def _score_entry(
     }
 
 
+def _club_average(db: Session, save_id: int) -> dict[int, tuple[float, int]]:
+    """俱乐部平均 ca（仅统计 >=5 人的俱乐部），由 SQL 聚合，避免全量加载。
+
+    与旧实现语义一致：只看当前归属 ``instances.club_id`` 与最新快照的 ca。
+    """
+    rows = db.execute(
+        select(PlayerInstance.club_id, func.avg(PlayerSnapshot.ca), func.count())
+        .join(PlayerSnapshot, PlayerSnapshot.id == PlayerInstance.latest_snapshot_id)
+        .where(
+            PlayerInstance.fm_save_id == save_id,
+            PlayerInstance.club_id.is_not(None),
+            PlayerSnapshot.ca.is_not(None),
+        )
+        .group_by(PlayerInstance.club_id)
+    ).all()
+    return {
+        int(club_id): (float(average), int(count))
+        for club_id, average, count in rows
+        if club_id is not None and count and int(count) >= 5
+    }
+
+
 def _build_entries(
     db: Session,
     save_id: int,
@@ -248,15 +241,17 @@ def _build_entries(
     reference_date: date,
     needs: dict[str, dict[str, float]],
     user_club_id: int | None,
+    club_average: dict[int, tuple[float, int]] | None = None,
 ) -> dict[tuple[int, str], dict[str, Any]]:
-    club_stats: dict[int, list[int]] = {}
-    for instance, snapshot, _name in rows:
-        if instance.club_id is None or snapshot.ca is None:
-            continue
-        club_stats.setdefault(instance.club_id, []).append(int(snapshot.ca))
-    club_average = {
-        club_id: (sum(values) / len(values), len(values)) for club_id, values in club_stats.items() if len(values) >= 5
-    }
+    if club_average is None:
+        club_stats: dict[int, list[int]] = {}
+        for instance, snapshot, _name in rows:
+            if instance.club_id is None or snapshot.ca is None:
+                continue
+            club_stats.setdefault(instance.club_id, []).append(int(snapshot.ca))
+        club_average = {
+            club_id: (sum(values) / len(values), len(values)) for club_id, values in club_stats.items() if len(values) >= 5
+        }
 
     entries: dict[tuple[int, str], dict[str, Any]] = {}
 
@@ -386,29 +381,97 @@ def _watchlist_ids(db: Session, save_id: int) -> set[int]:
     return set(rows)
 
 
-def scan(db: Session, save_id: int, observed_at: datetime | None = None) -> dict[str, Any]:
-    """重新扫描并写回机会、变化事件与提醒。无变化时幂等。"""
-    save = db.get(FmSave, save_id)
-    if save is None:
-        raise ValueError("save not found")
-    now = observed_at or utcnow()
-    reference_date = _reference_date(db, save_id)
-    availability = _latest_availability(db, save_id)
-    rows = _scan_rows(db, save_id)
-    needs = _squad_need(db, save_id)
-    entries = _build_entries(db, save_id, rows, availability, reference_date, needs, save.user_club_id)
+class ScanCancelled(Exception):
+    """用户取消扫描。已完成的批次已提交，checkpoint 记录最后处理到的球员。"""
 
-    existing_rows = list(db.scalars(select(TransferOpportunity).where(TransferOpportunity.fm_save_id == save_id)))
-    existing = {(row.player_instance_id, row.opportunity_type): row for row in existing_rows}
-    names = {int(row[0].id): row[2] for row in rows}
+    def __init__(self, checkpoint: dict[str, Any]) -> None:
+        super().__init__("scan cancelled")
+        self.checkpoint = checkpoint
 
+
+def _scan_batch(
+    db: Session, save_id: int, after_id: int, batch_size: int, changed: Any | None = None
+) -> list[tuple[PlayerInstance, PlayerSnapshot, str | None]]:
+    """按 ``PlayerInstance.id`` 升序取一批，避免一次性物化整个存档。"""
+    query = (
+        select(PlayerInstance, PlayerSnapshot, Player.full_name)
+        .join(PlayerSnapshot, PlayerSnapshot.id == PlayerInstance.latest_snapshot_id)
+        .join(Player, Player.id == PlayerInstance.player_id)
+        .where(PlayerInstance.fm_save_id == save_id, PlayerInstance.id > after_id)
+        .order_by(PlayerInstance.id.asc())
+        .limit(batch_size)
+    )
+    if changed is not None:
+        query = query.where(changed)
+    return [(row[0], row[1], row[2]) for row in db.execute(query).all()]
+
+
+def _count_candidates(db: Session, save_id: int, changed: Any | None = None) -> int:
+    query = (
+        select(func.count())
+        .select_from(PlayerInstance)
+        .join(PlayerSnapshot, PlayerSnapshot.id == PlayerInstance.latest_snapshot_id)
+        .where(PlayerInstance.fm_save_id == save_id)
+    )
+    if changed is not None:
+        query = query.where(changed)
+    return int(db.scalar(query) or 0)
+
+
+def _availability_for_ids(db: Session, ids: list[int]) -> dict[int, PlayerAvailability]:
+    """只取这一批球员的最新可用状态，避免每次扫描加载整张表。"""
+    if not ids:
+        return {}
+    ranked = (
+        select(
+            PlayerAvailability.id.label("availability_id"),
+            func.row_number()
+            .over(
+                partition_by=PlayerAvailability.player_instance_id,
+                order_by=(PlayerAvailability.observed_at.desc(), PlayerAvailability.id.desc()),
+            )
+            .label("rn"),
+        )
+        .where(PlayerAvailability.player_instance_id.in_(ids))
+        .subquery()
+    )
+    rows = db.scalars(
+        select(PlayerAvailability)
+        .join(ranked, ranked.c.availability_id == PlayerAvailability.id)
+        .where(ranked.c.rn == 1)
+    )
+    return {row.player_instance_id: row for row in rows}
+
+
+def _existing_for_ids(
+    db: Session, save_id: int, ids: list[int]
+) -> dict[tuple[int, str], TransferOpportunity]:
+    if not ids:
+        return {}
+    rows = db.scalars(
+        select(TransferOpportunity).where(
+            TransferOpportunity.fm_save_id == save_id,
+            TransferOpportunity.player_instance_id.in_(ids),
+        )
+    )
+    return {(row.player_instance_id, row.opportunity_type): row for row in rows}
+
+
+def _apply_entries(
+    db: Session,
+    save_id: int,
+    entries: dict[tuple[int, str], dict[str, Any]],
+    existing: dict[tuple[int, str], TransferOpportunity],
+    now: datetime,
+    token: str,
+    names: dict[int, str],
+    discovered: list[dict[str, Any]],
+    change_items: list[dict[str, Any]],
+) -> dict[str, int]:
+    """把一批计算出的机会写回：新增、更新、变化事件与提醒素材。"""
     created = 0
     updated = 0
     events = 0
-    deactivated = 0
-    discovered: list[TransferOpportunity] = []
-    change_items: list[dict[str, Any]] = []
-
     for key, entry in entries.items():
         row = existing.get(key)
         scores = entry["scores"]
@@ -425,6 +488,7 @@ def scan(db: Session, save_id: int, observed_at: datetime | None = None) -> dict
                 last_seen_at=now,
                 active=True,
                 is_primary=entry["is_primary"],
+                scan_token=token,
                 detail_json=detail_json,
                 ability_score=scores["ability_score"],
                 squad_fit_score=scores["squad_fit_score"],
@@ -436,7 +500,16 @@ def scan(db: Session, save_id: int, observed_at: datetime | None = None) -> dict
             )
             db.add(row)
             created += 1
-            discovered.append(row)
+            discovered.append(
+                {
+                    "instance_id": entry["instance_id"],
+                    "opportunity_type": entry["type"],
+                    "verified_status": entry["verified_status"],
+                    "ability_score": scores["ability_score"],
+                    "overall_score": scores["overall_score"],
+                    "detail": entry["detail"],
+                }
+            )
             events += _record_event(db, save_id, entry["instance_id"], entry["type"], "discovered",
                                     None, _detail_value(entry), now)
             continue
@@ -465,6 +538,7 @@ def scan(db: Session, save_id: int, observed_at: datetime | None = None) -> dict
         row.verified_status = entry["verified_status"]
         row.source = entry["source"]
         row.detail_json = detail_json
+        row.scan_token = token
         row.ability_score = scores["ability_score"]
         row.squad_fit_score = scores["squad_fit_score"]
         row.opportunity_score = scores["opportunity_score"]
@@ -487,44 +561,217 @@ def scan(db: Session, save_id: int, observed_at: datetime | None = None) -> dict
                         "score": entry["scores"]["overall_score"] or 0.0,
                     }
                 )
+    return {"created": created, "updated": updated, "events": events}
 
-    for key, row in existing.items():
-        if row.active and key not in entries:
-            row.active = False
-            row.is_primary = False
-            deactivated += 1
-            events += _record_event(db, save_id, row.player_instance_id, row.opportunity_type, "withdrawn",
-                                    _detail_value({"detail": _loads(row.detail_json)}), None, now)
-            if row.opportunity_type in {"listed", "loan_listed", "release_listed"}:
-                labels = {"listed": "撤销挂牌", "loan_listed": "取消可租借", "release_listed": "取消解约挂牌"}
-                change_items.append(
-                    {
-                        "instance_id": row.player_instance_id,
-                        "alert_type": f"{row.opportunity_type}_withdrawn",
-                        "title": f"{labels[row.opportunity_type]}：{names.get(row.player_instance_id, '')}"
-                                 f"（{now.date()}）"[:128],
-                        "severity": "info",
-                        "message": "该球员的可用状态已变化，请重新确认",
-                        "score": row.overall_score or 0.0,
-                    }
-                )
 
-    alerts = _create_alerts(db, save_id, discovered, change_items, names, now)
+def _deactivate_rows(
+    db: Session,
+    rows: list[tuple[TransferOpportunity, str | None]],
+    names: dict[int, str],
+    change_items: list[dict[str, Any]],
+    now: datetime,
+) -> int:
+    count = 0
+    for row, name in rows:
+        row.active = False
+        row.is_primary = False
+        if name:
+            names.setdefault(row.player_instance_id, name)
+        count += 1
+        _record_event(db, row.fm_save_id, row.player_instance_id, row.opportunity_type, "withdrawn",
+                      _detail_value({"detail": _loads(row.detail_json)}), None, now)
+        if row.opportunity_type in {"listed", "loan_listed", "release_listed"}:
+            labels = {"listed": "撤销挂牌", "loan_listed": "取消可租借", "release_listed": "取消解约挂牌"}
+            change_items.append(
+                {
+                    "instance_id": row.player_instance_id,
+                    "alert_type": f"{row.opportunity_type}_withdrawn",
+                    "title": f"{labels[row.opportunity_type]}：{name or names.get(row.player_instance_id, '')}"
+                             f"（{now.date()}）"[:128],
+                    "severity": "info",
+                    "message": "该球员的可用状态已变化，请重新确认",
+                    "score": row.overall_score or 0.0,
+                }
+            )
+    return count
+
+
+def _deactivate_stale(
+    db: Session,
+    save_id: int,
+    token: str,
+    now: datetime,
+    names: dict[int, str],
+    change_items: list[dict[str, Any]],
+    batch_size: int,
+) -> int:
+    """全量扫描完整结束后，才下线本次未再出现的旧机会（分批，可中断）。"""
+    total = 0
+    while True:
+        rows = db.execute(
+            select(TransferOpportunity, Player.full_name)
+            .join(PlayerInstance, PlayerInstance.id == TransferOpportunity.player_instance_id)
+            .outerjoin(Player, Player.id == PlayerInstance.player_id)
+            .where(
+                TransferOpportunity.fm_save_id == save_id,
+                TransferOpportunity.active.is_(True),
+                or_(TransferOpportunity.scan_token.is_(None), TransferOpportunity.scan_token != token),
+            )
+            .limit(batch_size)
+        ).all()
+        if not rows:
+            break
+        total += _deactivate_rows(db, [(row, name) for row, name in rows], names, change_items, now)
+        db.commit()
+    return total
+
+
+def _deactivate_for_ids(
+    db: Session,
+    save_id: int,
+    ids: list[int],
+    token: str,
+    now: datetime,
+    names: dict[int, str],
+    change_items: list[dict[str, Any]],
+) -> int:
+    """增量扫描只对本次处理过的球员下线旧机会，避免误伤未变化的数据。"""
+    if not ids:
+        return 0
+    rows = db.execute(
+        select(TransferOpportunity, Player.full_name)
+        .join(PlayerInstance, PlayerInstance.id == TransferOpportunity.player_instance_id)
+        .outerjoin(Player, Player.id == PlayerInstance.player_id)
+        .where(
+            TransferOpportunity.fm_save_id == save_id,
+            TransferOpportunity.player_instance_id.in_(ids),
+            TransferOpportunity.active.is_(True),
+            or_(TransferOpportunity.scan_token.is_(None), TransferOpportunity.scan_token != token),
+        )
+    ).all()
+    return _deactivate_rows(db, [(row, name) for row, name in rows], names, change_items, now)
+
+
+def scan_batched(
+    db: Session,
+    save_id: int,
+    *,
+    batch_size: int | None = None,
+    mode: str = "full",
+    since_time: datetime | None = None,
+    token: str | None = None,
+    checkpoint: dict[str, Any] | None = None,
+    cancel_cb: Callable[[], bool] | None = None,
+    progress_cb: Callable[[int, int, int, int, int], None] | None = None,
+    observed_at: datetime | None = None,
+) -> dict[str, Any]:
+    """分批扫描并把机会物化到 ``transfer_opportunities``。
+
+    * 按 ``PlayerInstance.id`` 键集分页，每批提交一次，进度可观测、可取消；
+    * ``mode='incremental'`` 只处理导入时间/关联时间/实例创建时间晚于 ``since_time`` 的球员；
+      没有可靠变化标识时退回全量，并在结果里标记 ``incremental_available=False``；
+    * 全量扫描完成后才用 ``scan_token`` 下线旧机会；取消或失败时不会误下线。
+    """
+    save = db.get(FmSave, save_id)
+    if save is None:
+        raise ValueError("save not found")
+    if mode not in {"full", "incremental"}:
+        raise ValueError(f"unsupported scan mode: {mode}")
+    now = observed_at or utcnow()
+    token = token or uuid.uuid4().hex
+    batch_size = max(50, int(batch_size or settings.scan_batch_size))
+    checkpoint = checkpoint or {}
+    incremental_available = mode == "incremental" and since_time is not None
+    effective_mode = "incremental" if incremental_available else "full"
+    changed = None
+    if effective_mode == "incremental":
+        changed = or_(
+            PlayerSnapshot.imported_at > since_time,
+            PlayerInstance.club_linked_at > since_time,
+            PlayerInstance.created_at > since_time,
+        )
+
+    reference_date = _reference_date(db, save_id)
+    needs = _squad_need(db, save_id)
+    club_average = _club_average(db, save_id)
+    watched = _watchlist_ids(db, save_id)
+    total = _count_candidates(db, save_id, changed)
+
+    names: dict[int, str] = {}
+    discovered: list[dict[str, Any]] = []
+    change_items: list[dict[str, Any]] = []
+    created = updated = events = deactivated = 0
+    processed = 0
+    active_entries = 0
+    last_id = int(checkpoint.get("last_instance_id") or 0)
+
+    while True:
+        if cancel_cb is not None and cancel_cb():
+            raise ScanCancelled(
+                {
+                    "last_instance_id": last_id,
+                    "token": token,
+                    "mode": effective_mode,
+                    "processed": processed,
+                    "matched": created + updated,
+                    "failed": 0,
+                    "total": total,
+                }
+            )
+        rows = _scan_batch(db, save_id, last_id, batch_size, changed)
+        if not rows:
+            break
+        ids = [row[0].id for row in rows]
+        availability = _availability_for_ids(db, ids)
+        entries = _build_entries(
+            db, save_id, rows, availability, reference_date, needs, save.user_club_id, club_average=club_average
+        )
+        existing = _existing_for_ids(db, save_id, ids)
+        for instance, _snapshot, full_name in rows:
+            if full_name:
+                names[instance.id] = full_name
+        stats = _apply_entries(db, save_id, entries, existing, now, token, names, discovered, change_items)
+        created += stats["created"]
+        updated += stats["updated"]
+        events += stats["events"]
+        if effective_mode == "incremental":
+            deactivated += _deactivate_for_ids(db, save_id, ids, token, now, names, change_items)
+        db.commit()
+        processed += len(rows)
+        active_entries += len(entries)
+        last_id = ids[-1]
+        if progress_cb is not None:
+            progress_cb(processed, total, created + updated, 0, last_id)
+
+    if effective_mode == "full":
+        deactivated = _deactivate_stale(db, save_id, token, now, names, change_items, batch_size)
+        events += deactivated
+
+    alerts = _create_alerts(db, save_id, discovered, change_items, names, now, watched)
     db.commit()
     return {
         "save_id": save_id,
         "scan_version": SCAN_VERSION,
-        "scanned_players": len(rows),
+        "mode": effective_mode,
+        "incremental_available": incremental_available,
+        "batch_size": batch_size,
+        "scanned_players": processed,
         "created": created,
         "updated": updated,
         "deactivated": deactivated,
         "events": events,
         "alerts_created": alerts,
-        "active_opportunities": sum(1 for entry in entries.values() if True),
+        "active_opportunities": active_entries,
         "reference_date": iso(reference_date),
         "observed_at": iso(now),
+        "checkpoint": {"last_instance_id": last_id, "token": token, "mode": effective_mode},
         "unsupported_fields": list(UNSUPPORTED_FIELDS),
     }
+
+
+def scan(db: Session, save_id: int, observed_at: datetime | None = None) -> dict[str, Any]:
+    """重新扫描并写回机会、变化事件与提醒。无变化时幂等。"""
+    return scan_batched(db, save_id, mode="full", observed_at=observed_at)
 
 
 def _detail_value(entry: dict[str, Any]) -> str:
@@ -551,38 +798,42 @@ def _record_event(db: Session, save_id: int, instance_id: int, opportunity_type:
     return 1
 
 
-def _create_alerts(db: Session, save_id: int, discovered: list[TransferOpportunity],
-                   change_items: list[dict[str, Any]], names: dict[int, str], now: datetime) -> int:
+def _create_alerts(db: Session, save_id: int, discovered: list[dict[str, Any]],
+                   change_items: list[dict[str, Any]], names: dict[int, str], now: datetime,
+                   watched: set[int] | None = None) -> int:
     if not discovered and not change_items:
         return 0
-    watched = _watchlist_ids(db, save_id)
+    if watched is None:
+        watched = _watchlist_ids(db, save_id)
     existing = {
         (row.alert_type, row.player_instance_id, row.title)
         for row in db.scalars(select(Alert).where(Alert.fm_save_id == save_id))
     }
     candidates: list[dict[str, Any]] = []
-    for row in discovered:
-        name = names.get(row.player_instance_id)
+    for item in discovered:
+        instance_id = int(item["instance_id"])
+        name = names.get(instance_id)
         if not name:
             continue
-        important = row.player_instance_id in watched
-        if row.opportunity_type in {"listed", "loan_listed", "release_listed"}:
+        opportunity_type = str(item["opportunity_type"])
+        important = instance_id in watched
+        if opportunity_type in {"listed", "loan_listed", "release_listed"}:
             important = True
-        elif row.opportunity_type == "contract_expiring":
-            detail = _loads(row.detail_json)
-            important = detail.get("bucket") == "6m" or (row.ability_score or 0) >= CONTRACT_ALERT_ABILITY
+        elif opportunity_type == "contract_expiring":
+            detail = item.get("detail") or {}
+            important = detail.get("bucket") == "6m" or (item.get("ability_score") or 0) >= CONTRACT_ALERT_ABILITY
         if not important:
             continue
-        title = f"{ALERT_LABELS.get(row.opportunity_type, '转会机会')}：{name}"[:128]
+        title = f"{ALERT_LABELS.get(opportunity_type, '转会机会')}：{name}"[:128]
         candidates.append(
             {
-                "instance_id": row.player_instance_id,
-                "alert_type": row.opportunity_type,
+                "instance_id": instance_id,
+                "alert_type": opportunity_type,
                 "title": title,
-                "severity": "info" if row.verified_status == "confirmed" else "low",
-                "message": f"{TYPE_LABELS.get(row.opportunity_type, '转会机会')}，更新时间 {iso(now)}",
-                "score": row.overall_score or 0.0,
-                "watched": row.player_instance_id in watched,
+                "severity": "info" if item.get("verified_status") == "confirmed" else "low",
+                "message": f"{TYPE_LABELS.get(opportunity_type, '转会机会')}，更新时间 {iso(now)}",
+                "score": item.get("overall_score") or 0.0,
+                "watched": instance_id in watched,
             }
         )
     candidates.extend(

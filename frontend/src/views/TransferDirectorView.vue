@@ -9,29 +9,40 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   appendNegotiationEvent,
+  cancelScan,
   createNegotiation,
+  createScan,
   generateLoanOffers,
   generatePurchaseOffers,
   generateSaleOffers,
+  getClubLinkHealth,
   getClubTransferSummary,
   getDirectorOverview,
   getNegotiation,
   getOpportunityDetail,
   getOpportunitySummary,
   getPlayerTransferAnalysis,
+  getScan,
   getSimilarStrategyCases,
   getStrategyInsights,
+  listClubPlayers,
+  listDirectorClubs,
   listNegotiations,
   listOpportunities,
+  listScans,
   listStrategyCases,
   listTransferAlerts,
   markTransferAlertRead,
-  refreshOpportunities,
+  repairClubLinks,
   reviewNegotiation,
   saveOffer,
 } from '../api/transferDirector'
 import type {
+  BackgroundTask,
+  ClubLinkHealth,
+  ClubPlayerRow,
   ContractInfo,
+  DirectorClub,
   DirectorOverview,
   Negotiation,
   NegotiationReview,
@@ -68,12 +79,41 @@ const oppFilters = reactive({
   group: '',
   search: '',
   position: '',
+  clubId: null as number | null,
   ageMin: null as number | null,
   ageMax: null as number | null,
   sort: 'score',
   page: 1,
   pageSize: 20,
 })
+
+// V3.3.2-05.2：后台扫描任务与俱乐部关联健康度
+const scanTask = ref<BackgroundTask | null>(null)
+const scanTimer = ref<number | null>(null)
+const clubLinkHealth = ref<ClubLinkHealth | null>(null)
+const repairLoading = ref(false)
+const clubOptions = ref<DirectorClub[]>([])
+const clubs = ref<DirectorClub[]>([])
+const clubsTotal = ref(0)
+const clubsLoading = ref(false)
+const clubSearch = ref('')
+const clubPage = ref(1)
+const clubPageSize = 10
+const clubDetailVisible = ref(false)
+const activeClub = ref<DirectorClub | null>(null)
+const clubPlayers = ref<ClubPlayerRow[]>([])
+const clubPlayersTotal = ref(0)
+const clubPlayersLoading = ref(false)
+const clubPlayerState = ref('all')
+const clubPlayerSort = ref('score')
+const clubPlayerPage = ref(1)
+const CLUB_PLAYER_PAGE_SIZE = 12
+const ACTIVE_SCAN_STATUSES = ['PENDING', 'RUNNING', 'CANCELLING']
+const scanRunning = computed(() => !!scanTask.value && ACTIVE_SCAN_STATUSES.includes(scanTask.value.status))
+const scanPercent = computed(() => Math.min(100, Math.max(0, Math.round(Number(scanTask.value?.progress ?? 0)))))
+const healthMissingCount = computed(
+  () => clubLinkHealth.value?.states?.MISSING_SOURCE_FIELD ?? 0,
+)
 const oppDetail = ref<{ opportunity: Opportunity; context: PlayerTransferAnalysis | null } | null>(null)
 const detailVisible = ref(false)
 const alerts = ref<TransferAlert[]>([])
@@ -187,6 +227,7 @@ async function loadRadar() {
     }
     if (oppFilters.type) params.type = oppFilters.type
     if (oppFilters.group) params.group = oppFilters.group
+    if (oppFilters.clubId) params.club_id = oppFilters.clubId
     if (oppFilters.search.trim()) params.search = oppFilters.search.trim()
     if (oppFilters.position.trim()) params.position = oppFilters.position.trim()
     if (oppFilters.ageMin !== null) params.age_min = oppFilters.ageMin
@@ -202,19 +243,166 @@ async function loadRadar() {
   }
 }
 
-async function refreshRadar() {
+function stopScanPolling() {
+  if (scanTimer.value !== null) {
+    window.clearInterval(scanTimer.value)
+    scanTimer.value = null
+  }
+}
+
+async function pollScan(taskId: string) {
+  try {
+    const task = await getScan(taskId)
+    scanTask.value = task
+    if (!ACTIVE_SCAN_STATUSES.includes(task.status)) {
+      stopScanPolling()
+      if (task.status === 'COMPLETED') {
+        ElMessage.success(
+          `扫描完成：新增 ${Number(task.result?.created ?? 0)}，更新 ${Number(task.result?.updated ?? 0)}，撤销 ${Number(task.result?.deactivated ?? 0)}`,
+        )
+        await Promise.all([loadRadar(), loadClubLinkHealth(), loadClubs()])
+      } else if (task.status === 'PARTIAL') {
+        ElMessage.warning(task.error_message ?? task.message)
+      } else if (task.status === 'FAILED') {
+        ElMessage.error(task.message)
+      } else if (task.status === 'CANCELLED') {
+        ElMessage.info('扫描已取消，已完成的批次已保留')
+      }
+    }
+  } catch (error) {
+    stopScanPolling()
+    ElMessage.error((error as Error).message)
+  }
+}
+
+function startScanPolling(taskId: string) {
+  stopScanPolling()
+  scanTimer.value = window.setInterval(() => pollScan(taskId), 1200)
+}
+
+async function startScan(taskType = 'FULL_SCAN') {
+  if (scanRunning.value) return
   oppLoading.value = true
   try {
-    const result = await refreshOpportunities()
-    ElMessage.success(
-      `扫描完成：新增 ${result.created ?? 0}，撤销 ${result.deactivated ?? 0}，提醒 ${result.alerts_created ?? 0}`,
-    )
-    await loadRadar()
+    const response = await createScan(taskType)
+    if (!response?.task) throw new Error('扫描任务创建失败')
+    scanTask.value = response.task
+    if (response.reused) ElMessage.info('已有扫描任务在运行，已接入该任务的进度')
+    if (ACTIVE_SCAN_STATUSES.includes(response.task.status)) startScanPolling(response.task.task_id)
   } catch (error) {
     ElMessage.error((error as Error).message)
   } finally {
     oppLoading.value = false
   }
+}
+
+async function cancelRunningScan() {
+  if (!scanTask.value) return
+  try {
+    scanTask.value = await cancelScan(scanTask.value.task_id)
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  }
+}
+
+async function resumeActiveScan() {
+  try {
+    const response = await listScans(true)
+    const active = (response.items ?? []).find((task) => task.task_type !== 'CLUB_LINK_REPAIR')
+    if (active) {
+      scanTask.value = active
+      startScanPolling(active.task_id)
+    }
+  } catch {
+    // 恢复失败不应阻塞页面其他数据加载。
+  }
+}
+
+async function loadClubLinkHealth() {
+  try {
+    clubLinkHealth.value = await getClubLinkHealth()
+  } catch {
+    clubLinkHealth.value = null
+  }
+}
+
+async function runClubLinkRepair() {
+  repairLoading.value = true
+  try {
+    const result = await repairClubLinks(false)
+    ElMessage.success(
+      `俱乐部关联修复完成：新增关联 ${result.linked}，已正确关联 ${result.already_linked}，仍无法验证 ${result.unresolved}`,
+    )
+    await Promise.all([loadClubLinkHealth(), loadRadar(), loadClubs()])
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  } finally {
+    repairLoading.value = false
+  }
+}
+
+async function loadClubOptions() {
+  try {
+    const response = await listDirectorClubs({ limit: 200 })
+    clubOptions.value = response.items ?? []
+  } catch {
+    clubOptions.value = []
+  }
+}
+
+async function loadClubs() {
+  clubsLoading.value = true
+  try {
+    const response = await listDirectorClubs({
+      search: clubSearch.value.trim() || undefined,
+      limit: clubPageSize,
+      offset: (clubPage.value - 1) * clubPageSize,
+    })
+    clubs.value = response.items ?? []
+    clubsTotal.value = response.total ?? 0
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  } finally {
+    clubsLoading.value = false
+  }
+}
+
+function changeClubPage(page: number) {
+  clubPage.value = page
+  loadClubs()
+}
+
+async function openClub(club: DirectorClub) {
+  activeClub.value = club
+  clubPlayerState.value = 'all'
+  clubPlayerSort.value = 'score'
+  clubPlayerPage.value = 1
+  clubDetailVisible.value = true
+  await loadClubPlayers()
+}
+
+async function loadClubPlayers() {
+  if (!activeClub.value) return
+  clubPlayersLoading.value = true
+  try {
+    const response = await listClubPlayers(activeClub.value.club_id, {
+      state: clubPlayerState.value,
+      sort: clubPlayerSort.value,
+      limit: CLUB_PLAYER_PAGE_SIZE,
+      offset: (clubPlayerPage.value - 1) * CLUB_PLAYER_PAGE_SIZE,
+    })
+    clubPlayers.value = response.items ?? []
+    clubPlayersTotal.value = response.total ?? 0
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  } finally {
+    clubPlayersLoading.value = false
+  }
+}
+
+function changeClubPlayerPage(page: number) {
+  clubPlayerPage.value = page
+  loadClubPlayers()
 }
 
 async function openOpportunity(row: Opportunity) {
@@ -485,7 +673,15 @@ function riskTag(level: string): 'success' | 'warning' | 'danger' {
 
 onMounted(async () => {
   loading.value = true
-  await Promise.all([loadOverview(), loadTransfers(), loadClubSummary(), loadNegotiations()])
+  await Promise.all([
+    loadOverview(),
+    loadTransfers(),
+    loadClubSummary(),
+    loadNegotiations(),
+    loadClubLinkHealth(),
+    loadClubs(),
+    loadClubOptions(),
+  ])
   loading.value = false
   const instanceId = Number(route.query.instance_id)
   if (Number.isFinite(instanceId) && instanceId > 0) {
@@ -493,6 +689,7 @@ onMounted(async () => {
   }
   if (section.value === 'strategy') await loadStrategy()
   else await loadRadar()
+  await resumeActiveScan()
 })
 
 watch([transferStatus, transferType], () => {
@@ -506,7 +703,7 @@ watch(section, (value) => {
 })
 
 watch(
-  () => [oppFilters.type, oppFilters.group, oppFilters.sort],
+  () => [oppFilters.type, oppFilters.group, oppFilters.clubId, oppFilters.sort],
   () => {
     oppFilters.page = 1
     loadRadar()
@@ -634,9 +831,48 @@ function directionLabel(direction: string): string {
             <el-badge :value="oppSummary?.alerts_unread ?? 0" :hidden="!oppSummary?.alerts_unread">
               <el-button @click="loadAlerts">提醒</el-button>
             </el-badge>
-            <el-button type="primary" :loading="oppLoading" @click="refreshRadar">重新扫描</el-button>
+            <el-button v-if="!scanRunning" type="primary" :loading="oppLoading" @click="startScan('FULL_SCAN')">
+              刷新转会情报
+            </el-button>
+            <template v-else>
+              <el-button :disabled="scanTask?.status === 'CANCELLING'" @click="cancelRunningScan">取消扫描</el-button>
+              <el-tag type="warning">{{ scanTask?.message ?? '正在扫描' }}</el-tag>
+            </template>
           </div>
         </div>
+
+        <div v-if="scanRunning || scanTask?.status === 'FAILED'" class="scan-progress">
+          <el-progress
+            :percentage="scanPercent"
+            :status="scanTask?.status === 'FAILED' ? 'exception' : undefined"
+            :stroke-width="10"
+          />
+          <span class="scan-progress-text">
+            已处理 {{ scanTask?.processed ?? 0 }} / {{ scanTask?.total || '…' }} 名球员
+            <template v-if="scanTask?.failed">（失败 {{ scanTask.failed }}）</template>
+          </span>
+          <span v-if="scanTask?.status === 'CANCELLING'" class="scan-progress-text">正在安全取消…</span>
+          <span v-else-if="scanTask?.status === 'FAILED'" class="scan-progress-text">{{ scanTask?.message }}</span>
+        </div>
+
+        <el-alert
+          v-if="healthMissingCount > 0"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="notice"
+          title="当前存档有大量球员缺少俱乐部字段，因此俱乐部关联覆盖率偏低。这不代表这些球员没有俱乐部，而是数据源没有提供该字段。系统不会按姓名猜测俱乐部，以免产生错误关联。"
+        >
+          <template #default>
+            <div class="health-actions">
+              <span>
+                已关联 {{ clubLinkHealth?.linked ?? 0 }} / {{ clubLinkHealth?.total_players ?? 0 }} 名球员；
+                来源未提供字段 {{ healthMissingCount }} 人，引用无法解析 {{ clubLinkHealth?.states?.UNRESOLVED ?? 0 }} 人。
+              </span>
+              <el-button size="small" :loading="repairLoading" @click="runClubLinkRepair">修复俱乐部关联</el-button>
+            </div>
+          </template>
+        </el-alert>
 
         <el-alert
           v-if="oppSummary"
@@ -662,6 +898,20 @@ function directionLabel(direction: string): string {
           <el-select v-model="oppFilters.group" placeholder="推荐分组" clearable class="filter">
             <el-option v-for="(label, key) in GROUP_LABELS" :key="key" :label="label" :value="key" />
           </el-select>
+          <el-select
+            v-model="oppFilters.clubId"
+            placeholder="俱乐部"
+            clearable
+            filterable
+            class="filter-wide club-filter"
+          >
+            <el-option
+              v-for="club in clubOptions"
+              :key="club.club_id"
+              :label="`${club.name}（${club.players}）`"
+              :value="club.club_id"
+            />
+          </el-select>
           <el-select v-model="oppFilters.sort" class="filter">
             <el-option label="综合评分" value="score" />
             <el-option label="合同到期" value="contract" />
@@ -671,6 +921,101 @@ function directionLabel(direction: string): string {
           </el-select>
           <el-button @click="loadRadar">筛选</el-button>
         </div>
+
+        <el-card shadow="never" class="club-panel">
+          <template #header>
+            <div class="club-panel-head">
+              <span>俱乐部概览</span>
+              <el-input
+                v-model="clubSearch"
+                placeholder="搜索俱乐部"
+                clearable
+                size="small"
+                class="club-search"
+                @keyup.enter="loadClubs"
+                @clear="loadClubs"
+              />
+            </div>
+          </template>
+          <el-table
+            :data="clubs"
+            size="small"
+            v-loading="clubsLoading"
+            class="clickable-rows"
+            @row-click="openClub"
+          >
+            <el-table-column prop="name" label="俱乐部" min-width="160" />
+            <el-table-column prop="players" label="当前球员" width="100" />
+            <el-table-column label="机会" min-width="220">
+              <template #default="{ row }">
+                <el-tag
+                  v-for="(count, type) in row.opportunities"
+                  :key="type"
+                  size="small"
+                  class="tag-gap"
+                >
+                  {{ OPPORTUNITY_LABELS[type] ?? type }} {{ count }}
+                </el-tag>
+                <span v-if="!row.opportunities_total">—</span>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-pagination
+            v-if="clubsTotal > clubPageSize"
+            layout="prev, pager, next"
+            :total="clubsTotal"
+            :page-size="clubPageSize"
+            :current-page="clubPage"
+            class="pager"
+            @current-change="changeClubPage"
+          />
+        </el-card>
+
+        <el-dialog v-model="clubDetailVisible" :title="activeClub?.name ?? '俱乐部'" width="760px">
+          <div class="filters">
+            <el-select v-model="clubPlayerState" class="filter club-state-select" @change="changeClubPlayerPage(1)">
+              <el-option label="全部球员" value="all" />
+              <el-option label="已挂牌" value="listed" />
+              <el-option label="可租借" value="loan_listed" />
+              <el-option label="解约挂牌" value="release_listed" />
+              <el-option label="合同到期" value="contract_expiring" />
+              <el-option label="AI 推测" value="ai_inferred" />
+            </el-select>
+            <el-select v-model="clubPlayerSort" class="filter club-sort-select" @change="changeClubPlayerPage(1)">
+              <el-option label="综合评分" value="score" />
+              <el-option label="年龄" value="age" />
+              <el-option label="合同到期" value="contract" />
+              <el-option label="姓名" value="name" />
+            </el-select>
+          </div>
+          <el-table :data="clubPlayers" size="small" v-loading="clubPlayersLoading">
+            <el-table-column prop="player_name" label="球员" min-width="160" />
+            <el-table-column prop="position" label="位置" width="80" />
+            <el-table-column prop="age" label="年龄" width="70" />
+            <el-table-column label="合同到期" width="110">
+              <template #default="{ row }">{{ formatDate(row.contract_end) }}</template>
+            </el-table-column>
+            <el-table-column label="评分" width="80">
+              <template #default="{ row }">{{ formatScore(row.overall_score) }}</template>
+            </el-table-column>
+            <el-table-column label="机会" min-width="140">
+              <template #default="{ row }">
+                <el-tag v-for="type in row.opportunity_types" :key="type" size="small" class="tag-gap">
+                  {{ OPPORTUNITY_LABELS[type] ?? type }}
+                </el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-pagination
+            v-if="clubPlayersTotal > CLUB_PLAYER_PAGE_SIZE"
+            layout="prev, pager, next"
+            :total="clubPlayersTotal"
+            :page-size="CLUB_PLAYER_PAGE_SIZE"
+            :current-page="clubPlayerPage"
+            class="pager"
+            @current-change="changeClubPlayerPage"
+          />
+        </el-dialog>
 
         <el-table
           :data="oppItems"
@@ -1503,6 +1848,39 @@ function directionLabel(direction: string): string {
 }
 .tag-gap {
   margin-left: 6px;
+}
+.scan-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
+}
+.scan-progress :deep(.el-progress) {
+  flex: 1;
+}
+.scan-progress-text {
+  font-size: 12px;
+  color: var(--sm-text-muted, #909399);
+  white-space: nowrap;
+}
+.health-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+.club-panel {
+  margin: 12px 0;
+}
+.club-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.club-search {
+  width: 220px;
 }
 .alert-item {
   border-bottom: 1px solid var(--sm-border, #ebeef5);

@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     # 并发：导入写库与上传解析分别限流，避免 SQLite 锁表或内存峰值。
     max_import_concurrency: int = 2
     max_upload_concurrency: int = 2
+    # V3.3.2-05.2：本地后台转会雷达扫描。有界线程池 + 数据库持久化任务，不引入外部队列。
+    scan_workers: int = 2
+    scan_batch_size: int = 500
+    scan_task_timeout_seconds: int = 1800
+    scan_max_attempts: int = 2
     # 兼容旧名字（上一版配置），保留以免已有部署配置失效。
     max_multipart_files: int = 1
     # V3.2.7.3：旧客户端（不带 WriteContext）的写入开关。默认允许，但每次都会写审计事件；
@@ -70,6 +75,10 @@ class Settings(BaseSettings):
             "max_upload_read_seconds": self.max_upload_read_seconds,
             "max_import_concurrency": self.max_import_concurrency,
             "max_upload_concurrency": self.max_upload_concurrency,
+            "scan_workers": self.scan_workers,
+            "scan_batch_size": self.scan_batch_size,
+            "scan_task_timeout_seconds": self.scan_task_timeout_seconds,
+            "scan_max_attempts": self.scan_max_attempts,
         }
         for name, value in positive.items():
             if int(value) <= 0:

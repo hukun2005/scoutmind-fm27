@@ -236,8 +236,20 @@ def create_app() -> FastAPI:
         recovered = recover_interrupted_imports(SessionLocal)
         if recovered:
             logger.warning("已把 %d 个中断的导入任务标记为失败（可重新上传同一 scan_id 重试）", recovered)
+        # V3.3.2-05.2：后台扫描任务不会永久停留在 RUNNING；可恢复的续跑，其余安全标记。
+        from .services import background_scan
+
+        resumed = background_scan.recover(SessionLocal)
+        if resumed:
+            logger.warning("检测到 %d 个未完成的后台任务，已按检查点恢复或安全停止", resumed)
         if not settings.api_token:
             logger.warning("SCOUTMIND_API_TOKEN 未配置：本地 API 无鉴权，只能监听 127.0.0.1")
+
+    @app.on_event("shutdown")
+    def _shutdown() -> None:
+        from .services import background_scan
+
+        background_scan.shutdown_executor()
 
     @app.get("/")
     def root():
