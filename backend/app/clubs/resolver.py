@@ -26,7 +26,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..models import Club, FmSave, PlayerInstance, PlayerSnapshot
+from ..models import Club, FmSave, PlayerInstance
 
 #: Provenance values shown in the UI. Confidence is a fixed property of the channel, not a guess.
 SOURCE_PAYLOAD_CLUBS = "payload_clubs"
@@ -327,15 +327,19 @@ class ClubResolver:
             club.external_ids_json = json.dumps(external, ensure_ascii=False)
 
     def _member_counts(self, club_ids: list[int]) -> dict[int, int]:
+        """当前归属人数：只统计 ``player_instances.club_id``。
+
+        历史快照会保留球员过去的俱乐部，用它统计会把已转会的球员算旧俱乐部，
+        所以俱乐部列表必须用当前归属（与转会雷达聚合一致）。
+        """
         if not club_ids:
             return {}
         rows = self.session.execute(
-            select(PlayerSnapshot.club_id, func.count())
-            .join(PlayerInstance, PlayerInstance.id == PlayerSnapshot.player_instance_id)
+            select(PlayerInstance.club_id, func.count())
             .where(
                 PlayerInstance.fm_save_id == self.save_id,
-                PlayerSnapshot.club_id.in_(club_ids),
+                PlayerInstance.club_id.in_(club_ids),
             )
-            .group_by(PlayerSnapshot.club_id)
+            .group_by(PlayerInstance.club_id)
         ).all()
         return {int(club_id): int(count) for club_id, count in rows if club_id is not None}

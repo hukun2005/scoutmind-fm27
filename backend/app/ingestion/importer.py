@@ -790,7 +790,13 @@ class ScanImporter:
                 outcome.players_updated += 1
             club = self._club_for(job.fm_save_id, record.club_uid, None, clubs)
             if club is not None:
-                instance.club_id = club.id
+                # 只在有可验证俱乐部时写入，不覆盖已关联的正确关系；记录来源与时间便于审计。
+                if instance.club_id != club.id:
+                    instance.club_id = club.id
+                    instance.club_linked_at = utcnow()
+                instance.club_link_source = "player_club_field"
+                if instance.club_linked_at is None:
+                    instance.club_linked_at = utcnow()
             self._create_snapshot(job, payload, record, instance, club, clubs, attribute_ids, outcome)
             self._upsert_statistics(job, payload, record, instance, outcome)
             outcome.players_imported += 1
@@ -879,6 +885,7 @@ class ScanImporter:
             wage=record.wage,
             contract_end=record.contract_end,
             club_id=club.id if club is not None else None,
+            club_uid=record.club_uid,
             position=record.position,
             minutes_played=record.minutes_played,
             appearances=record.appearances,

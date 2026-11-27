@@ -25,6 +25,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     event,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -210,6 +211,10 @@ class PlayerInstance(TimestampMixin, Base):
     # 最新快照引用（V3.3.2）：导入时维护，避免每次列表都聚合全部历史快照。
     # 普通整数而不是外键：player_snapshots 已外键指向本表，再建反向外键会形成循环约束。
     latest_snapshot_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    # V3.3.2-05.2：俱乐部关联来源与时间。只记录可验证的关联（payload / squad_csv /
+    # snapshot_backfill / legacy），NULL 表示来源未知；不按姓名猜测。
+    club_link_source: Mapped[str | None] = mapped_column(String(32))
+    club_linked_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     player: Mapped[Player] = relationship(back_populates="instances")
 
@@ -311,6 +316,9 @@ class PlayerSnapshot(TimestampMixin, Base):
     wage: Mapped[int | None] = mapped_column(Integer)
     contract_end: Mapped[date | None] = mapped_column(Date)
     club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"))
+    # V3.3.2-05.2：来源直接提供的俱乐部引用（原始字符串），用于可验证回填与状态区分。
+    # NULL 表示来源本次没有提供俱乐部字段——不能据此推断球员没有俱乐部。
+    club_uid: Mapped[str | None] = mapped_column(String(128))
     position: Mapped[str | None] = mapped_column(String(16))
     minutes_played: Mapped[int | None] = mapped_column(Integer)
     appearances: Mapped[int | None] = mapped_column(Integer)
@@ -1760,6 +1768,7 @@ class TransferOpportunity(TimestampMixin, Base):
         Index("ix_opportunity_save_primary", "fm_save_id", "is_primary", "active"),
         Index("ix_opportunity_save_score", "fm_save_id", "overall_score"),
         Index("ix_opportunity_save_instance", "fm_save_id", "player_instance_id"),
+        Index("ix_opportunity_save_scan_token", "fm_save_id", "scan_token"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -1775,6 +1784,9 @@ class TransferOpportunity(TimestampMixin, Base):
     # 每名球员只保留一个主机会（优先级 listed > loan_listed > release_listed > contract_expiring > ai_inferred），
     # 供默认列表无重复分页；按类型筛选时仍可看到全部条目。
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # V3.3.2-05.2：本次扫描的令牌。全量扫描结束后据此安全下线未再出现的旧机会，
+    # 扫描被取消时保留旧值，避免半写入造成误下线。
+    scan_token: Mapped[str | None] = mapped_column(String(36))
     detail_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     ability_score: Mapped[float | None] = mapped_column(Float)
     squad_fit_score: Mapped[float | None] = mapped_column(Float)
@@ -1811,4 +1823,51 @@ class TransferOpportunityEvent(TimestampMixin, Base):
     new_value: Mapped[str | None] = mapped_column(String(64))
     observed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class BackgroundTask(TimestampMixin, Base):
+    """V3.3.2-05.2 本地后台任务（扫描 / 俱乐部关联修复）。
+
+    状态持久化在数据库里，进程内由有界线程池执行；不使用外部队列。同存档同锁键
+    只允许一个活跃任务：由部分唯一索引兜底，不能只靠前端按钮禁用。
+    """
+
+    __tablename__ = "background_tasks"
+    __table_args__ = (
+        UniqueConstraint("task_id", name="uq_background_task_task_id"),
+        Index("ix_background_task_save_status", "fm_save_id", "status"),
+        Index("ix_background_task_type_status", "task_type", "status"),
+        Index(
+            "uq_background_task_active_lock",
+            "fm_save_id",
+            "lock_key",
+            unique=True,
+            sqlite_where=text("status IN ('PENDING','RUNNING','CANCELLING')"),
+            postgresql_where=text("status IN ('PENDING','RUNNING','CANCELLING')"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    task_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    # 并发粒度：scan（全量/增量/恢复共用）/ club_link（关联修复）。
+    lock_key: Mapped[str] = mapped_column(String(16), default="scan", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="PENDING", nullable=False)
+    progress: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    processed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    matched: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_message: Mapped[str | None] = mapped_column(String(512))
+    checkpoint_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    result_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(64))
+    source_snapshot_id: Mapped[int | None] = mapped_column(Integer)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime)
 

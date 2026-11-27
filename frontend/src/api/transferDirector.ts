@@ -476,3 +476,143 @@ export function getStrategyInsights(): Promise<{
 }> {
   return apiGet('/transfer-director/strategy-insights')
 }
+
+// ---------------------------------------------------------------------------
+// V3.3.2-05.2 后台扫描任务、俱乐部关联健康度与全局俱乐部聚合
+// ---------------------------------------------------------------------------
+
+export type BackgroundTaskStatus =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'CANCELLING'
+  | 'CANCELLED'
+  | 'COMPLETED'
+  | 'PARTIAL'
+  | 'FAILED'
+
+export interface BackgroundTask {
+  task_id: string
+  save_id: number
+  task_type: string
+  status: BackgroundTaskStatus
+  progress: number
+  total: number
+  processed: number
+  matched: number
+  failed: number
+  started_at: string | null
+  finished_at: string | null
+  error_code: string | null
+  error_message: string | null
+  created_by: string | null
+  source_snapshot_id: number | null
+  attempt_count: number
+  checkpoint: Record<string, unknown>
+  result: Record<string, unknown>
+  message: string
+  cancel_requested: boolean
+}
+
+export interface ClubLinkHealth {
+  save_id: number
+  status: string
+  total_players: number
+  linked: number
+  states: Record<string, number>
+  state_labels: Record<string, string>
+  state_notes: Record<string, string>
+  club_link_rate: number | null
+  link_rate_of_total: number | null
+  latest_observed_linked: number
+  sources: Record<string, number>
+  clubs: { total: number; with_players: number; valid: number }
+  opportunities: { total: number; with_club: number }
+}
+
+export interface ClubLinkRepairSummary {
+  save_id: number
+  dry_run: boolean
+  rule_id: string
+  scanned: number
+  linked: number
+  already_linked: number
+  backfilled_snapshot: number
+  backfilled_assignment: number
+  repaired_reference: number
+  cleared_invalid: number
+  unresolved: number
+  failed: number
+  duration_ms: number
+}
+
+export interface DirectorClub {
+  club_id: number
+  uid: string | null
+  name: string
+  nation: string | null
+  league: string | null
+  reputation: number | null
+  source: string | null
+  confidence: number | null
+  players: number
+  opportunities: Record<string, number>
+  opportunities_total: number
+}
+
+export interface ClubPlayerRow {
+  instance_id: number
+  player_name: string
+  club_id: number | null
+  club_name: string | null
+  position: string | null
+  age: number | null
+  market_value: number | null
+  contract_end: string | null
+  overall_score: number | null
+  opportunity_types: string[]
+  club_link_source: string | null
+}
+
+export function createScan(taskType = 'FULL_SCAN'): Promise<{ task: BackgroundTask; reused: boolean }> {
+  return apiPost('/transfer-director/scans', { task_type: taskType })
+}
+
+export function listScans(activeOnly = false, limit = 20): Promise<{ items: BackgroundTask[]; total: number }> {
+  return apiGet('/transfer-director/scans', { active_only: activeOnly, limit })
+}
+
+export function getScan(taskId: string): Promise<BackgroundTask> {
+  return apiGet(`/transfer-director/scans/${taskId}`)
+}
+
+export function cancelScan(taskId: string): Promise<BackgroundTask> {
+  return apiPost(`/transfer-director/scans/${taskId}/cancel`)
+}
+
+export function getClubLinkHealth(): Promise<ClubLinkHealth> {
+  return apiGet('/transfer-director/club-links/health')
+}
+
+export function repairClubLinks(dryRun = false): Promise<ClubLinkRepairSummary> {
+  return apiPost('/transfer-director/club-links/repair', { dry_run: dryRun })
+}
+
+export function listDirectorClubs(
+  params: { search?: string; limit?: number; offset?: number } = {},
+): Promise<{ items: DirectorClub[]; total: number; limit: number; offset: number; unlinked_players: number }> {
+  return apiGet('/transfer-director/clubs', params)
+}
+
+export function listClubPlayers(
+  clubId: number,
+  params: { state?: string; sort?: string; search?: string; limit?: number; offset?: number } = {},
+): Promise<{ club_id: number; club_name: string; items: ClubPlayerRow[]; total: number; limit: number; offset: number }> {
+  return apiGet(`/transfer-director/clubs/${clubId}/players`, params)
+}
+
+export function listClubOpportunities(
+  clubId: number,
+  params: { type?: string; limit?: number; offset?: number } = {},
+): Promise<{ items: Opportunity[]; total: number }> {
+  return apiGet(`/transfer-director/clubs/${clubId}/opportunities`, params)
+}
