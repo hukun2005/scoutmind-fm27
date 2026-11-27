@@ -441,6 +441,10 @@ class TransferFeeComponent(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(24), nullable=False)
     due_date: Mapped[date | None] = mapped_column(Date)
     condition: Mapped[str | None] = mapped_column(String(256))
+    # V3.3.2-05：条款级来源与付款计划；NULL 表示导入文件/来源未提供。
+    source: Mapped[str | None] = mapped_column(String(32))
+    confidence: Mapped[float | None] = mapped_column(Float)
+    payment_schedule: Mapped[str | None] = mapped_column(Text)
 
     transfer: Mapped[Transfer] = relationship(back_populates="components")
 
@@ -645,6 +649,14 @@ class LoanRecord(TimestampMixin, Base):
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     reader_version: Mapped[str | None] = mapped_column(String(32))
     game_build: Mapped[str | None] = mapped_column(String(64))
+    # V3.3.2-05：只有来源真实提供时才写；NULL 表示未知，不是 0。
+    loan_fee: Mapped[float | None] = mapped_column(Float)
+    wage_contribution_amount: Mapped[float | None] = mapped_column(Float)
+    wage_contribution_pct: Mapped[float | None] = mapped_column(Float)
+    buy_option_fee: Mapped[float | None] = mapped_column(Float)
+    buy_obligation_fee: Mapped[float | None] = mapped_column(Float)
+    option_status: Mapped[str | None] = mapped_column(String(16))
+    confidence: Mapped[float | None] = mapped_column(Float)
 
 
 class TransferCandidate(TimestampMixin, Base):
@@ -1603,4 +1615,125 @@ class DataRepairAudit(TimestampMixin, Base):
 def _reject_data_repair_audit_rewrite(*_args: object) -> None:
     """修复审计不可覆盖：错误决策通过新增修正记录表达。"""
     raise ValueError("data_repair_audits 是不可覆盖的审计表：禁止更新或删除")
+
+
+# ---------------------------------------------------------------------------
+# V3.3.2-05 AI Transfer Director
+#
+# 只新增：交易状态历史、报价草稿、谈判与谈判事件。合同/费用/租借分别复用
+# player_snapshots / transfer_history + transfer_fee_components / loan_records，
+# 不建立重复的 contract_snapshots 或 transfer_financials 表。
+# 所有金额列 nullable：NULL 表示来源未提供，界面显示“未知”，绝不以 0 代替。
+# ---------------------------------------------------------------------------
+
+class TransferStatusHistory(TimestampMixin, Base):
+    """一笔历史转会的状态变化（只追加）。
+
+    重复导入同一状态不新增行；同一笔交易从 agreed 变 completed 时保留旧状态。
+    """
+
+    __tablename__ = "transfer_status_history"
+    __table_args__ = (
+        UniqueConstraint(
+            "transfer_id", "new_status", "changed_at",
+            name="uq_transfer_status_transfer_new_changed",
+        ),
+        Index("ix_transfer_status_save_time", "fm_save_id", "changed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    transfer_id: Mapped[int] = mapped_column(ForeignKey("transfer_history.id"), nullable=False, index=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    previous_status: Mapped[str | None] = mapped_column(String(16))
+    new_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    source: Mapped[str | None] = mapped_column(String(32))
+    evidence_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class TransferOffer(TimestampMixin, Base):
+    """一套由确定性引擎生成、可保存的报价方案。
+
+    ``source`` 只能是 ``ai_estimate`` 或 ``user_confirmed``：报价不是游戏内事实，
+    不得回写成交字段。
+    """
+
+    __tablename__ = "transfer_offers"
+    __table_args__ = (
+        Index("ix_transfer_offers_save_player", "fm_save_id", "player_instance_id"),
+        Index("ix_transfer_offers_save_direction", "fm_save_id", "direction"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    direction: Mapped[str] = mapped_column(String(8), nullable=False)
+    offer_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    base_fee: Mapped[float | None] = mapped_column(Float)
+    immediate_payment: Mapped[float | None] = mapped_column(Float)
+    installments_total: Mapped[float | None] = mapped_column(Float)
+    addons_potential: Mapped[float | None] = mapped_column(Float)
+    total_committed: Mapped[float | None] = mapped_column(Float)
+    potential_total: Mapped[float | None] = mapped_column(Float)
+    sell_on_pct: Mapped[float | None] = mapped_column(Float)
+    currency: Mapped[str] = mapped_column(String(8), default="EUR", nullable=False)
+    wage_impact: Mapped[float | None] = mapped_column(Float)
+    risk_level: Mapped[str] = mapped_column(String(8), default="medium", nullable=False)
+    rationale_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    algorithm_version: Mapped[str] = mapped_column(String(32), default="transfer-offer-1", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="draft", nullable=False)
+    source: Mapped[str] = mapped_column(String(32), default="ai_estimate", nullable=False)
+    created_by: Mapped[str] = mapped_column(String(16), default="engine", nullable=False)
+
+
+class TransferNegotiation(TimestampMixin, Base):
+    """一次用户真实谈判的记录。只能由用户确认或导入文件产生。"""
+
+    __tablename__ = "transfer_negotiations"
+    __table_args__ = (
+        Index("ix_negotiation_save_status", "fm_save_id", "status"),
+        Index("ix_negotiation_save_player", "fm_save_id", "player_instance_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    player_instance_id: Mapped[int] = mapped_column(ForeignKey("player_instances.id"), nullable=False, index=True)
+    offer_id: Mapped[int | None] = mapped_column(ForeignKey("transfer_offers.id"), index=True)
+    direction: Mapped[str] = mapped_column(String(8), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="DRAFT", nullable=False)
+    round_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    initial_ask: Mapped[float | None] = mapped_column(Float)
+    user_offer: Mapped[float | None] = mapped_column(Float)
+    counter_offer: Mapped[float | None] = mapped_column(Float)
+    final_fee: Mapped[float | None] = mapped_column(Float)
+    currency: Mapped[str] = mapped_column(String(8), default="EUR", nullable=False)
+    final_terms_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    reject_reason: Mapped[str | None] = mapped_column(String(256))
+    source: Mapped[str] = mapped_column(String(32), default="user_confirmed", nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class NegotiationEvent(TimestampMixin, Base):
+    """谈判过程事件（只追加）。
+
+    幂等键：同一谈判下 ``event_type`` + ``occurred_at`` + ``amount`` + ``event_data_json``
+    完全一致时不重复写入。
+    """
+
+    __tablename__ = "negotiation_events"
+    __table_args__ = (
+        Index("ix_negotiation_event_negotiation", "negotiation_id", "occurred_at"),
+        Index("ix_negotiation_event_save", "fm_save_id", "occurred_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    negotiation_id: Mapped[int] = mapped_column(
+        ForeignKey("transfer_negotiations.id"), nullable=False, index=True
+    )
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    amount: Mapped[float | None] = mapped_column(Float)
+    event_data_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    source: Mapped[str] = mapped_column(String(32), default="user_confirmed", nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 

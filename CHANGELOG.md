@@ -2,6 +2,30 @@
 
 本文件记录 ScoutMind 的重要变更。编号对应 `docs/evidence/` 下的验收证据。
 
+## [V3.3.2-05] - 2026-11-27
+
+AI 转会总监（AI Transfer Director，Release Candidate）：合同/条款读取、确定性买卖报价、真实谈判记录与复盘。
+
+### 新增
+
+- **AI 转会总监工作台** `/transfer-director`：转会情报、AI 买入报价、AI 出售报价、合同与条款、谈判记录五个页签；球员详情页新增「AI 交易分析」入口。
+- **确定性报价引擎** `app/services/transfer_director.py`：买入（保守/竞争/快速）与出售（快速/合理/价值最大化）各三套方案，因子包含合同剩余、年龄、CA、挂牌状态；预算不足只标记不编造；估值样本不足时明确拒绝区间。
+- **真实谈判记录**：`transfer_negotiations` + `negotiation_events`（migration `c1a4e7f92b30`），状态机、终态保护、事件幂等与复盘；只写本地数据库，不提交游戏内报价。
+- **交易状态历史** `transfer_status_history`：pending/agreed → completed 等变化只追加，重复导入不新增。
+- **条款来源与计划**：`transfer_fee_components` 新增 `source/confidence/payment_schedule`；`loan_records` 新增租借费、工资承担、买断费用与条款状态（全部 nullable）。
+- **AI 工具 10 个**：合同、转会历史、俱乐部汇总、条款、预算（明确不可用）、估值、买入/出售报价、记录谈判事件、复盘；工具层拒绝模型传入存档 ID。
+
+### 数据能力（真实存档 62,229 人）
+
+- 合同：周薪 81.2%、到期日 82.8% 可自动读取；挂牌 1,558 条、可租 6,491 条。
+- 历史转会、成交费用、租借/买断条款：真实存档 0 条，来源不提供，状态 `BLOCKED_BY_SOURCE`，不伪装可用。
+
+### 测试
+
+- 后端新增 14 个用例（报价确定性、预算、条款来源、状态历史、谈判状态机/幂等/复盘、存档隔离）；
+- 前端 `vue-tsc --noEmit && vite build` 通过；Playwright 新增 6 个用例；
+- 迁移 `c1a4e7f92b30` 在临时库完成升级/降级/再升级往返，真实库副本升级通过。
+
 ## [V3.3.2] - 2026-11-27
 
 查询性能深度优化 + 全局搜索升级 + AI 足球总监（Release Candidate）。PR [#25](https://github.com/hukun2005/scoutmind-fm27/pull/25)。

@@ -24,7 +24,16 @@ from typing import Any, Iterable
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import Club, Player, PlayerInstance, Transfer, TransferFeeComponent, TransferImportRun, TransferSource
+from ..models import (
+    Club,
+    Player,
+    PlayerInstance,
+    Transfer,
+    TransferFeeComponent,
+    TransferImportRun,
+    TransferSource,
+    TransferStatusHistory,
+)
 from ..utils import normalize_name, utcnow
 from .amounts import parse_amount, parse_plain_number, parse_ratio
 
@@ -407,6 +416,17 @@ def import_transfer_rows(
         )
         db.add(transfer)
         db.flush()
+        db.add(
+            TransferStatusHistory(
+                transfer_id=transfer.id,
+                fm_save_id=save_id,
+                previous_status=None,
+                new_status=valid["status"],
+                changed_at=utcnow(),
+                source=source_name,
+                evidence_json=json.dumps({"source": source_name}, ensure_ascii=False),
+            )
+        )
         existing_natural.add(_natural_key(valid))
         report.imported += 1
         report.__dict__[valid["status"]] = report.__dict__.get(valid["status"], 0) + 1

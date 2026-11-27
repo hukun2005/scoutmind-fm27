@@ -40,6 +40,7 @@ from ..models import (
     Transfer,
     TransferCandidate,
     TransferFeeComponent,
+    TransferStatusHistory,
 )
 from ..utils import iso, payload_checksum, utcnow
 from ..services.save_identity import record_audit
@@ -1242,9 +1243,21 @@ class ScanImporter:
             effective_fee = _effective_fee(record)
             if existing is not None:
                 if existing.status in {"pending", "future", "unknown"} and record.status != existing.status:
+                    previous_status = existing.status
                     existing.status = record.status
                     existing.effective_fee = effective_fee
                     existing.fee_paid = record.fee_paid
+                    self.session.add(
+                        TransferStatusHistory(
+                            transfer_id=existing.id,
+                            fm_save_id=job.fm_save_id,
+                            previous_status=previous_status,
+                            new_status=record.status,
+                            changed_at=utcnow(),
+                            source=payload.source,
+                            evidence_json=json.dumps({"import_job_id": job.id}, ensure_ascii=False),
+                        )
+                    )
                     outcome.transfers_updated += 1
                 else:
                     outcome.transfers_skipped += 1
@@ -1290,6 +1303,17 @@ class ScanImporter:
             )
             self.session.add(transfer)
             self.session.flush()
+            self.session.add(
+                TransferStatusHistory(
+                    transfer_id=transfer.id,
+                    fm_save_id=job.fm_save_id,
+                    previous_status=None,
+                    new_status=record.status,
+                    changed_at=utcnow(),
+                    source=payload.source,
+                    evidence_json=json.dumps({"import_job_id": job.id}, ensure_ascii=False),
+                )
+            )
             for component in record.fee_components:
                 self.session.add(
                     TransferFeeComponent(

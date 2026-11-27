@@ -90,7 +90,8 @@ def test_upgrade_downgrade_upgrade_preserves_existing_data(tmp_path) -> None:
         assert connection.execute(text("select count(*) from players")).scalar_one() == 1
         assert connection.execute(text("select save_local_uid from player_instances")).scalar_one() == "EXIST-1"
         version = connection.execute(text("select version_num from alembic_version")).scalar_one()
-    assert version == "b8f3d2a6c1e9"
+    assert version == "c1a4e7f92b30"
+    assert {"transfer_offers", "transfer_negotiations", "negotiation_events", "transfer_status_history"} <= tables
     assert "data_repair_audits" in tables
     watch_columns = {column["name"] for column in inspect(engine).get_columns("watchlist_items")}
     assert "status" in watch_columns, "关注项缺少工作流状态列"
