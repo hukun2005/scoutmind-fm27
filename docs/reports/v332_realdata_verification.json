@@ -1,0 +1,319 @@
+{
+  "checks": {
+    "search_player_name": {
+      "status": "PASS",
+      "hits": 1
+    },
+    "search_position": {
+      "status": "PASS",
+      "hits": 8
+    },
+    "search_club": {
+      "status": "PASS",
+      "hits": 1,
+      "first": {
+        "entity_type": "club",
+        "entity_id": 15,
+        "display_name": "Di Roberto",
+        "subtitle": "1 名球员",
+        "navigation_target": "/players?club_id=15",
+        "meta": {
+          "nation": null,
+          "league": null,
+          "player_count": 1
+        }
+      }
+    },
+    "director_context": {
+      "status": "PASS",
+      "club": "International Football Club",
+      "players": 62229,
+      "snapshots": 195593,
+      "data_updated_at": "2026-11-27T11:07:07Z",
+      "gaps": [
+        "没有转会记录，转会分析不可用",
+        "没有赛季统计，产出与主力地位无法判断"
+      ]
+    },
+    "director_gaps": {
+      "status": "PASS",
+      "intent": "gaps",
+      "mode": "deterministic-rules",
+      "recommendations": 4,
+      "data_gaps": [],
+      "sections": [
+        "补强优先级",
+        "可选引援目标",
+        "风险与数据缺失"
+      ],
+      "identity_check": {
+        "checked": 3,
+        "matched": 3,
+        "items": [
+          {
+            "instance_id": 113633,
+            "recommended_name": "?",
+            "resolved_name": "?",
+            "resolved_position": "DR",
+            "match": true
+          },
+          {
+            "instance_id": 113594,
+            "recommended_name": "?",
+            "resolved_name": "?",
+            "resolved_position": "DR",
+            "match": true
+          },
+          {
+            "instance_id": 206,
+            "recommended_name": "Rodri",
+            "resolved_name": "Rodri",
+            "resolved_position": "DM",
+            "match": true
+          }
+        ]
+      }
+    },
+    "director_development": {
+      "status": "PASS",
+      "intent": "development",
+      "mode": "deterministic-rules",
+      "recommendations": 5,
+      "data_gaps": [
+        "缺少出场时间，无法判断年轻球员是否已经获得稳定机会"
+      ],
+      "sections": [
+        "重点培养候选",
+        "判断口径",
+        "数据缺失"
+      ],
+      "identity_check": {
+        "checked": 3,
+        "matched": 3,
+        "items": [
+          {
+            "instance_id": 165,
+            "recommended_name": "Bilal Abou Reslan",
+            "resolved_name": "Bilal Abou Reslan",
+            "resolved_position": "MC, DM, AMC",
+            "match": true
+          },
+          {
+            "instance_id": 182,
+            "recommended_name": "Santiago Ubate",
+            "resolved_name": "Santiago Ubate",
+            "resolved_position": "DC",
+            "match": true
+          },
+          {
+            "instance_id": 183,
+            "recommended_name": "Markiyan Voytsekhovskyy",
+            "resolved_name": "Markiyan Voytsekhovskyy",
+            "resolved_position": "MC, DM",
+            "match": true
+          }
+        ]
+      }
+    },
+    "director_sell": {
+      "status": "PASS",
+      "intent": "sell",
+      "mode": "deterministic-rules",
+      "recommendations": 3,
+      "data_gaps": [
+        "缺少出场时间与比赛统计，无法判断球员是否仍是主力"
+      ],
+      "sections": [
+        "出售 / 外租候选",
+        "判断口径",
+        "数据缺失"
+      ],
+      "identity_check": {
+        "checked": 3,
+        "matched": 3,
+        "items": [
+          {
+            "instance_id": 95,
+            "recommended_name": "George Akpabio",
+            "resolved_name": "George Akpabio",
+            "resolved_position": "ST, AML, AMR",
+            "match": true
+          },
+          {
+            "instance_id": 141,
+            "recommended_name": "Alejandro Portal",
+            "resolved_name": "Alejandro Portal",
+            "resolved_position": "DR, MC, AMC",
+            "match": true
+          },
+          {
+            "instance_id": 188,
+            "recommended_name": "Tiago Pinto",
+            "resolved_name": "Tiago Pinto",
+            "resolved_position": "DC",
+            "match": true
+          }
+        ]
+      }
+    },
+    "director_age": {
+      "status": "PASS",
+      "intent": "age",
+      "mode": "deterministic-rules",
+      "recommendations": 0,
+      "data_gaps": [],
+      "sections": [
+        "年龄分布",
+        "结构风险"
+      ],
+      "identity_check": {
+        "checked": 0,
+        "matched": 0,
+        "items": []
+      }
+    },
+    "director_squad": {
+      "status": "PASS",
+      "intent": "squad",
+      "mode": "deterministic-rules",
+      "recommendations": 4,
+      "data_gaps": [],
+      "sections": [
+        "阵容概览",
+        "补强优先级",
+        "可选引援目标",
+        "风险与数据缺失"
+      ],
+      "identity_check": {
+        "checked": 3,
+        "matched": 3,
+        "items": [
+          {
+            "instance_id": 113633,
+            "recommended_name": "?",
+            "resolved_name": "?",
+            "resolved_position": "DR",
+            "match": true
+          },
+          {
+            "instance_id": 113594,
+            "recommended_name": "?",
+            "resolved_name": "?",
+            "resolved_position": "DR",
+            "match": true
+          },
+          {
+            "instance_id": 206,
+            "recommended_name": "Rodri",
+            "resolved_name": "Rodri",
+            "resolved_position": "DM",
+            "match": true
+          }
+        ]
+      }
+    },
+    "search_watchlist": {
+      "status": "PASS",
+      "hits": 1,
+      "first": {
+        "entity_type": "watchlist",
+        "entity_id": 93,
+        "display_name": "Nunzio Di Roberto",
+        "subtitle": "默认关注 · MR, AMR, AML, ML · 41 岁",
+        "navigation_target": "/players/93",
+        "meta": {
+          "item_id": 1,
+          "instance_id": 93,
+          "list_id": 1,
+          "list_name": "默认关注",
+          "status": "watching",
+          "tag": null,
+          "note": "V3.3.2 验收",
+          "club": null
+        }
+      }
+    },
+    "director_watchlist": {
+      "status": "PASS",
+      "intent": "watchlist",
+      "recommendations": 1,
+      "identity_check": {
+        "checked": 1,
+        "matched": 1,
+        "items": [
+          {
+            "instance_id": 93,
+            "recommended_name": "Nunzio Di Roberto",
+            "resolved_name": "Nunzio Di Roberto",
+            "resolved_position": "MR, AMR, AML, ML",
+            "match": true
+          }
+        ]
+      }
+    },
+    "search_transfers": {
+      "status": "PASS",
+      "save_id": 1,
+      "hits": 8,
+      "first": {
+        "entity_type": "transfer",
+        "entity_id": 1,
+        "display_name": "Mateo Kovac",
+        "subtitle": "Kingsport City → Northbridge United · 2027-07-01",
+        "navigation_target": "/transfers?query=Mateo%20Kovac",
+        "meta": {
+          "status": "agreed",
+          "transfer_type": "permanent",
+          "from_club": "Kingsport City",
+          "to_club": "Northbridge United",
+          "currency": "EUR",
+          "fee": null
+        }
+      }
+    },
+    "save_isolation": {
+      "status": "PASS",
+      "other_save_id": 1,
+      "other_player": "Noah Bennett"
+    }
+  },
+  "timings": {
+    "search_player_name_ms": 92.9,
+    "search_position_ms": 143.6,
+    "search_club_ms": 28.0,
+    "director_context_ms": 117.2,
+    "director_gaps_ms": 5538.1,
+    "director_development_ms": 37.7,
+    "director_sell_ms": 297.8,
+    "director_age_ms": 35.9,
+    "director_squad_ms": 42.0,
+    "search_watchlist_ms": 14.8,
+    "director_watchlist_ms": 13.5,
+    "search_transfers_ms": 15.5
+  },
+  "notes": [
+    "转会搜索使用含演示转会数据的存档；真实存档本身没有转会记录，未伪造。"
+  ],
+  "active_save_id": 2,
+  "saves": [
+    {
+      "id": 1,
+      "name": "演示存档",
+      "player_count": 50457,
+      "snapshot_count": 50641,
+      "transfer_count": 151
+    },
+    {
+      "id": 2,
+      "name": "真实数据样本 FMSuperScout 2026-07-14",
+      "player_count": 62229,
+      "snapshot_count": 195593,
+      "transfer_count": 0
+    }
+  ],
+  "sample_player": {
+    "name": "Nunzio Di Roberto",
+    "instance_id": 93,
+    "club": "Di Roberto"
+  }
+}

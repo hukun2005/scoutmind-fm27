@@ -41,46 +41,64 @@ class PlayerFilter:
     sort: str = "-updated_at"
 
 
+def _snapshot_columns() -> list:
+    """两段最新快照查询共用的列清单，保证 UNION ALL 列顺序与类型一致。"""
+    return [
+        PlayerInstance.id.label("instance_id"),
+        PlayerInstance.player_id,
+        PlayerInstance.save_local_uid,
+        PlayerInstance.club_id,
+        PlayerInstance.position,
+        PlayerInstance.fm_save_id,
+        Player.full_name,
+        Player.birth_date,
+        Player.nationality,
+        PlayerSnapshot.id.label("snapshot_id"),
+        PlayerSnapshot.observed_at,
+        PlayerSnapshot.game_date,
+        PlayerSnapshot.age,
+        PlayerSnapshot.ca,
+        PlayerSnapshot.pa,
+        PlayerSnapshot.market_value,
+        PlayerSnapshot.wage,
+        PlayerSnapshot.contract_end,
+        PlayerSnapshot.minutes_played,
+        PlayerSnapshot.appearances,
+        PlayerSnapshot.goals,
+        PlayerSnapshot.assists,
+        PlayerSnapshot.data_completeness,
+        PlayerSnapshot.source,
+    ]
+
+
 def latest_snapshot_subquery(instance_ids: list[int] | None = None):
     """One row per instance: its most recent snapshot joined with the instance and club.
 
-    ``instance_ids`` 可把聚合范围限制在一小批实例（例如关注名单），避免为几个关注项扫描全部快照；
-    不传时保持原有全量行为。
+    V3.3.2：优先使用 ``player_instances.latest_snapshot_id``（主键 JOIN，O(1)），
+    只有引用为空的历史行才回退到按实例聚合。旧库/测试直接写入的快照因此保持原有行为，
+    生产数据导入后不再为每次列表扫描全部历史快照。
+
+    ``instance_ids`` 可把范围限制在一小批实例（例如关注名单）。
     """
-    newest_stmt = select(
-        PlayerSnapshot.player_instance_id, func.max(PlayerSnapshot.observed_at).label("observed_at")
-    ).group_by(PlayerSnapshot.player_instance_id)
+    materialized = (
+        select(*_snapshot_columns())
+        .join(PlayerSnapshot, PlayerSnapshot.id == PlayerInstance.latest_snapshot_id)
+        .join(Player, Player.id == PlayerInstance.player_id)
+        .where(PlayerInstance.latest_snapshot_id.is_not(None))
+    )
+    legacy_ids = select(PlayerInstance.id).where(PlayerInstance.latest_snapshot_id.is_(None))
+    newest_stmt = (
+        select(PlayerSnapshot.player_instance_id, func.max(PlayerSnapshot.observed_at).label("observed_at"))
+        .where(PlayerSnapshot.player_instance_id.in_(legacy_ids))
+        .group_by(PlayerSnapshot.player_instance_id)
+    )
     if instance_ids is not None:
+        materialized = materialized.where(PlayerInstance.id.in_(instance_ids))
         newest_stmt = newest_stmt.where(PlayerSnapshot.player_instance_id.in_(instance_ids))
     newest = newest_stmt.subquery()
-    return (
-        select(
-            PlayerInstance.id.label("instance_id"),
-            PlayerInstance.player_id,
-            PlayerInstance.save_local_uid,
-            PlayerInstance.club_id,
-            PlayerInstance.position,
-            PlayerInstance.fm_save_id,
-            Player.full_name,
-            Player.birth_date,
-            Player.nationality,
-            PlayerSnapshot.id.label("snapshot_id"),
-            PlayerSnapshot.observed_at,
-            PlayerSnapshot.game_date,
-            PlayerSnapshot.age,
-            PlayerSnapshot.ca,
-            PlayerSnapshot.pa,
-            PlayerSnapshot.market_value,
-            PlayerSnapshot.wage,
-            PlayerSnapshot.contract_end,
-            PlayerSnapshot.minutes_played,
-            PlayerSnapshot.appearances,
-            PlayerSnapshot.goals,
-            PlayerSnapshot.assists,
-            PlayerSnapshot.data_completeness,
-            PlayerSnapshot.source,
-        )
-        .join(newest, and_(newest.c.player_instance_id == PlayerInstance.id))
+    legacy = (
+        select(*_snapshot_columns())
+        .join(newest, newest.c.player_instance_id == PlayerInstance.id)
         .join(
             PlayerSnapshot,
             and_(
@@ -89,7 +107,9 @@ def latest_snapshot_subquery(instance_ids: list[int] | None = None):
             ),
         )
         .join(Player, Player.id == PlayerInstance.player_id)
-    ).subquery()
+        .where(PlayerInstance.latest_snapshot_id.is_(None))
+    )
+    return materialized.union_all(legacy).subquery()
 
 
 def filtered_players(save_id: int, filters: PlayerFilter) -> tuple[Select, Any]:
@@ -206,7 +226,12 @@ def player_profile(session: Session, instance_id: int) -> dict[str, object]:
 
 
 def latest_snapshot(session: Session, instance_id: int) -> PlayerSnapshot | None:
-    """Most recent snapshot of one instance."""
+    """Most recent snapshot of one instance, using the maintained reference when present."""
+    instance = session.get(PlayerInstance, instance_id)
+    if instance is not None and instance.latest_snapshot_id is not None:
+        snapshot = session.get(PlayerSnapshot, instance.latest_snapshot_id)
+        if snapshot is not None:
+            return snapshot
     return session.scalar(
         select(PlayerSnapshot)
         .where(PlayerSnapshot.player_instance_id == instance_id)
@@ -354,7 +379,15 @@ def development(session: Session, instance_id: int) -> dict[str, object]:
 
 
 def coverage_for_save(session: Session, save_id: int) -> dict[str, float]:
-    """Field coverage across all latest snapshots of a save."""
+    """Field coverage across all latest snapshots of a save (cached per save + data revision)."""
+    from ..services import query_cache
+
+    return query_cache.cached(
+        session, save_id, "coverage", None, lambda: _coverage_for_save(session, save_id)
+    )
+
+
+def _coverage_for_save(session: Session, save_id: int) -> dict[str, float]:
     base = latest_snapshot_subquery()
     row = session.execute(
         select(

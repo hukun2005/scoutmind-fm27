@@ -65,6 +65,15 @@ def _seed_existing_identity(database_url: str) -> None:
                 "values (1, 1, 1, 'EXIST-1', 0, '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
             )
         )
+        for snapshot_id, observed_at in ((1, "2026-01-01 10:00:00"), (2, "2026-02-01 10:00:00")):
+            connection.execute(
+                text(
+                    "insert into player_snapshots (id, player_instance_id, observed_at, imported_at, source, "
+                    "created_at, updated_at) "
+                    f"values ({snapshot_id}, 1, '{observed_at}', '2026-01-01 00:00:00', 'test', "
+                    "'2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+                )
+            )
     engine.dispose()
 
 
@@ -81,10 +90,17 @@ def test_upgrade_downgrade_upgrade_preserves_existing_data(tmp_path) -> None:
         assert connection.execute(text("select count(*) from players")).scalar_one() == 1
         assert connection.execute(text("select save_local_uid from player_instances")).scalar_one() == "EXIST-1"
         version = connection.execute(text("select version_num from alembic_version")).scalar_one()
-    assert version == "e2b5c8d1f3a7"
+    assert version == "b8f3d2a6c1e9"
     assert "data_repair_audits" in tables
     watch_columns = {column["name"] for column in inspect(engine).get_columns("watchlist_items")}
     assert "status" in watch_columns, "关注项缺少工作流状态列"
+    instance_columns = {column["name"] for column in inspect(engine).get_columns("player_instances")}
+    assert "latest_snapshot_id" in instance_columns, "缺少最新快照引用列"
+    with engine.connect() as connection:
+        latest = connection.execute(
+            text("select latest_snapshot_id from player_instances where id = 1")
+        ).scalar_one()
+    assert latest == 2, "迁移必须回填每个实例的最新快照"
     repair_uniques = {
         frozenset(row["column_names"])
         for row in inspect(engine).get_unique_constraints("data_repair_audits")
@@ -106,6 +122,10 @@ def test_upgrade_downgrade_upgrade_preserves_existing_data(tmp_path) -> None:
     assert "data_repair_audits" not in tables_after
     with engine.connect() as connection:
         assert connection.execute(text("select count(*) from players")).scalar_one() == 1
+        assert connection.execute(text("select count(*) from player_snapshots")).scalar_one() == 2
+    assert "latest_snapshot_id" not in {
+        column["name"] for column in inspect(engine).get_columns("player_instances")
+    }
     engine.dispose()
 
     _alembic(database_url, "upgrade", "head")

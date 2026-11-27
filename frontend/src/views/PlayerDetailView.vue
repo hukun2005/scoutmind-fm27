@@ -47,6 +47,7 @@ import type { TableColumn } from '../types/table'
 import { useCompareStore } from '../stores/compare'
 import { useSessionStore } from '../stores/session'
 import { buildAppearanceChart, buildGrowthChart, buildRadarChart } from '../utils/chart'
+import { rememberRecent } from '../utils/recent'
 import {
   EMPTY,
   displayText,
@@ -320,6 +321,14 @@ async function loadCore(id: number, token: number = activeToken): Promise<void> 
         if (token !== activeToken) return
         detail.value = next
         session.markSources([next.summary.source])
+        rememberRecent({
+          entity_type: 'player',
+          entity_id: next.summary.instance_id,
+          display_name: next.summary.name,
+          subtitle: [next.summary.position, next.summary.club].filter(Boolean).join(' · '),
+          navigation_target: `/players/${next.summary.instance_id}`,
+          save_id: session.activeSaveId,
+        })
       } catch (caught) {
         if (token !== activeToken) return
         detailError.value = asApiError(caught)

@@ -207,6 +207,9 @@ class PlayerInstance(TimestampMixin, Base):
     club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"), index=True)
     position: Mapped[str | None] = mapped_column(String(16))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # 最新快照引用（V3.3.2）：导入时维护，避免每次列表都聚合全部历史快照。
+    # 普通整数而不是外键：player_snapshots 已外键指向本表，再建反向外键会形成循环约束。
+    latest_snapshot_id: Mapped[int | None] = mapped_column(Integer, index=True)
 
     player: Mapped[Player] = relationship(back_populates="instances")
 

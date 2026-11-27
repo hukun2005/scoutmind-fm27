@@ -1,0 +1,30 @@
+{
+  "label": "after-slot",
+  "database": "sqlite:///C:/Users/hukun/Desktop/FM27-realdata/v332_after.db",
+  "save_id": 2,
+  "instance_id": 93,
+  "cache": "off",
+  "results": {
+    "players_page1": {
+      "median_ms": 184.8
+    },
+    "players_search": {
+      "median_ms": 197.0
+    },
+    "player_profile": {
+      "median_ms": 2.1
+    },
+    "coverage": {
+      "median_ms": 68.6
+    },
+    "squad_overview": {
+      "median_ms": 335.5
+    },
+    "recruitment_page1": {
+      "median_ms": 19680.4
+    },
+    "recruitment_slot_st": {
+      "median_ms": 3992.1
+    }
+  }
+}

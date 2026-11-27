@@ -9,10 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..agents import director as director_service
 from ..agents import service as agent_service
 from ..db import get_db
 from ..models import AgentConversation, AgentMessage, AiReport, FmSave
-from ..schemas import AskRequest, ConversationCreate
+from ..schemas import AskRequest, ConversationCreate, DirectorAskRequest
 from ..utils import iso
 from .deps import get_active_save, get_current_user
 
@@ -201,6 +202,37 @@ def delete_conversation(
     db.query(AiReport).filter(AiReport.conversation_id == conversation.id).update({AiReport.conversation_id: None})
     db.delete(conversation)
     db.commit()
+
+
+@router.get("/agent/director/context", summary="AI 足球总监：当前存档上下文")
+def director_context(
+    save_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    """当前俱乐部、数据更新时间、完整度与各模块规模；缺失项以 data_gaps 说明。
+
+    ``save_id`` 只作为查询参数用于切换存档，必须属于当前用户；请求体不接受存档字段。
+    """
+    target = _owned_save(db, save_id, user) if save_id is not None else save
+    return director_service.context(db, target.id)
+
+
+@router.post("/agent/director/ask", summary="AI 足球总监：结构化分析")
+def director_ask(
+    body: DirectorAskRequest,
+    save_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    """用本地真实数据回答阵容、引援、培养、出售与关注问题；不写回任何游戏数据。"""
+    target = _owned_save(db, save_id, user) if save_id is not None else save
+    try:
+        return director_service.answer(db, target.id, body.question, instance_id=body.instance_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"code": "director_error", "message": str(exc)}) from exc
 
 
 @router.get("/agent/reports")

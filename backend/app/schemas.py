@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SaveCreate(BaseModel):
@@ -92,6 +92,19 @@ class AskRequest(BaseModel):
 
     question: str = Field(min_length=2, max_length=2000)
     save_id: int | None = None
+    instance_id: int | None = None
+    club_id: int | None = None
+
+
+class DirectorAskRequest(BaseModel):
+    """Ask the AI football director one question.
+
+    存档由服务端从当前会话注入；请求体故意不接受 ``save_id``，避免调用方指定其他存档。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=2, max_length=500)
     instance_id: int | None = None
     club_id: int | None = None
 

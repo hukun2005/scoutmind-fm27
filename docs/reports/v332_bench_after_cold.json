@@ -1,0 +1,27 @@
+{
+  "label": "after-cold",
+  "database": "sqlite:///C:/Users/hukun/Desktop/FM27-realdata/v332_after.db",
+  "save_id": 2,
+  "instance_id": 93,
+  "cache": "off",
+  "results": {
+    "players_page1": {
+      "median_ms": 187.9
+    },
+    "players_search": {
+      "median_ms": 200.5
+    },
+    "player_profile": {
+      "median_ms": 2.0
+    },
+    "coverage": {
+      "median_ms": 68.3
+    },
+    "squad_overview": {
+      "median_ms": 333.5
+    },
+    "recruitment_page1": {
+      "median_ms": 19462.9
+    }
+  }
+}

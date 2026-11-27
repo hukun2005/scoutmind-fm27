@@ -249,6 +249,8 @@ class ScanImporter:
             if previous is not None:
                 return self._replay(previous, raw, operation_id, matched_by="operation")
 
+        # 每次导入重新读取每个实例的最新快照观测时间，避免复用上一次导入的缓存。
+        self._latest_observed = {}
         try:
             job = self._begin_job(
                 save_id,
@@ -854,6 +856,9 @@ class ScanImporter:
         )
         if exists is not None:
             outcome.snapshots_skipped += 1
+            # 旧库/直接写入的快照可能还没有引用：重复导入时补上，但不覆盖已有引用。
+            if instance.latest_snapshot_id is None:
+                instance.latest_snapshot_id = exists
             return
         known = {key: value for key, value in record.attributes.items() if key in ATTRIBUTE_KEYS}
         unknown = sorted(set(record.attributes) - ATTRIBUTE_KEYS)
@@ -888,6 +893,28 @@ class ScanImporter:
         )
         self.session.add(snapshot)
         self.session.flush()
+        # 只有不早于现有最新快照的观测时间时才更新引用；历史回补不会覆盖新数据。
+        # last_seen_at 是导入时间戳，不能用来比较快照新旧，因此这里读一次真实的最新观测时间并缓存。
+        cache = getattr(self, "_latest_observed", None)
+        if cache is None:
+            cache = {}
+            self._latest_observed = cache
+        current_observed = cache.get(instance.id, "unset")
+        if current_observed == "unset":
+            current_observed = (
+                self.session.scalar(
+                    select(PlayerSnapshot.observed_at).where(
+                        PlayerSnapshot.id == instance.latest_snapshot_id
+                    )
+                )
+                if instance.latest_snapshot_id is not None
+                else None
+            )
+        if current_observed is None or observed_at >= current_observed:
+            instance.latest_snapshot_id = snapshot.id
+            cache[instance.id] = observed_at
+        else:
+            cache.setdefault(instance.id, current_observed)
         for key, value in known.items():
             self.session.add(
                 PlayerAttributeValue(

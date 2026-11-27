@@ -27,6 +27,9 @@ SessionFactory = sessionmaker(bind=ENGINE, expire_on_commit=False)
 @pytest.fixture()
 def db() -> Session:
     """A session bound to a freshly recreated test database."""
+    from app.services import query_cache
+
+    query_cache.clear()
     Base.metadata.drop_all(ENGINE)
     Base.metadata.create_all(ENGINE)
     session = SessionFactory()

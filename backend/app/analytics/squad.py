@@ -311,7 +311,30 @@ def squad_overview(
     overrides: dict[str, float] | None = None,
     club_id: int | None = None,
 ) -> dict[str, object]:
-    """Everything the squad screen shows: components, weighted score, depth, age, wage, contracts and planning."""
+    """Everything the squad screen shows: components, weighted score, depth, age, wage, contracts and planning.
+
+    V3.3.2：整份统计按 ``(save_id, data_revision, profile, overrides, club_id)`` 缓存 60 秒；
+    导入或战术模板变化会改变数据版本，立即失效。
+    """
+    from ..services import query_cache
+
+    params = {"profile": profile_key, "overrides": overrides or {}, "club": club_id}
+    return query_cache.cached(
+        session,
+        save_id,
+        "squad_overview",
+        params,
+        lambda: _squad_overview(session, save_id, profile_key, overrides, club_id),
+    )
+
+
+def _squad_overview(
+    session: Session,
+    save_id: int,
+    profile_key: str | None = None,
+    overrides: dict[str, float] | None = None,
+    club_id: int | None = None,
+) -> dict[str, object]:
     club = session.get(Club, club_id) if club_id is not None else user_club(session, save_id)
     if club is None:
         return {

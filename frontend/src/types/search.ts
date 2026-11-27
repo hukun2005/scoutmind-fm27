@@ -1,8 +1,8 @@
 /** 全局搜索（`GET /search`）的类型。 */
 
-export type SearchEntityType = 'player' | 'club' | 'transfer'
+export type SearchEntityType = 'player' | 'club' | 'transfer' | 'watchlist'
 
-export type SearchType = 'all' | 'players' | 'clubs' | 'transfers'
+export type SearchType = 'all' | 'players' | 'clubs' | 'transfers' | 'watchlist'
 
 /** 统一搜索结果；`meta` 字段按实体类型不同。 */
 export interface SearchResultItem {
@@ -22,6 +22,7 @@ export interface SearchResponse {
     players: SearchResultItem[]
     clubs: SearchResultItem[]
     transfers: SearchResultItem[]
+    watchlist: SearchResultItem[]
   }
   total: number
   limits: { per_category: number }
