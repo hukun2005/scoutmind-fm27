@@ -90,7 +90,15 @@ def test_upgrade_downgrade_upgrade_preserves_existing_data(tmp_path) -> None:
         assert connection.execute(text("select count(*) from players")).scalar_one() == 1
         assert connection.execute(text("select save_local_uid from player_instances")).scalar_one() == "EXIST-1"
         version = connection.execute(text("select version_num from alembic_version")).scalar_one()
-    assert version == "e7c2b9a41f60"
+    assert version == "a9f2c6d31b84"
+    assert {"background_tasks"} <= tables
+    instance_columns = {column["name"] for column in inspect(engine).get_columns("player_instances")}
+    assert {"club_link_source", "club_linked_at"} <= instance_columns
+    snapshot_columns = {column["name"] for column in inspect(engine).get_columns("player_snapshots")}
+    assert "club_uid" in snapshot_columns
+    assert "scan_token" in {
+        column["name"] for column in inspect(engine).get_columns("transfer_opportunities")
+    }
     assert {"transfer_offers", "transfer_negotiations", "negotiation_events", "transfer_status_history"} <= tables
     assert {"transfer_opportunities", "transfer_opportunity_events"} <= tables
     offer_columns = {column["name"] for column in inspect(engine).get_columns("transfer_offers")}
