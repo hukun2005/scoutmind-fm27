@@ -1528,7 +1528,7 @@ void loadRoles()
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-xl);
   background:
-    linear-gradient(120deg, rgba(53, 106, 230, 0.06) 0%, rgba(255, 255, 255, 0.96) 50%, rgba(124, 107, 214, 0.05) 100%),
+    linear-gradient(120deg, rgba(49, 95, 206, 0.06) 0%, rgba(255, 255, 255, 0.96) 50%, rgba(49, 95, 206, 0.05) 100%),
     var(--sm-surface);
   box-shadow: var(--sm-shadow-1);
 }
@@ -1540,7 +1540,7 @@ void loadRoles()
   width: 340px;
   height: 280px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(124, 107, 214, 0.12), transparent 70%);
+  background: radial-gradient(circle, rgba(49, 95, 206, 0.12), transparent 70%);
   filter: blur(4px);
   pointer-events: none;
 }
@@ -1831,7 +1831,7 @@ void loadRoles()
 }
 
 .chip--good {
-  border-color: rgba(53, 201, 138, 0.35);
+  border-color: rgba(22, 134, 91, 0.35);
   background: var(--sm-success-weak);
   color: var(--sm-success);
 }

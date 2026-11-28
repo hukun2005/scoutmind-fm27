@@ -89,40 +89,40 @@ const category = computed(() => definition.value?.category ?? 'business')
   text-overflow: ellipsis;
 }
 
-/* Premium Light 表面：低饱和底色 + 深色文字 */
+/* Premium Light 表面：低饱和底色 + 深色文字（V4.1 令牌） */
 .app-tag--on-light.app-tag--success {
-  background: #ecfdf3;
-  border-color: #bbf7d0;
-  color: #15803d;
+  background: var(--sm-success-weak);
+  border-color: rgba(22, 134, 91, 0.24);
+  color: var(--sm-status-success);
 }
 
 .app-tag--on-light.app-tag--info {
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  color: #1d4ed8;
+  background: var(--sm-accent-weak);
+  border-color: rgba(49, 95, 206, 0.22);
+  color: var(--sm-accent-blue);
 }
 
 .app-tag--on-light.app-tag--warning {
-  background: #fffbeb;
-  border-color: #fde68a;
-  color: #b45309;
+  background: var(--sm-warn-weak);
+  border-color: rgba(183, 121, 31, 0.24);
+  color: var(--sm-status-warning);
 }
 
 .app-tag--on-light.app-tag--danger {
-  background: #fef2f2;
-  border-color: #fecaca;
-  color: #b91c1c;
+  background: var(--sm-danger-weak);
+  border-color: rgba(194, 65, 75, 0.24);
+  color: var(--sm-status-danger);
 }
 
 .app-tag--on-light.app-tag--neutral {
-  background: #f1f5f9;
-  border-color: #e2e8f0;
-  color: #475569;
+  background: var(--sm-surface-2);
+  border-color: var(--sm-border-subtle);
+  color: var(--sm-text-2);
 }
 
 .app-tag--on-light.app-tag--brand {
-  background: #eef2ff;
-  border-color: #c7d2fe;
-  color: #3730a3;
+  background: #eaf1ff;
+  border-color: rgba(49, 95, 206, 0.22);
+  color: #2a52b4;
 }
 </style>

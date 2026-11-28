@@ -27,11 +27,11 @@ const props = withDefaults(
 const S_PATH = 'M174 64H108A34 34 0 0 0 108 132H148A34 34 0 0 1 148 200H82'
 
 const stroke = computed(() => {
-  if (props.variant === 'light') return '#1E3A8A'
-  if (props.variant === 'mono') return '#172334'
+  if (props.variant === 'light') return '#315FCE'
+  if (props.variant === 'mono') return '#172033'
   return '#FFFFFF'
 })
-const node = computed(() => (props.variant === 'mono' ? null : '#22D3EE'))
+const node = computed(() => (props.variant === 'mono' ? null : '#8FAEF0'))
 const tiled = computed(() => props.variant === 'app')
 </script>
 

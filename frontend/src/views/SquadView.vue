@@ -1003,7 +1003,7 @@ onMounted(async () => {
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-xl);
   background:
-    linear-gradient(120deg, rgba(53, 106, 230, 0.06) 0%, rgba(255, 255, 255, 0.96) 48%, rgba(124, 107, 214, 0.05) 100%),
+    linear-gradient(120deg, rgba(49, 95, 206, 0.06) 0%, rgba(255, 255, 255, 0.96) 48%, rgba(49, 95, 206, 0.05) 100%),
     var(--sm-surface);
   box-shadow: var(--sm-shadow-1);
 }
@@ -1015,7 +1015,7 @@ onMounted(async () => {
   width: 380px;
   height: 300px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(53, 106, 230, 0.12), transparent 70%);
+  background: radial-gradient(circle, rgba(49, 95, 206, 0.12), transparent 70%);
   filter: blur(4px);
   pointer-events: none;
 }
@@ -1121,10 +1121,10 @@ onMounted(async () => {
   border-radius: 50%;
   background: conic-gradient(
     from -90deg,
-    #22d3ee 0deg,
-    #4d8dff calc(var(--score) * 1.8deg),
-    #a78bfa calc(var(--score) * 3.6deg),
-    rgba(122, 162, 220, 0.14) calc(var(--score) * 3.6deg) 360deg
+    #315fce 0deg,
+    #5b84e0 calc(var(--score) * 1.8deg),
+    #8aa5e6 calc(var(--score) * 3.6deg),
+    rgba(100, 116, 139, 0.12) calc(var(--score) * 3.6deg) 360deg
   );
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 12px), #000 calc(100% - 11px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 12px), #000 calc(100% - 11px));
@@ -1616,7 +1616,7 @@ onMounted(async () => {
 .age-row__bar {
   height: 100%;
   border-radius: 4px;
-  background: linear-gradient(90deg, #356ae6, #7c6bd6);
+  background: var(--sm-gradient-accent);
 }
 
 .age-row__ideal {

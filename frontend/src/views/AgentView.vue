@@ -843,7 +843,7 @@ onMounted(() => {
   min-height: 0;
   padding: var(--sm-space-4);
   overflow-y: auto;
-  background: radial-gradient(720px 260px at 12% 0%, rgba(53, 106, 230, 0.04), transparent 72%);
+  background: radial-gradient(720px 260px at 12% 0%, rgba(49, 95, 206, 0.04), transparent 72%);
 }
 
 /* ---------- 消息 ---------- */
@@ -886,7 +886,7 @@ onMounted(() => {
 
 .message--assistant .message__role::before {
   background: var(--sm-accent-blue);
-  box-shadow: 0 0 0 3px rgba(53, 106, 230, 0.14);
+  box-shadow: 0 0 0 3px rgba(49, 95, 206, 0.14);
 }
 
 .message__time {
@@ -963,10 +963,10 @@ onMounted(() => {
   max-width: 96ch;
   padding: var(--sm-space-3) var(--sm-space-4) var(--sm-space-4);
   border: 1px solid var(--sm-border);
-  border-left: 2px solid rgba(53, 106, 230, 0.4);
+  border-left: 2px solid rgba(49, 95, 206, 0.4);
   border-radius: var(--sm-radius-lg);
   background:
-    linear-gradient(150deg, rgba(53, 106, 230, 0.05) 0%, rgba(124, 107, 214, 0.03) 42%, transparent 72%),
+    linear-gradient(150deg, rgba(49, 95, 206, 0.05) 0%, rgba(49, 95, 206, 0.03) 42%, transparent 72%),
     var(--sm-surface-2);
 }
 

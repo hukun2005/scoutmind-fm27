@@ -57,7 +57,7 @@ const growthOption = computed<EChartsOption | null>(() => {
       type: 'category',
       data: labels,
       axisLabel: { color: '#64748b', fontSize: 11 },
-      axisLine: { lineStyle: { color: '#e2e8f0' } },
+      axisLine: { lineStyle: { color: '#e5eaf1' } },
       axisTick: { show: false },
     },
     yAxis: {
@@ -301,10 +301,10 @@ onMounted(() => void loadBoard())
 .dev__advice li {
   padding: var(--sm-space-2) var(--sm-space-3);
   border: 1px solid var(--sm-border);
-  border-left: 2px solid rgba(53, 106, 230, 0.3);
+  border-left: 2px solid rgba(49, 95, 206, 0.3);
   border-radius: var(--sm-radius-md);
   background:
-    linear-gradient(140deg, rgba(53, 106, 230, 0.05), transparent 60%),
+    linear-gradient(140deg, rgba(49, 95, 206, 0.05), transparent 60%),
     var(--sm-surface-2);
 }
 

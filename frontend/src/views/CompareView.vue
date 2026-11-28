@@ -720,7 +720,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   padding: 4px 6px 4px 10px;
-  border: 1px solid rgba(53, 106, 230, 0.24);
+  border: 1px solid rgba(49, 95, 206, 0.24);
   border-radius: var(--sm-radius-pill);
   background: var(--sm-accent-weak);
   font-size: var(--sm-fs-xs);
@@ -732,7 +732,7 @@ onBeforeUnmount(() => {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: rgba(53, 106, 230, 0.16);
+  background: rgba(49, 95, 206, 0.16);
   color: var(--sm-accent-blue);
   font-size: 9px;
 }

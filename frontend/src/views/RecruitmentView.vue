@@ -891,7 +891,7 @@ onMounted(() => {
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
   background:
-    radial-gradient(520px 220px at 50% 0%, rgba(53, 106, 230, 0.05), transparent 70%),
+    radial-gradient(520px 220px at 50% 0%, rgba(49, 95, 206, 0.05), transparent 70%),
     var(--sm-surface-2);
 }
 

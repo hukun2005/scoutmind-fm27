@@ -86,23 +86,23 @@ const band = computed(() => {
   flex: 1 1 auto;
   height: 5px;
   border-radius: 2px;
-  background: #e7ecf2;
+  background: var(--sm-border-subtle);
 }
 
 .attr-bar--elite .attr-bar__segment--on {
-  background: linear-gradient(90deg, #16a36a, #34c58b);
+  background: linear-gradient(90deg, #16865b, #3aa87a);
 }
 
 .attr-bar--good .attr-bar__segment--on {
-  background: linear-gradient(90deg, #356ae6, #5b8def);
+  background: linear-gradient(90deg, #315fce, #5b84e0);
 }
 
 .attr-bar--average .attr-bar__segment--on {
-  background: linear-gradient(90deg, #d99124, #e6ad4d);
+  background: linear-gradient(90deg, #b7791f, #cc9a57);
 }
 
 .attr-bar--weak .attr-bar__segment--on {
-  background: linear-gradient(90deg, #dc5b5b, #e88a8a);
+  background: linear-gradient(90deg, #c2414b, #d47b82);
 }
 
 .attr-bar--absent .attr-bar__segments {

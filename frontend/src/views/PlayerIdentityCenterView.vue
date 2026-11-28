@@ -491,7 +491,7 @@ onMounted(() => {
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
   background:
-    linear-gradient(120deg, rgba(53, 106, 230, 0.05), rgba(124, 107, 214, 0.04)),
+    linear-gradient(120deg, rgba(49, 95, 206, 0.05), rgba(49, 95, 206, 0.04)),
     var(--sm-surface-2);
 }
 
@@ -549,27 +549,27 @@ onMounted(() => {
 }
 
 .idc-status--ok {
-  border-color: #bbf7d0;
-  background: #ecfdf3;
-  color: #15803d;
+  border-color: rgba(22, 134, 91, 0.24);
+  background: var(--sm-success-weak);
+  color: var(--sm-status-success);
 }
 
 .idc-status--warn {
-  border-color: #fde68a;
-  background: #fffbeb;
-  color: #b45309;
+  border-color: rgba(183, 121, 31, 0.24);
+  background: var(--sm-warn-weak);
+  color: var(--sm-status-warning);
 }
 
 .idc-status--danger {
-  border-color: #fecaca;
-  background: #fef2f2;
-  color: #b91c1c;
+  border-color: rgba(194, 65, 75, 0.24);
+  background: var(--sm-danger-weak);
+  color: var(--sm-status-danger);
 }
 
 .idc-status--info {
-  border-color: #c7d2fe;
-  background: #eef2ff;
-  color: #1d4ed8;
+  border-color: rgba(49, 95, 206, 0.22);
+  background: #eaf1ff;
+  color: var(--sm-accent-blue);
 }
 
 .idc-status--muted {

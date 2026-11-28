@@ -518,7 +518,7 @@ onMounted(() => {
 
 .director-gaps__item {
   margin: 2px 0;
-  color: var(--sm-warning, #f0b429);
+  color: var(--sm-warn, #b7791f);
   font-size: var(--sm-fs-2xs);
   line-height: 1.5;
 }
@@ -601,7 +601,7 @@ onMounted(() => {
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-lg);
   background:
-    radial-gradient(420px 160px at 100% 0%, rgba(53, 106, 230, 0.05), transparent 70%),
+    radial-gradient(420px 160px at 100% 0%, rgba(49, 95, 206, 0.05), transparent 70%),
     var(--sm-surface);
 }
 
@@ -614,7 +614,7 @@ onMounted(() => {
 
 .director-answer__tag {
   padding: 3px 9px;
-  border: 1px solid rgba(53, 106, 230, 0.24);
+  border: 1px solid rgba(49, 95, 206, 0.24);
   border-radius: var(--sm-radius-pill);
   background: var(--sm-accent-weak);
   color: var(--sm-accent-blue);
@@ -647,11 +647,11 @@ onMounted(() => {
 }
 
 .director-section--computed {
-  border-left: 3px solid #7c8cff;
+  border-left: 3px solid var(--sm-accent-blue);
 }
 
 .director-section--inference {
-  border-left: 3px solid var(--sm-warning, #f0b429);
+  border-left: 3px solid var(--sm-warn, #b7791f);
 }
 
 .director-section--unavailable {

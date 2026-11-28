@@ -78,25 +78,25 @@ const partialCoverage = computed(
 }
 
 .score-badge--high .score-badge__value {
-  border-color: rgba(52, 211, 153, 0.32);
+  border-color: rgba(22, 134, 91, 0.28);
   background: var(--sm-success-weak);
-  color: #6ee7b7;
+  color: var(--sm-status-success);
 }
 
 .score-badge--good .score-badge__value {
-  border-color: rgba(77, 141, 255, 0.32);
+  border-color: rgba(49, 95, 206, 0.26);
   background: var(--sm-accent-weak);
-  color: #93c5fd;
+  color: var(--sm-accent-blue);
 }
 
 .score-badge--mid .score-badge__value {
-  border-color: rgba(245, 181, 68, 0.32);
+  border-color: rgba(183, 121, 31, 0.28);
   background: var(--sm-warn-weak);
-  color: #fcd34d;
+  color: var(--sm-status-warning);
 }
 
 .score-badge--low .score-badge__value {
-  border-color: rgba(122, 162, 220, 0.22);
+  border-color: var(--sm-border-subtle);
   background: var(--sm-neutral-weak);
   color: var(--sm-neutral);
 }
