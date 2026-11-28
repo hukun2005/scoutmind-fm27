@@ -16,6 +16,7 @@ let tray = null;
 let backend = null;
 let backendPort = 0;
 let quitting = false;
+let backendReady = false;
 let origin = '';
 
 function resourcesRoot() {
@@ -80,35 +81,50 @@ async function startBackend() {
   fs.mkdirSync(path.join(dataDirectory(), 'raw'), { recursive: true });
   fs.mkdirSync(logsDirectory(), { recursive: true });
 
-  backendPort = await freePort();
-  const logStream = fs.createWriteStream(path.join(logsDirectory(), 'backend.log'), { flags: 'a' });
-  backend = spawn(exe, ['--headless', '--watch-stdin', '--port', String(backendPort)], {
-    cwd: path.dirname(exe),
-    windowsHide: true,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
-      SCOUTMIND_DATA_DIR: dataDirectory(),
-      SCOUTMIND_DATABASE_URL: `sqlite:///${path.join(dataDirectory(), 'scoutmind.db').replace(/\\/g, '/')}`,
-      SCOUTMIND_FRONTEND_DIST: frontendDist(),
-    },
-  });
-  backend.stdout.pipe(logStream);
-  backend.stderr.pipe(logStream);
-  backend.on('exit', (code) => {
-    backend = null;
-    if (!quitting && mainWindow) {
-      dialog.showErrorBox(PRODUCT, `本地服务意外退出（代码 ${code}）。\n日志：${path.join(logsDirectory(), 'backend.log')}`);
-    }
-  });
+  const logPath = path.join(logsDirectory(), 'backend.log');
+  const attempts = 3;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    backendPort = await freePort();
+    const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+    const child = spawn(exe, ['--headless', '--watch-stdin', '--port', String(backendPort)], {
+      cwd: path.dirname(exe),
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        SCOUTMIND_DATA_DIR: dataDirectory(),
+        SCOUTMIND_DATABASE_URL: `sqlite:///${path.join(dataDirectory(), 'scoutmind.db').replace(/\\/g, '/')}`,
+        SCOUTMIND_FRONTEND_DIST: frontendDist(),
+      },
+    });
+    backend = child;
+    child.stdout.pipe(logStream);
+    child.stderr.pipe(logStream);
+    child.on('exit', (code) => {
+      if (backend === child) backend = null;
+      if (!quitting && backendReady && mainWindow) {
+        dialog.showErrorBox(PRODUCT, `本地服务意外退出（代码 ${code}）。\n日志：${logPath}`);
+      }
+    });
 
-  const healthy = await waitForHealth(backendPort);
-  if (!healthy) {
-    throw new Error(`本地服务启动超时。\n日志：${path.join(logsDirectory(), 'backend.log')}`);
+    if (await waitForHealth(backendPort)) {
+      backendReady = true;
+      origin = `http://127.0.0.1:${backendPort}`;
+      writeRuntimeInfo({ port: backendPort, pid: child.pid, startedAt: new Date().toISOString() });
+      return origin;
+    }
+
+    // 端口可能落在 Windows 保留段（WinError 10013）或启动前被占用：换端口重试。
+    try {
+      child.kill();
+    } catch {
+      // 进程已退出时忽略
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    logStream.end();
   }
-  origin = `http://127.0.0.1:${backendPort}`;
-  writeRuntimeInfo({ port: backendPort, pid: backend.pid, startedAt: new Date().toISOString() });
-  return origin;
+
+  throw new Error(`本地服务启动超时。\n日志：${logPath}`);
 }
 
 function stopBackend() {
@@ -149,7 +165,7 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 700,
     show: false,
-    backgroundColor: '#050a13',
+    backgroundColor: '#F5F7FA',
     title: PRODUCT,
     icon: isDev
       ? path.join(__dirname, '..', 'build', 'icon.ico')
