@@ -80,12 +80,26 @@ def latest_snapshot_subquery(instance_ids: list[int] | None = None):
 
     ``instance_ids`` 可把范围限制在一小批实例（例如关注名单）。
     """
-    materialized = (
+    return _modern_snapshot_select(instance_ids).union_all(
+        _legacy_snapshot_select(instance_ids)
+    ).subquery()
+
+
+def _modern_snapshot_select(instance_ids: list[int] | None = None):
+    """引用 ``latest_snapshot_id`` 的快照（生产数据的常态，主键 JOIN）。"""
+    query = (
         select(*_snapshot_columns())
         .join(PlayerSnapshot, PlayerSnapshot.id == PlayerInstance.latest_snapshot_id)
         .join(Player, Player.id == PlayerInstance.player_id)
         .where(PlayerInstance.latest_snapshot_id.is_not(None))
     )
+    if instance_ids is not None:
+        query = query.where(PlayerInstance.id.in_(instance_ids))
+    return query
+
+
+def _legacy_snapshot_select(instance_ids: list[int] | None = None):
+    """引用为空的历史行：按实例聚合最新快照（旧库/测试直接写入的数据）。"""
     legacy_ids = select(PlayerInstance.id).where(PlayerInstance.latest_snapshot_id.is_(None))
     newest_stmt = (
         select(PlayerSnapshot.player_instance_id, func.max(PlayerSnapshot.observed_at).label("observed_at"))
@@ -93,10 +107,9 @@ def latest_snapshot_subquery(instance_ids: list[int] | None = None):
         .group_by(PlayerSnapshot.player_instance_id)
     )
     if instance_ids is not None:
-        materialized = materialized.where(PlayerInstance.id.in_(instance_ids))
         newest_stmt = newest_stmt.where(PlayerSnapshot.player_instance_id.in_(instance_ids))
     newest = newest_stmt.subquery()
-    legacy = (
+    return (
         select(*_snapshot_columns())
         .join(newest, newest.c.player_instance_id == PlayerInstance.id)
         .join(
@@ -109,18 +122,17 @@ def latest_snapshot_subquery(instance_ids: list[int] | None = None):
         .join(Player, Player.id == PlayerInstance.player_id)
         .where(PlayerInstance.latest_snapshot_id.is_(None))
     )
-    return materialized.union_all(legacy).subquery()
 
 
-def filtered_players(save_id: int, filters: PlayerFilter) -> tuple[Select, Any]:
-    """Base select over the latest snapshot per instance with every filter applied."""
-    base = latest_snapshot_subquery()
-    query = select(base).where(base.c.fm_save_id == save_id)
+def _apply_player_filters(query: Select, base: Any, filters: PlayerFilter, save_id: int) -> Select:
+    """把球员筛选条件套到任意最新快照子查询上（列表、计数共用，避免两套口径）。"""
     if filters.query:
         query = query.where(base.c.full_name.like(f"%{filters.query.strip()}%"))
     if filters.position:
         query = query.where(base.c.position == filters.position)
     if filters.position_group:
+        # 保持 V3.3.2 的既有筛选语义（不含 STC）；这是与行内 position_group 展示口径无关的
+        # 历史行为，本性能任务不改变筛选结果。
         codes = [
             code
             for code, group in {
@@ -164,7 +176,17 @@ def filtered_players(save_id: int, filters: PlayerFilter) -> tuple[Select, Any]:
                 .where(Watchlist.fm_save_id == save_id)
             )
         )
-    return query, base
+    return query
+
+
+def filtered_players(save_id: int, filters: PlayerFilter) -> tuple[Select, Any]:
+    """Base select over the latest snapshot per instance with every filter applied."""
+    base = latest_snapshot_subquery()
+    query = select(base).where(base.c.fm_save_id == save_id)
+    return _apply_player_filters(query, base, filters, save_id), base
+
+
+
 
 
 def list_players(
@@ -172,11 +194,11 @@ def list_players(
 ) -> dict[str, object]:
     """Paginated player summaries plus field coverage for the filtered population."""
     query, base = filtered_players(save_id, filters)
-    count_query = select(func.count()).select_from(query.subquery())
-    total = int(session.scalar(count_query) or 0)
+    total = int(session.scalar(select(func.count()).select_from(query.subquery())) or 0)
     ordering = _ordering(filters.sort, base)
     rows = session.execute(query.order_by(ordering).limit(limit).offset(offset)).all()
-    clubs = _club_map(session, save_id)
+    # 只加载当前页引用到的俱乐部：大存档可能有数千家俱乐部，加载量与页大小无关。
+    clubs = _clubs_by_ids(session, (row.club_id for row in rows))
     watched = _watched_ids(session, save_id)
     items = [_row_summary(row, clubs, watched) for row in rows]
     return {"items": items, "total": total, "coverage": _coverage(session, save_id, filters)}
@@ -193,7 +215,7 @@ def player_profile(session: Session, instance_id: int) -> dict[str, object]:
     if instance is None:
         raise ValueError("player instance not found")
     snapshot = latest_snapshot(session, instance_id)
-    clubs = _club_map(session, instance.fm_save_id)
+    clubs = _clubs_by_ids(session, (instance.club_id,))
     summary = _snapshot_summary(instance, snapshot, clubs, _watched_ids(session, instance.fm_save_id))
     attributes = (
         _attribute_rows(session, snapshot.id) if snapshot is not None else []
@@ -503,8 +525,12 @@ def _attribute_rows(session: Session, snapshot_id: int) -> list[dict[str, object
     ]
 
 
-def _club_map(session: Session, save_id: int) -> dict[int, Club]:
-    return {club.id: club for club in session.scalars(select(Club).where(Club.fm_save_id == save_id))}
+def _clubs_by_ids(session: Session, club_ids) -> dict[int, Club]:
+    """按主键加载少量俱乐部（当前页/单个球员），避免整存档全量加载。"""
+    ids = sorted({club_id for club_id in club_ids if club_id})
+    if not ids:
+        return {}
+    return {club.id: club for club in session.scalars(select(Club).where(Club.id.in_(ids)))}
 
 
 def _watched_ids(session: Session, save_id: int) -> set[int]:

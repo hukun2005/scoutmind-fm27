@@ -31,6 +31,14 @@ def _tables(url: str) -> set[str]:
         engine.dispose()
 
 
+def _indexes(url: str, table: str) -> set[str]:
+    engine = create_engine(url)
+    try:
+        return {index["name"] for index in inspect(engine).get_indexes(table)}
+    finally:
+        engine.dispose()
+
+
 def test_agent_runtime_tables_upgrade_downgrade_upgrade(monkeypatch, tmp_path) -> None:
     config, url = _config(monkeypatch, tmp_path)
 
@@ -39,6 +47,8 @@ def test_agent_runtime_tables_upgrade_downgrade_upgrade(monkeypatch, tmp_path) -
     assert NEW_TABLES <= tables
     assert "alembic_version" in tables
 
+    # 先撤销 V3.3.3-02 新增索引，再撤销 V3.3.3-01 的三张表。
+    command.downgrade(config, "b8e4d1c7f2a9")
     command.downgrade(config, "-1")
     tables = _tables(url)
     assert not (NEW_TABLES & tables)
@@ -48,3 +58,5 @@ def test_agent_runtime_tables_upgrade_downgrade_upgrade(monkeypatch, tmp_path) -
 
     command.upgrade(config, "head")
     assert NEW_TABLES <= _tables(url)
+    assert "ix_transfer_save_status_date" in _indexes(url, "transfer_history")
+    assert "ix_agent_tasks_save_user_created" in _indexes(url, "agent_tasks")

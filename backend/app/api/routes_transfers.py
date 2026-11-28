@@ -108,10 +108,16 @@ def list_transfers(
         min_ca, max_ca,
     )
     target_save = save_id or save.id
-    # 分页在 SQL 层完成（没有位置筛选时是真正的 LIMIT/OFFSET），总数与覆盖率都用全量筛选结果。
+    # 分页在 SQL 层完成（位置/联赛条件已下推），总数与覆盖率都用全量筛选结果。
     total = count_transfers(db, target_save, filters)
     rows = fetch_transfers(db, target_save, filters, limit=limit, offset=offset, sort=sort)
-    clubs = {club.id: club for club in db.scalars(select(Club).where(Club.fm_save_id == target_save))}
+    # 只加载当前页引用到的俱乐部：一个存档可能有数千家俱乐部，全量加载与页大小无关。
+    club_ids = {club_id for row in rows for club_id in (row.from_club_id, row.to_club_id) if club_id}
+    clubs = (
+        {club.id: club for club in db.scalars(select(Club).where(Club.id.in_(club_ids)))}
+        if club_ids
+        else {}
+    )
     items = [serialize_transfer(row, clubs) for row in rows]
     return {
         "items": items,
