@@ -518,7 +518,7 @@ onMounted(() => {
 
 .director-gaps__item {
   margin: 2px 0;
-  color: var(--sm-warning, #f0b429);
+  color: var(--sm-warn, #b7791f);
   font-size: var(--sm-fs-2xs);
   line-height: 1.5;
 }
@@ -533,7 +533,7 @@ onMounted(() => {
   padding: 7px 10px;
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-sm);
-  background: rgba(12, 23, 39, 0.55);
+  background: var(--sm-surface-2);
   color: var(--sm-text-2);
   font-size: var(--sm-fs-xs);
   text-align: left;
@@ -562,9 +562,9 @@ onMounted(() => {
   flex: 1 1 auto;
   min-height: 58px;
   padding: 10px 12px;
-  border: 1px solid var(--sm-border-strong);
+  border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
-  background: rgba(7, 14, 25, 0.75);
+  background: var(--sm-surface);
   color: var(--sm-text-primary);
   font-size: var(--sm-fs-sm);
   line-height: 1.55;
@@ -601,7 +601,7 @@ onMounted(() => {
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-lg);
   background:
-    radial-gradient(420px 160px at 100% 0%, rgba(34, 211, 238, 0.06), transparent 70%),
+    radial-gradient(420px 160px at 100% 0%, rgba(49, 95, 206, 0.05), transparent 70%),
     var(--sm-surface);
 }
 
@@ -614,10 +614,10 @@ onMounted(() => {
 
 .director-answer__tag {
   padding: 3px 9px;
-  border: 1px solid rgba(34, 211, 238, 0.32);
+  border: 1px solid rgba(49, 95, 206, 0.24);
   border-radius: var(--sm-radius-pill);
-  background: rgba(34, 211, 238, 0.1);
-  color: var(--sm-accent-cyan);
+  background: var(--sm-accent-weak);
+  color: var(--sm-accent-blue);
   font-size: var(--sm-fs-2xs);
 }
 
@@ -639,7 +639,7 @@ onMounted(() => {
   padding: var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
-  background: rgba(9, 18, 31, 0.55);
+  background: var(--sm-surface-2);
 }
 
 .director-section--fact {
@@ -647,11 +647,11 @@ onMounted(() => {
 }
 
 .director-section--computed {
-  border-left: 3px solid #7c8cff;
+  border-left: 3px solid var(--sm-accent-blue);
 }
 
 .director-section--inference {
-  border-left: 3px solid var(--sm-warning, #f0b429);
+  border-left: 3px solid var(--sm-warn, #b7791f);
 }
 
 .director-section--unavailable {
@@ -732,7 +732,7 @@ onMounted(() => {
   padding: var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
-  background: rgba(12, 23, 39, 0.6);
+  background: var(--sm-surface-2);
 }
 
 .director-card__head {
@@ -808,7 +808,7 @@ onMounted(() => {
   padding: 8px 10px;
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-sm);
-  background: rgba(12, 23, 39, 0.55);
+  background: var(--sm-surface-2);
   text-align: left;
   cursor: pointer;
 }

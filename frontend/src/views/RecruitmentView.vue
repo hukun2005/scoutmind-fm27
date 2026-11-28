@@ -25,6 +25,8 @@ import PageHeader from '../components/PageHeader.vue'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import SectionCard from '../components/SectionCard.vue'
 import StatStrip from '../components/StatStrip.vue'
+import AppTag from '../components/AppTag.vue'
+import type { TagTone } from '../utils/tags'
 import { useSessionStore } from '../stores/session'
 import type {
   HiddenValueHit,
@@ -382,13 +384,13 @@ function openCandidate(row: PlayerScore): void {
   void router.push(`/players/${row.player.instance_id}`)
 }
 
-/** Element tag type of a recommendation grade. */
-function gradeTagType(grade: string | undefined): 'success' | 'primary' | 'warning' | 'danger' | 'info' {
+/** 推荐评级的统一语义色。 */
+function gradeTone(grade: string | undefined): TagTone {
   if (grade === 'S' || grade === 'A') return 'success'
-  if (grade === 'B') return 'primary'
+  if (grade === 'B') return 'info'
   if (grade === 'C') return 'warning'
   if (grade === 'D') return 'danger'
-  return 'info'
+  return 'neutral'
 }
 
 onMounted(() => {
@@ -439,9 +441,11 @@ onMounted(() => {
             <ScoreBadge :score="item.score" size="sm" />
           </header>
           <div class="opp-card__tags">
-            <el-tag size="small" :type="gradeTagType(item.grade)" disable-transitions>
-              {{ item.grade_label ?? '数据不足' }}
-            </el-tag>
+            <AppTag
+              :tag="`grade_${item.grade ?? 'insufficient'}`"
+              :label="item.grade_label ?? '数据不足'"
+              :tone="gradeTone(item.grade)"
+            />
             <span class="opp-card__coverage">评分覆盖率 {{ formatPercent(item.score_coverage, 0) }}</span>
           </div>
           <dl class="opp-card__facts">
@@ -598,14 +602,12 @@ onMounted(() => {
 
         <template #cell="{ row, column, value }">
           <ScoreBadge v-if="column.prop === 'score'" :score="row.score" size="sm" />
-          <el-tag
+          <AppTag
             v-else-if="column.prop === 'grade'"
-            size="small"
-            :type="gradeTagType(row.grade)"
-            disable-transitions
-          >
-            {{ row.grade ?? 'insufficient' }} · {{ row.grade_label ?? '数据不足' }}
-          </el-tag>
+            :tag="`grade_${row.grade ?? 'insufficient'}`"
+            :label="`${row.grade ?? '—'} · ${row.grade_label ?? '数据不足'}`"
+            :tone="gradeTone(row.grade)"
+          />
           <template v-else-if="column.prop === 'actions'">
             <el-button link size="small" @click.stop="openCandidate(row)">详情</el-button>
             <el-button link size="small" type="primary" @click.stop="followCandidate(row)">关注</el-button>
@@ -646,9 +648,7 @@ onMounted(() => {
       <template v-else-if="hidden">
         <div class="recruit__rules">
           <span class="sm-label">已评估规则</span>
-          <el-tag v-for="rule in hidden.rules.evaluated" :key="rule.key" size="small" type="success">
-            {{ rule.label }}
-          </el-tag>
+          <AppTag v-for="rule in hidden.rules.evaluated" :key="rule.key" :label="rule.label" tone="success" />
           <span class="sm-label">无法评估</span>
           <el-tooltip
             v-for="rule in hidden.rules.unavailable"
@@ -656,7 +656,7 @@ onMounted(() => {
             :content="`缺少字段：${rule.missing_fields.join('、')}。${rule.description}`"
             placement="top"
           >
-            <el-tag size="small" type="info">{{ rule.label }}</el-tag>
+            <AppTag :label="rule.label" tone="neutral" />
           </el-tooltip>
         </div>
         <DataTable
@@ -805,9 +805,7 @@ onMounted(() => {
   padding: var(--sm-space-3) var(--sm-space-4);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-lg);
-  background:
-    linear-gradient(170deg, rgba(20, 35, 56, 0.5), rgba(9, 18, 32, 0.92)),
-    var(--sm-surface);
+  background: var(--sm-surface);
   box-shadow: var(--sm-shadow-1);
 }
 
@@ -893,8 +891,8 @@ onMounted(() => {
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
   background:
-    radial-gradient(520px 220px at 50% 0%, rgba(34, 211, 238, 0.06), transparent 70%),
-    rgba(8, 17, 30, 0.5);
+    radial-gradient(520px 220px at 50% 0%, rgba(49, 95, 206, 0.05), transparent 70%),
+    var(--sm-surface-2);
 }
 
 .recruit__gaps {
@@ -930,7 +928,7 @@ onMounted(() => {
   padding: var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
-  background: rgba(12, 23, 39, 0.55);
+  background: var(--sm-surface-2);
 }
 
 .recruit__name {

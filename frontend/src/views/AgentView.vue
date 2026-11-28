@@ -17,6 +17,7 @@ import ConfidenceTag from '../components/ConfidenceTag.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
 import PageHeader from '../components/PageHeader.vue'
+import AppTag from '../components/AppTag.vue'
 import type { AgentAnswer, AgentMessage, AgentPlayerCard, AgentToolCall, Conversation } from '../types/agent'
 import { useSessionStore } from '../stores/session'
 import { EMPTY, displayText, formatInt, formatTime } from '../utils/format'
@@ -238,13 +239,6 @@ function reliabilityLabel(value: string): string {
 }
 
 /** Element tag type of one reliability class. */
-function reliabilityTagType(value: string): 'success' | 'primary' | 'warning' | 'info' {
-  if (value === 'fact') return 'success'
-  if (value === 'inference') return 'warning'
-  if (value === 'unavailable') return 'info'
-  return 'primary'
-}
-
 /** Select a conversation from the sidebar. */
 function selectConversation(id: number): void {
   activeId.value = id
@@ -288,12 +282,11 @@ onMounted(() => {
       description="用一句话提问，助手只基于本存档的真实数据回答；结论、依据、数据缺口与球员卡片都可核对。"
     >
       <template #meta>
-        <el-tag size="small" :type="session.agentLlm ? 'success' : 'info'" disable-transitions>
-          {{ session.agentLlm ? 'AI 模型已配置' : '本地规则模式（未配置 AI 模型）' }}
-        </el-tag>
-        <el-tag v-if="lastMode" size="small" type="info" disable-transitions>
-          最近回答：{{ agentModeLabel(lastMode) }}
-        </el-tag>
+        <AppTag
+          :tag="session.agentLlm ? 'ai_llm' : 'ai_rules'"
+          :label="session.agentLlm ? 'AI 模型已配置' : '本地规则模式（未配置 AI 模型）'"
+        />
+        <AppTag v-if="lastMode" :tag="lastMode === 'llm' ? 'ai_llm' : 'ai_rules'" :label="`最近回答：${agentModeLabel(lastMode)}`" />
         <span class="sm-text-xs sm-text-faint">会话 {{ formatInt(conversations.length) }} 个</span>
       </template>
       <template #actions>
@@ -452,9 +445,11 @@ onMounted(() => {
                   <section v-for="section in answerSections(message.answer)" :key="section.key" class="answer__section">
                     <h3 class="answer__section-title">
                       {{ section.title }}
-                      <el-tag v-if="section.reliability" size="small" :type="reliabilityTagType(section.reliability)">
-                        {{ reliabilityLabel(section.reliability) }}
-                      </el-tag>
+                      <AppTag
+                        v-if="section.reliability"
+                        :tag="`reliability_${section.reliability}`"
+                        :label="reliabilityLabel(section.reliability)"
+                      />
                     </h3>
                     <ul v-if="section.bullets && section.bullets.length > 0" class="answer__bullets">
                       <li v-for="bullet in section.bullets" :key="bullet">{{ bullet }}</li>
@@ -480,10 +475,10 @@ onMounted(() => {
                   <div v-if="message.answer.reliability" class="answer__block">
                     <span class="sm-label">可靠性分类</span>
                     <div class="answer__reliability">
-                      <el-tag size="small" type="success">事实 {{ message.answer.reliability.facts.length }}</el-tag>
-                      <el-tag size="small" type="primary">计算 {{ message.answer.reliability.computed.length }}</el-tag>
-                      <el-tag size="small" type="warning">推断 {{ message.answer.reliability.inferences.length }}</el-tag>
-                      <el-tag size="small" type="info">无法获得 {{ message.answer.reliability.unavailable.length }}</el-tag>
+                      <AppTag tag="reliability_fact" :label="`事实 ${message.answer.reliability.facts.length}`" />
+                      <AppTag tag="reliability_computed" :label="`计算 ${message.answer.reliability.computed.length}`" />
+                      <AppTag tag="reliability_inference" :label="`推断 ${message.answer.reliability.inferences.length}`" />
+                      <AppTag tag="reliability_unavailable" :label="`无法获得 ${message.answer.reliability.unavailable.length}`" />
                     </div>
                     <ul v-if="message.answer.reliability.unavailable.length > 0" class="answer__bullets">
                       <li v-for="item in message.answer.reliability.unavailable" :key="item">{{ item }}</li>
@@ -735,9 +730,7 @@ onMounted(() => {
   overflow-y: auto;
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-lg);
-  background:
-    linear-gradient(168deg, rgba(20, 35, 56, 0.55) 0%, rgba(9, 18, 32, 0.94) 62%),
-    var(--sm-surface);
+  background: var(--sm-surface);
   box-shadow: var(--sm-shadow-1);
 }
 
@@ -786,8 +779,8 @@ onMounted(() => {
 
 .conversation--active {
   border-color: var(--sm-border);
-  border-left-color: var(--sm-accent-cyan);
-  background: linear-gradient(90deg, rgba(34, 211, 238, 0.12), rgba(77, 141, 255, 0.04));
+  border-left-color: var(--sm-accent-blue);
+  background: var(--sm-accent-weak);
 }
 
 .conversation__title {
@@ -811,12 +804,10 @@ onMounted(() => {
   min-width: 0;
   height: clamp(520px, calc(100vh - 300px), 900px);
   overflow: hidden;
-  border: 1px solid var(--sm-border-strong);
+  border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-lg);
-  background:
-    linear-gradient(168deg, rgba(18, 33, 54, 0.55) 0%, rgba(8, 16, 29, 0.96) 60%),
-    var(--sm-surface);
-  box-shadow: var(--sm-shadow-2);
+  background: var(--sm-surface);
+  box-shadow: var(--sm-shadow-1);
 }
 
 .chat__head {
@@ -852,7 +843,7 @@ onMounted(() => {
   min-height: 0;
   padding: var(--sm-space-4);
   overflow-y: auto;
-  background: radial-gradient(720px 260px at 12% 0%, rgba(34, 211, 238, 0.05), transparent 72%);
+  background: radial-gradient(720px 260px at 12% 0%, rgba(49, 95, 206, 0.04), transparent 72%);
 }
 
 /* ---------- 消息 ---------- */
@@ -894,8 +885,8 @@ onMounted(() => {
 }
 
 .message--assistant .message__role::before {
-  background: var(--sm-accent-cyan);
-  box-shadow: 0 0 6px rgba(34, 211, 238, 0.85);
+  background: var(--sm-accent-blue);
+  box-shadow: 0 0 0 3px rgba(49, 95, 206, 0.14);
 }
 
 .message__time {
@@ -972,10 +963,10 @@ onMounted(() => {
   max-width: 96ch;
   padding: var(--sm-space-3) var(--sm-space-4) var(--sm-space-4);
   border: 1px solid var(--sm-border);
-  border-left: 2px solid rgba(34, 211, 238, 0.4);
+  border-left: 2px solid rgba(49, 95, 206, 0.4);
   border-radius: var(--sm-radius-lg);
   background:
-    linear-gradient(150deg, rgba(34, 211, 238, 0.06) 0%, rgba(167, 139, 250, 0.04) 42%, transparent 72%),
+    linear-gradient(150deg, rgba(49, 95, 206, 0.05) 0%, rgba(49, 95, 206, 0.03) 42%, transparent 72%),
     var(--sm-surface-2);
 }
 
@@ -1139,7 +1130,7 @@ onMounted(() => {
   gap: var(--sm-space-2);
   padding: var(--sm-space-3) var(--sm-space-4) var(--sm-space-4);
   border-top: 1px solid var(--sm-border);
-  background: linear-gradient(180deg, rgba(16, 29, 48, 0.55), var(--sm-surface-2));
+  background: var(--sm-surface-2);
 }
 
 .composer__notice {

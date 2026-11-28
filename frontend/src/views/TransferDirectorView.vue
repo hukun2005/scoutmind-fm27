@@ -78,6 +78,8 @@ import type {
 import { listTransfers } from '../api/transfers'
 import InsightPanel from '../components/InsightPanel.vue'
 import StatStrip from '../components/StatStrip.vue'
+import AppTag from '../components/AppTag.vue'
+import { contractTag, riskTag } from '../utils/tags'
 import type { PlayerSummary } from '../types/players'
 import type { TransferListResponse } from '../types/transfers'
 import type { InsightItem, StatItem } from '../types/ui'
@@ -235,6 +237,14 @@ const OPPORTUNITY_LABELS: Record<string, string> = {
   release_listed: '解约挂牌',
   contract_expiring: '合同到期',
   ai_inferred: 'AI 推测机会',
+}
+
+const NEGOTIATION_STATUS_LABELS: Record<string, string> = {
+  draft: '草稿',
+  active: '进行中',
+  agreed: '已同意',
+  rejected: '已拒绝',
+  cancelled: '已取消',
 }
 
 const keyword = ref('')
@@ -724,13 +734,6 @@ async function refreshLoan() {
   }
 }
 
-function contractTagType(value: number | null): 'success' | 'warning' | 'danger' | 'info' {
-  if (value == null) return 'info'
-  if (value <= 6) return 'danger'
-  if (value <= 12) return 'warning'
-  return 'success'
-}
-
 async function searchPlayers() {
   if (!keyword.value.trim()) {
     candidates.value = []
@@ -904,12 +907,6 @@ function offerTitle(type: string): string {
       loan_to_buy: '租借后买断',
     }[type] ?? type
   )
-}
-
-function riskTag(level: string): 'success' | 'warning' | 'danger' {
-  if (level === 'low') return 'success'
-  if (level === 'high') return 'danger'
-  return 'warning'
 }
 
 onMounted(async () => {
@@ -1108,7 +1105,7 @@ function directionLabel(direction: string): string {
             </el-button>
             <template v-else>
               <el-button :disabled="scanTask?.status === 'CANCELLING'" @click="cancelRunningScan">取消扫描</el-button>
-              <el-tag type="warning">{{ scanTask?.message ?? '正在扫描' }}</el-tag>
+              <AppTag tag="scanning" :label="scanTask?.message ?? '正在扫描'" />
             </template>
           </div>
         </div>
@@ -1129,7 +1126,7 @@ function directionLabel(direction: string): string {
           <span v-if="scanEtaMinutes !== null" class="scan-progress-text">
             预计剩余约 {{ scanEtaMinutes }} 分钟
           </span>
-          <el-tag v-if="scanTask?.resumable" type="info" size="small">可继续</el-tag>
+          <AppTag v-if="scanTask?.resumable" tag="resumable" />
           <span v-if="scanTask?.status === 'CANCELLING'" class="scan-progress-text">正在安全取消…</span>
           <span v-else-if="scanTask?.status === 'FAILED'" class="scan-progress-text">{{ scanTask?.message }}</span>
         </div>
@@ -1227,14 +1224,12 @@ function directionLabel(direction: string): string {
             <el-table-column prop="players" label="当前球员" width="100" />
             <el-table-column label="机会" min-width="220">
               <template #default="{ row }">
-                <el-tag
+                <AppTag
                   v-for="(count, type) in row.opportunities"
                   :key="type"
-                  size="small"
-                  class="tag-gap"
-                >
-                  {{ OPPORTUNITY_LABELS[type] ?? type }} {{ count }}
-                </el-tag>
+                  :tag="String(type)"
+                  :label="`${OPPORTUNITY_LABELS[String(type)] ?? type} ${count}`"
+                />
                 <span v-if="!row.opportunities_total">—</span>
               </template>
             </el-table-column>
@@ -1279,9 +1274,12 @@ function directionLabel(direction: string): string {
             </el-table-column>
             <el-table-column label="机会" min-width="140">
               <template #default="{ row }">
-                <el-tag v-for="type in row.opportunity_types" :key="type" size="small" class="tag-gap">
-                  {{ OPPORTUNITY_LABELS[type] ?? type }}
-                </el-tag>
+                <AppTag
+                  v-for="type in row.opportunity_types"
+                  :key="type"
+                  :tag="type"
+                  :label="OPPORTUNITY_LABELS[type] ?? type"
+                />
               </template>
             </el-table-column>
           </el-table>
@@ -1306,15 +1304,13 @@ function directionLabel(direction: string): string {
           <el-table-column label="球员" min-width="180">
             <template #default="{ row }">
               <strong>{{ row.player_name ?? '未知' }}</strong>
-              <el-tag
+              <AppTag
                 v-for="type in row.types"
                 :key="type"
-                size="small"
-                class="tag-gap"
-                :type="row.verified_status === 'inferred' ? 'info' : 'warning'"
-              >
-                {{ OPPORTUNITY_LABELS[type] ?? type }}
-              </el-tag>
+                :tag="type"
+                :label="OPPORTUNITY_LABELS[type] ?? type"
+                :tone="row.verified_status === 'inferred' ? 'info' : undefined"
+              />
             </template>
           </el-table-column>
           <el-table-column label="俱乐部" min-width="150">
@@ -1331,9 +1327,10 @@ function directionLabel(direction: string): string {
           </el-table-column>
           <el-table-column label="合同" width="150">
             <template #default="{ row }">
-              <el-tag :type="contractTagType(row.contract_remaining_months)" size="small">
-                {{ row.contract_remaining_months != null ? `剩 ${row.contract_remaining_months} 个月` : '未知' }}
-              </el-tag>
+              <AppTag
+                :tag="contractTag(row.contract_remaining_months).key"
+                :label="row.contract_remaining_months != null ? `剩 ${row.contract_remaining_months} 个月` : '未知'"
+              />
             </template>
           </el-table-column>
           <el-table-column label="综合评分" width="100" align="right">
@@ -1361,9 +1358,11 @@ function directionLabel(direction: string): string {
           <template v-if="oppDetail">
             <h3 class="drawer-title">
               {{ oppDetail.opportunity.player_name ?? '未知球员' }}
-              <el-tag :type="oppDetail.opportunity.verified_status === 'inferred' ? 'info' : 'warning'" size="small">
-                {{ OPPORTUNITY_LABELS[oppDetail.opportunity.opportunity_type] ?? oppDetail.opportunity.opportunity_type }}
-              </el-tag>
+              <AppTag
+                :tag="oppDetail.opportunity.opportunity_type"
+                :label="OPPORTUNITY_LABELS[oppDetail.opportunity.opportunity_type] ?? oppDetail.opportunity.opportunity_type"
+                :tone="oppDetail.opportunity.verified_status === 'inferred' ? 'info' : undefined"
+              />
             </h3>
             <el-descriptions :column="2" border size="small">
               <el-descriptions-item label="俱乐部">{{ oppDetail.opportunity.club_name ?? '未知' }}</el-descriptions-item>
@@ -1428,7 +1427,7 @@ function directionLabel(direction: string): string {
           >
             <div class="alert-head">
               <strong>{{ alert.title }}</strong>
-              <el-tag v-if="!alert.read_at" type="danger" size="small">未读</el-tag>
+              <AppTag v-if="!alert.read_at" tag="unread" />
             </div>
             <p class="muted">{{ alert.message }}</p>
             <span class="muted">{{ formatDateTime(alert.created_at) }}</span>
@@ -1442,9 +1441,10 @@ function directionLabel(direction: string): string {
             <div class="offer-head">
               <strong>在线持续学习</strong>
               <div class="tag-gap">
-                <el-tag size="small" :type="onlineStatus?.enabled ? 'success' : 'info'">
-                  {{ onlineStatus?.status_label ?? '加载中' }}
-                </el-tag>
+                <AppTag
+                  :tag="onlineStatus?.enabled ? 'online' : 'offline'"
+                  :label="onlineStatus?.status_label ?? '加载中'"
+                />
                 <el-button size="small" text :loading="onlineLoading" @click="loadOnlineLearning">刷新</el-button>
                 <el-button
                   v-if="onlineStatus?.enabled"
@@ -1496,7 +1496,7 @@ function directionLabel(direction: string): string {
                 <li v-for="club in onlineFocus" :key="club.club_id">
                   <div class="offer-head">
                     <strong>{{ club.club_name ?? `俱乐部 ${club.club_id}` }}</strong>
-                    <el-tag size="small" type="info">{{ club.confidence.label }} · 样本 {{ club.sample_size }}</el-tag>
+                    <AppTag :label="`${club.confidence.label} · 样本 ${club.sample_size}`" tone="neutral" />
                   </div>
                   <p class="rationale">
                     买入 {{ club.trade_counts?.buying ?? club.buying.completed }}
@@ -1546,9 +1546,12 @@ function directionLabel(direction: string): string {
               </div>
             </div>
             <div v-if="learningTypes.length" class="learning-types">
-              <el-tag v-for="[type, count] in learningTypes" :key="type" size="small" class="tag-gap">
-                {{ TYPE_LABELS[type] ?? type }} {{ count }}
-              </el-tag>
+              <AppTag
+                v-for="[type, count] in learningTypes"
+                :key="type"
+                :label="`${TYPE_LABELS[type] ?? type} ${count}`"
+                tone="neutral"
+              />
             </div>
             <el-alert
               v-if="!learning.available || learning.totals.cases === 0"
@@ -1562,7 +1565,7 @@ function directionLabel(direction: string): string {
               <li v-for="pattern in learning.patterns" :key="pattern.key">
                 <div class="offer-head">
                   <strong>{{ TYPE_LABELS[pattern.key] ?? pattern.key }}</strong>
-                  <el-tag size="small" type="info">{{ pattern.sample_size }} 例 · {{ pattern.confidence.label }}</el-tag>
+                  <AppTag :label="`${pattern.sample_size} 例 · ${pattern.confidence.label}`" tone="neutral" />
                 </div>
                 <p class="rationale">{{ pattern.summary }}</p>
               </li>
@@ -1584,9 +1587,10 @@ function directionLabel(direction: string): string {
             <el-card v-for="pattern in strategyInsights.patterns" :key="pattern.key" shadow="never" class="pattern-card">
               <div class="offer-head">
                 <strong>{{ pattern.label }}</strong>
-                <el-tag :type="pattern.sufficient_sample ? 'success' : 'info'" size="small">
-                  {{ pattern.sample_size }} 例
-                </el-tag>
+                <AppTag
+                  :tag="pattern.sufficient_sample ? 'sufficient' : 'insufficient'"
+                  :label="`${pattern.sample_size} 例`"
+                />
               </div>
               <p class="rationale">{{ pattern.summary }}</p>
               <p class="muted" v-if="pattern.case_ids.length">案例：{{ pattern.case_ids.join('、') }}</p>
@@ -1619,9 +1623,10 @@ function directionLabel(direction: string): string {
             </el-table-column>
             <el-table-column label="数据" width="110">
               <template #default="{ row }">
-                <el-tag :type="row.case_origin === 'demo' ? 'info' : 'success'" size="small">
-                  {{ row.case_origin === 'demo' ? '演示数据' : row.case_origin === 'negotiation' ? '谈判结果' : '导入数据' }}
-                </el-tag>
+                <AppTag
+                  :tag="row.case_origin === 'demo' ? 'demo_case' : 'real_case'"
+                  :label="row.case_origin === 'demo' ? '演示数据' : row.case_origin === 'negotiation' ? '谈判结果' : '导入数据'"
+                />
               </template>
             </el-table-column>
             <el-table-column label="日期" width="110">
@@ -1737,8 +1742,8 @@ function directionLabel(direction: string): string {
             <span>合同到期：{{ contract?.contract_end ? formatDate(contract.contract_end) : '未知' }}</span>
             <span>剩余：{{ contract?.remaining_months != null ? `${contract.remaining_months} 个月` : '未知' }}</span>
             <span>身价：{{ analysis.player.market_value != null ? formatMoney(analysis.player.market_value) : '未知' }}</span>
-            <el-tag v-if="contract?.listed" type="warning" size="small">已挂牌</el-tag>
-            <el-tag v-if="contract?.not_for_sale" type="danger" size="small">非卖品</el-tag>
+            <AppTag v-if="contract?.listed" tag="listed" />
+            <AppTag v-if="contract?.not_for_sale" tag="not_for_sale" />
           </div>
 
           <el-alert
@@ -1756,9 +1761,7 @@ function directionLabel(direction: string): string {
           </div>
           <div v-if="purchase" class="currency-row">
             <span class="sm-label">报价币种</span>
-            <el-tag size="small" :type="purchase.currency ? 'info' : 'warning'">
-              {{ currencyLabel(purchase.currency) }}
-            </el-tag>
+            <AppTag :label="currencyLabel(purchase.currency)" :tone="purchase.currency ? 'info' : 'warning'" />
             <span v-if="!purchase.currency" class="muted">货币单位未知，金额不能按默认币种理解</span>
           </div>
           <p v-if="purchase?.learning_adjustment" class="muted" data-testid="purchase-learning-basis">
@@ -1783,7 +1786,7 @@ function directionLabel(direction: string): string {
               <template #header>
                 <div class="offer-head">
                   <strong>{{ offerTitle(offer.offer_type) }}</strong>
-                  <el-tag :type="riskTag(offer.risk_level)" size="small">风险 {{ offer.risk_level }}</el-tag>
+                  <AppTag :tag="riskTag(offer.risk_level).key" :label="`风险 ${offer.risk_level}`" />
                 </div>
               </template>
               <dl class="offer-facts">
@@ -1824,7 +1827,7 @@ function directionLabel(direction: string): string {
           </div>
           <div v-if="sale" class="currency-row">
             <span class="sm-label">报价币种</span>
-            <el-tag size="small" :type="sale.currency ? 'info' : 'warning'">{{ currencyLabel(sale.currency) }}</el-tag>
+            <AppTag :label="currencyLabel(sale.currency)" :tone="sale.currency ? 'info' : 'warning'" />
             <span v-if="!sale.currency" class="muted">货币单位未知，金额不能按默认币种理解</span>
           </div>
           <p v-if="sale?.learning_adjustment" class="muted" data-testid="sale-learning-basis">
@@ -1848,7 +1851,7 @@ function directionLabel(direction: string): string {
               <template #header>
                 <div class="offer-head">
                   <strong>{{ offerTitle(offer.offer_type) }}</strong>
-                  <el-tag :type="riskTag(offer.risk_level)" size="small">风险 {{ offer.risk_level }}</el-tag>
+                  <AppTag :tag="riskTag(offer.risk_level).key" :label="`风险 ${offer.risk_level}`" />
                 </div>
               </template>
               <dl class="offer-facts">
@@ -1887,7 +1890,7 @@ function directionLabel(direction: string): string {
           </div>
           <div v-if="loan" class="currency-row">
             <span class="sm-label">报价币种</span>
-            <el-tag size="small" :type="loan.currency ? 'info' : 'warning'">{{ currencyLabel(loan.currency) }}</el-tag>
+            <AppTag :label="currencyLabel(loan.currency)" :tone="loan.currency ? 'info' : 'warning'" />
             <span v-if="!loan.currency" class="muted">货币单位未知，金额不能按默认币种理解</span>
           </div>
           <p v-if="loan?.learning_adjustment" class="muted" data-testid="loan-learning-basis">
@@ -1911,7 +1914,7 @@ function directionLabel(direction: string): string {
               <template #header>
                 <div class="offer-head">
                   <strong>{{ offerTitle(offer.offer_type) }}</strong>
-                  <el-tag :type="riskTag(offer.risk_level)" size="small">风险 {{ offer.risk_level }}</el-tag>
+                  <AppTag :tag="riskTag(offer.risk_level).key" :label="`风险 ${offer.risk_level}`" />
                 </div>
               </template>
               <dl class="offer-facts">
@@ -2021,7 +2024,7 @@ function directionLabel(direction: string): string {
               @click="openNegotiation(item.negotiation_id)"
             >
               <span>#{{ item.negotiation_id }} · {{ directionLabel(item.direction) }}</span>
-              <el-tag size="small">{{ item.status }}</el-tag>
+              <AppTag size="sm" :tag="`negotiation_${item.status}`" :label="NEGOTIATION_STATUS_LABELS[item.status] ?? item.status" />
             </button>
           </el-card>
 
@@ -2155,7 +2158,7 @@ function directionLabel(direction: string): string {
             <li v-for="pattern in clubHabits.patterns" :key="pattern.key">
               <div class="offer-head">
                 <strong>{{ pattern.label }}</strong>
-                <el-tag size="small" type="info">{{ pattern.sample_size }} 例</el-tag>
+                <AppTag :label="`${pattern.sample_size} 例`" tone="neutral" />
               </div>
               <p class="rationale">{{ pattern.summary }}</p>
             </li>
@@ -2427,7 +2430,7 @@ function directionLabel(direction: string): string {
 }
 .scan-progress-text {
   font-size: 12px;
-  color: var(--sm-text-muted, #909399);
+  color: var(--sm-text-2, #64748b);
   white-space: nowrap;
 }
 .health-actions {
@@ -2450,7 +2453,7 @@ function directionLabel(direction: string): string {
   width: 220px;
 }
 .alert-item {
-  border-bottom: 1px solid var(--sm-border, #ebeef5);
+  border-bottom: 1px solid var(--sm-border, #e5eaf1);
   padding: 10px 0;
   cursor: pointer;
 }
@@ -2565,7 +2568,7 @@ function directionLabel(direction: string): string {
 }
 .learning-patterns li {
   padding: 8px 10px;
-  border: 1px solid var(--sm-border, #ebeef5);
+  border: 1px solid var(--sm-border, #e5eaf1);
   border-radius: 8px;
 }
 .learning-version {
@@ -2606,7 +2609,7 @@ function directionLabel(direction: string): string {
 }
 .feedback-hint {
   margin: 0 0 0 86px;
-  color: var(--el-color-danger, #f56c6c);
+  color: var(--sm-danger, #c2414b);
   font-size: 12px;
 }
 @media (max-width: 1100px) {

@@ -491,8 +491,8 @@ onMounted(() => {
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
   background:
-    linear-gradient(120deg, rgba(34, 211, 238, 0.06), rgba(167, 139, 250, 0.05)),
-    rgba(9, 18, 32, 0.7);
+    linear-gradient(120deg, rgba(49, 95, 206, 0.05), rgba(49, 95, 206, 0.04)),
+    var(--sm-surface-2);
 }
 
 .idc-console--filters {
@@ -541,7 +541,7 @@ onMounted(() => {
   padding: 1px 8px;
   border: 1px solid var(--sm-border-strong);
   border-radius: var(--sm-radius-pill);
-  background: rgba(18, 32, 52, 0.7);
+  background: var(--sm-surface-2);
   color: var(--sm-text-2);
   font-size: var(--sm-fs-2xs);
   font-family: var(--sm-font-mono);
@@ -549,27 +549,27 @@ onMounted(() => {
 }
 
 .idc-status--ok {
-  border-color: rgba(52, 211, 153, 0.34);
+  border-color: rgba(22, 134, 91, 0.24);
   background: var(--sm-success-weak);
-  color: #6ee7b7;
+  color: var(--sm-status-success);
 }
 
 .idc-status--warn {
-  border-color: rgba(245, 181, 68, 0.34);
+  border-color: rgba(183, 121, 31, 0.24);
   background: var(--sm-warn-weak);
-  color: #fcd34d;
+  color: var(--sm-status-warning);
 }
 
 .idc-status--danger {
-  border-color: rgba(251, 113, 133, 0.34);
+  border-color: rgba(194, 65, 75, 0.24);
   background: var(--sm-danger-weak);
-  color: #fda4af;
+  color: var(--sm-status-danger);
 }
 
 .idc-status--info {
-  border-color: rgba(77, 141, 255, 0.3);
-  background: var(--sm-accent-weak);
-  color: #93c5fd;
+  border-color: rgba(49, 95, 206, 0.22);
+  background: #eaf1ff;
+  color: var(--sm-accent-blue);
 }
 
 .idc-status--muted {
@@ -597,7 +597,7 @@ onMounted(() => {
   padding: 1px 8px;
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-pill);
-  background: rgba(12, 23, 39, 0.8);
+  background: var(--sm-surface-2);
   color: var(--sm-text-2);
   font-size: var(--sm-fs-2xs);
 }
@@ -609,7 +609,7 @@ onMounted(() => {
 .idc-payload {
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
-  background: rgba(6, 16, 29, 0.7);
+  background: var(--sm-surface-2);
   overflow: hidden;
 }
 
@@ -632,7 +632,7 @@ onMounted(() => {
 
 .idc-payload summary:hover {
   color: var(--sm-text);
-  background: rgba(34, 211, 238, 0.05);
+  background: var(--sm-surface-3);
 }
 
 .idc-payload__body {
@@ -684,7 +684,7 @@ onMounted(() => {
   padding: var(--sm-space-2) var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-sm);
-  background: rgba(12, 23, 39, 0.5);
+  background: var(--sm-surface-2);
   font-size: var(--sm-fs-2xs);
 }
 

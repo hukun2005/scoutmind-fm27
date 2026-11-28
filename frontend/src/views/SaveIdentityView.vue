@@ -16,6 +16,7 @@ import InsightPanel from '../components/InsightPanel.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
 import StatStrip from '../components/StatStrip.vue'
+import AppTag from '../components/AppTag.vue'
 import { useSessionStore } from '../stores/session'
 import type { Save } from '../types/bootstrap'
 import type { ImportJob } from '../types/imports'
@@ -41,15 +42,6 @@ const STATUS_LABELS: Record<SaveIdentityStatus, string> = {
   verified: '已确认',
   conflict: '冲突',
   invalidated: '已失效',
-}
-
-const STATUS_TAG_TYPES: Record<SaveIdentityStatus, 'success' | 'warning' | 'danger' | 'info'> = {
-  unknown: 'info',
-  discovered: 'info',
-  candidate: 'warning',
-  verified: 'success',
-  conflict: 'danger',
-  invalidated: 'danger',
 }
 
 /** 身份状态可信度排序，仅用于摘要展示。 */
@@ -106,17 +98,6 @@ const IMPORT_STATUS_LABELS: Record<string, string> = {
   partial: '部分成功',
   failed: '失败',
   rejected: '已拒绝',
-}
-
-const IMPORT_STATUS_TAG_TYPES: Record<string, 'success' | 'warning' | 'danger' | 'info'> = {
-  queued: 'info',
-  running: 'warning',
-  cancel_requested: 'warning',
-  cancelled: 'info',
-  succeeded: 'success',
-  partial: 'warning',
-  failed: 'danger',
-  rejected: 'danger',
 }
 
 const HEARTBEAT_TIMEOUT_SECONDS = 120
@@ -466,9 +447,7 @@ watch(
         >
           <header class="save-card__head">
             <span class="save-card__name">{{ saveItem.name }}</span>
-            <el-tag v-if="saveItem.id === session.activeSaveId" size="small" type="success" disable-transitions>
-              当前存档
-            </el-tag>
+            <AppTag v-if="saveItem.id === session.activeSaveId" label="当前存档" tone="success" />
           </header>
           <p class="save-card__meta">
             版本 {{ displayText(saveItem.game_version) }} · build {{ displayText(saveItem.game_build) }}
@@ -500,15 +479,12 @@ watch(
       </template>
 
       <div v-if="countEntries.length" class="save-identity__counts">
-        <el-tag
+        <AppTag
           v-for="[status, count] in countEntries"
           :key="status"
-          size="small"
-          effect="plain"
-          :type="STATUS_TAG_TYPES[status]"
-        >
-          {{ STATUS_LABELS[status] }} {{ count }}
-        </el-tag>
+          :tag="status"
+          :label="`${STATUS_LABELS[status]} ${count}`"
+        />
       </div>
 
       <ErrorState v-if="error" :error="error" @retry="reload" />
@@ -525,13 +501,11 @@ watch(
         @row-click="selectIdentity"
       >
         <template #cell="{ row, column, value }">
-          <el-tag
+          <AppTag
             v-if="column.prop === 'identity_status'"
-            size="small"
-            :type="STATUS_TAG_TYPES[row.identity_status]"
-          >
-            {{ STATUS_LABELS[row.identity_status] ?? row.identity_status }}
-          </el-tag>
+            :tag="row.identity_status"
+            :label="STATUS_LABELS[row.identity_status] ?? row.identity_status"
+          />
           <span v-else>{{ value }}</span>
         </template>
       </DataTable>
@@ -583,14 +557,11 @@ watch(
             <dt>会话状态</dt>
             <dd>
               {{ networkFacts.sessionStatus }}
-              <el-tag
-                size="small"
-                :type="networkFacts.heartbeatFresh ? 'success' : 'warning'"
-                effect="plain"
-                class="save-identity__inline-tag"
-              >
-                {{ networkFacts.heartbeatFresh ? '心跳有效' : '心跳超时/未知' }}
-              </el-tag>
+              <AppTag
+                :tag="networkFacts.heartbeatFresh ? 'heartbeat_ok' : 'heartbeat_stale'"
+                :label="networkFacts.heartbeatFresh ? '心跳有效' : '心跳超时/未知'"
+                dot
+              />
             </dd>
           </div>
           <div>
@@ -608,15 +579,12 @@ watch(
         </dl>
 
         <div v-if="workerCounts.length" class="save-identity__counts save-identity__counts--tight">
-          <el-tag
+          <AppTag
             v-for="[status, count] in workerCounts"
             :key="status"
-            size="small"
-            effect="plain"
-            :type="IMPORT_STATUS_TAG_TYPES[status] ?? 'info'"
-          >
-            {{ IMPORT_STATUS_LABELS[status] ?? status }} {{ count }}
-          </el-tag>
+            :tag="status"
+            :label="`${IMPORT_STATUS_LABELS[status] ?? status} ${count}`"
+          />
         </div>
 
         <ErrorState v-if="jobsError" :error="jobsError" title="导入任务加载失败" compact @retry="loadJobs" />
@@ -635,13 +603,11 @@ watch(
           dense
         >
           <template #cell="{ row, column, value }">
-            <el-tag
+            <AppTag
               v-if="column.prop === 'status'"
-              size="small"
-              :type="IMPORT_STATUS_TAG_TYPES[row.status] ?? 'info'"
-            >
-              {{ IMPORT_STATUS_LABELS[row.status] ?? row.status }}
-            </el-tag>
+              :tag="row.status"
+              :label="IMPORT_STATUS_LABELS[row.status] ?? row.status"
+            />
             <span v-else>{{ value }}</span>
           </template>
         </DataTable>

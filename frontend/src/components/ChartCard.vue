@@ -72,9 +72,7 @@ withDefaults(
   min-width: 0;
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-lg);
-  background:
-    linear-gradient(168deg, rgba(20, 35, 56, 0.5) 0%, rgba(9, 18, 32, 0.94) 58%),
-    var(--sm-surface);
+  background: var(--sm-surface);
   box-shadow: var(--sm-shadow-1);
 }
 
@@ -84,7 +82,7 @@ withDefaults(
   inset: 0 0 auto;
   height: 1px;
   border-radius: var(--sm-radius-lg) var(--sm-radius-lg) 0 0;
-  background: linear-gradient(90deg, rgba(34, 211, 238, 0.45), rgba(122, 162, 220, 0.12) 42%, transparent);
+  background: linear-gradient(90deg, rgba(49, 95, 206, 0.35), rgba(49, 95, 206, 0.08) 42%, transparent);
   opacity: 0.55;
   pointer-events: none;
 }

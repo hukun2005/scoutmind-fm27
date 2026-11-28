@@ -47,8 +47,8 @@ const descriptionText = computed(() => props.description || props.hint)
   border: 1px dashed var(--sm-border-strong);
   border-radius: var(--sm-radius-md);
   background:
-    radial-gradient(320px 120px at 0% 0%, rgba(34, 211, 238, 0.07), transparent 70%),
-    rgba(10, 20, 34, 0.55);
+    radial-gradient(320px 120px at 0% 0%, rgba(49, 95, 206, 0.05), transparent 70%),
+    var(--sm-surface-2);
 }
 
 .empty-state--compact {
@@ -75,7 +75,7 @@ const descriptionText = computed(() => props.description || props.hint)
   flex: 0 0 auto;
   border: 1px solid var(--sm-border-strong);
   border-radius: 50%;
-  background: rgba(18, 32, 52, 0.8);
+  background: var(--sm-surface-2);
 }
 
 .empty-state__orb::before {

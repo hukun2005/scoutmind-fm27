@@ -24,6 +24,7 @@ import SectionCard from '../components/SectionCard.vue'
 import StatHeader from '../components/StatHeader.vue'
 import StatStrip from '../components/StatStrip.vue'
 import TransferFlowCard from '../components/TransferFlowCard.vue'
+import AppTag from '../components/AppTag.vue'
 import type { Club, ClubTransferProfile } from '../types/clubs'
 import type { TableColumn } from '../types/table'
 import type { InsightItem, InsightTone, StatItem } from '../types/ui'
@@ -734,7 +735,7 @@ if (activeTab.value === 'deals') void loadDealsOverview()
                   <div class="timeline__row">
                     <span class="timeline__player">{{ displayText(row.player_name) }}</span>
                     <span class="timeline__meta">
-                      <el-tag size="small" type="info" disable-transitions>{{ transferStatusLabel(row.status) }}</el-tag>
+                      <AppTag :tag="row.status" :label="transferStatusLabel(row.status)" />
                       <span class="timeline__fee sm-num">{{ formatMoney(row.effective_fee) }}</span>
                     </span>
                   </div>
@@ -979,15 +980,14 @@ if (activeTab.value === 'deals') void loadDealsOverview()
               <template #toolbar>
                 <div class="coverage-chips">
                   <span class="sm-text-2xs sm-text-faint">列表覆盖：</span>
-                  <el-tag
+                  <AppTag
                     v-for="[key, value] in Object.entries(transfers.coverage)"
                     :key="key"
-                    size="small"
-                    type="info"
-                    disable-transitions
-                  >
-                    {{ coverageLabel(key) }} {{ formatPercent(value) }}
-                  </el-tag>
+                    tag="source"
+                    :label="`${coverageLabel(key)} ${formatPercent(value)}`"
+                    tone="neutral"
+                    allow-internal
+                  />
                 </div>
               </template>
             </DataTable>
@@ -1102,7 +1102,7 @@ if (activeTab.value === 'deals') void loadDealsOverview()
               :subtitle="`${displayText(clubProfile.league)} · ${displayText(clubProfile.nation)} · 声望 ${formatInt(clubProfile.reputation)}`"
             >
               <template #actions>
-                <el-tag v-if="clubProfile.is_user_club" size="small" type="success" disable-transitions>玩家俱乐部</el-tag>
+                <AppTag v-if="clubProfile.is_user_club" tag="user_club" />
               </template>
 
               <div class="club-kpis">
@@ -1334,9 +1334,10 @@ if (activeTab.value === 'deals') void loadDealsOverview()
                     <li v-for="component in dealReport.cost.components" :key="component.key">
                       <span>{{ component.label }}</span>
                       <span class="sm-num">{{ formatMoney(component.amount) }}</span>
-                      <el-tag size="small" :type="component.status === 'observed' ? 'success' : component.status === 'assumed' ? 'warning' : 'info'">
-                        {{ component.status }}
-                      </el-tag>
+                      <AppTag
+                        :tag="component.status"
+                        :label="component.status === 'observed' ? '已观测' : component.status === 'assumed' ? '推定' : '推断'"
+                      />
                     </li>
                   </ul>
                   <p class="sm-text-2xs sm-text-faint">
@@ -1576,7 +1577,7 @@ if (activeTab.value === 'deals') void loadDealsOverview()
   bottom: calc(-1 * var(--sm-space-2));
   left: 96px;
   width: 1px;
-  background: linear-gradient(180deg, rgba(34, 211, 238, 0.35), rgba(167, 139, 250, 0.08));
+  background: linear-gradient(180deg, rgba(49, 95, 206, 0.3), rgba(49, 95, 206, 0.06));
 }
 
 .timeline__item:last-child::before {
@@ -1594,8 +1595,8 @@ if (activeTab.value === 'deals') void loadDealsOverview()
   height: 7px;
   margin: 6px auto 0;
   border-radius: 50%;
-  background: var(--sm-accent-cyan);
-  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12);
+  background: var(--sm-accent-blue);
+  box-shadow: 0 0 0 3px rgba(49, 95, 206, 0.12);
 }
 
 .timeline__body {
@@ -1643,7 +1644,7 @@ if (activeTab.value === 'deals') void loadDealsOverview()
 .timeline__bar {
   height: 2px;
   border-radius: 2px;
-  background: rgba(22, 37, 59, 0.9);
+  background: var(--sm-surface-3);
   overflow: hidden;
 }
 
@@ -1651,7 +1652,7 @@ if (activeTab.value === 'deals') void loadDealsOverview()
   display: block;
   height: 100%;
   border-radius: 2px;
-  background: linear-gradient(90deg, rgba(34, 211, 238, 0.6), rgba(167, 139, 250, 0.75));
+  background: var(--sm-gradient-accent);
 }
 
 @media (max-width: 640px) {

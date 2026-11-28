@@ -495,12 +495,10 @@ onBeforeUnmount(() => {
 
 .gs-panel {
   overflow: hidden;
-  border: 1px solid var(--sm-border-strong);
+  border: 1px solid var(--sm-border);
   border-radius: 16px;
-  background:
-    linear-gradient(168deg, rgba(20, 35, 56, 0.72) 0%, rgba(7, 14, 25, 0.98) 58%),
-    var(--sm-surface);
-  box-shadow: 0 32px 80px -30px rgba(2, 7, 16, 0.95);
+  background: var(--sm-surface);
+  box-shadow: var(--sm-shadow-float);
 }
 
 .gs-head {
@@ -559,9 +557,9 @@ onBeforeUnmount(() => {
 }
 
 .gs-tab--active {
-  border-color: rgba(34, 211, 238, 0.32);
-  background: rgba(34, 211, 238, 0.12);
-  color: var(--sm-text-primary);
+  border-color: rgba(49, 95, 206, 0.28);
+  background: rgba(49, 95, 206, 0.08);
+  color: var(--sm-accent-blue);
 }
 
 .gs-body {
@@ -600,7 +598,7 @@ onBeforeUnmount(() => {
 
 .gs-result--active,
 .gs-result:hover {
-  background: rgba(34, 211, 238, 0.09);
+  background: var(--sm-surface-hover);
 }
 
 .gs-result__icon {
@@ -611,8 +609,8 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   border: 1px solid var(--sm-border);
   border-radius: 8px;
-  background: rgba(12, 23, 39, 0.7);
-  color: var(--sm-accent-cyan);
+  background: var(--sm-surface-2);
+  color: var(--sm-accent-blue);
   font-size: 10px;
   font-weight: 700;
 }
@@ -701,7 +699,7 @@ onBeforeUnmount(() => {
 }
 
 .gs-recent:hover {
-  background: rgba(34, 211, 238, 0.09);
+  background: var(--sm-surface-hover);
 }
 
 .gs-recent__name {
@@ -720,7 +718,7 @@ onBeforeUnmount(() => {
 .gs-result__name mark,
 .gs-result__sub mark {
   border-radius: 2px;
-  background: rgba(34, 211, 238, 0.24);
+  background: rgba(49, 95, 206, 0.16);
   color: var(--sm-text-primary);
 }
 
@@ -728,7 +726,7 @@ onBeforeUnmount(() => {
   padding: 4px 10px;
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-pill);
-  background: rgba(12, 23, 39, 0.6);
+  background: var(--sm-surface-2);
   color: var(--sm-text-2);
   font-size: var(--sm-fs-xs);
   cursor: pointer;

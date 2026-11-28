@@ -17,14 +17,18 @@ extraResources:
     to: live-reader
   - from: build/icon.png
     to: icon.png
+  - from: build/icon.ico
+    to: icon.ico
 asar: true
 win:
   target:
     - target: nsis
       arch:
         - x64
-  icon: build/icon.png
+  icon: build/icon.ico
   artifactName: ScoutMind-FM27-Setup-x64.${ext}
+  signingHashAlgorithms: [sha256]
+  rfc3161TimeStampServer: http://timestamp.digicert.com
 nsis:
   oneClick: false
   perMachine: false

@@ -29,9 +29,12 @@
         </div>
         <el-progress :percentage="progressPercent" :stroke-width="10" :show-text="false" />
         <div class="governance__types">
-          <el-tag v-for="item in overview.conflict_types" :key="item.type" size="small" type="warning" effect="plain">
-            {{ conflictLabel(item.type) }} · {{ fmt(item.count) }}
-          </el-tag>
+          <AppTag
+            v-for="item in overview.conflict_types"
+            :key="item.type"
+            :label="`${conflictLabel(item.type)} · ${fmt(item.count)}`"
+            tone="warning"
+          />
           <span v-if="!overview.conflict_types.length" class="governance__muted">当前没有待审核冲突类型</span>
         </div>
       </div>
@@ -89,12 +92,15 @@
       >
         <template #cell="{ row, column }">
           <span v-if="column.prop === 'conflict_types'">
-            <el-tag v-for="type in row.conflict_types || []" :key="type" size="small" type="warning" effect="plain" class="governance__tag">
-              {{ conflictLabel(type) }}
-            </el-tag>
+            <AppTag
+              v-for="type in row.conflict_types || []"
+              :key="type"
+              :label="conflictLabel(type)"
+              tone="warning"
+            />
           </span>
           <span v-else-if="column.prop === 'status'">
-            <el-tag size="small" :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+            <AppTag :tag="row.status" :label="statusLabel(row.status)" />
           </span>
           <span v-else>{{ cellValue(row, column.prop) }}</span>
         </template>
@@ -103,7 +109,7 @@
 
     <SectionCard v-if="detail" :title="`${detail.canonical.player_name} · ${detail.canonical.game_date}`" dense>
       <template #actions>
-        <el-tag size="small" :type="statusType(detail.canonical.status)">{{ statusLabel(detail.canonical.status) }}</el-tag>
+        <AppTag :tag="detail.canonical.status" :label="statusLabel(detail.canonical.status)" />
       </template>
 
       <div class="governance__detail-meta">
@@ -199,7 +205,7 @@
         <tbody>
           <tr v-for="point in detail.timeline" :key="point.id">
             <td>{{ point.game_date }}</td>
-            <td><el-tag size="small" :type="statusType(point.status)">{{ statusLabel(point.status) }}</el-tag></td>
+            <td><AppTag :tag="point.status" :label="statusLabel(point.status)" /></td>
             <td>{{ point.canonical_snapshot_id ? `#${point.canonical_snapshot_id}` : '—（不纳入）' }}</td>
             <td>{{ point.reason }}</td>
           </tr>
@@ -221,6 +227,7 @@ import EmptyState from '../components/EmptyState.vue'
 import KpiCard from '../components/KpiCard.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
+import AppTag from '../components/AppTag.vue'
 import type { TableColumn } from '../types/table'
 import type {
   CanonicalDetail,
@@ -330,14 +337,8 @@ const attributeRows = computed<DiffRow[]>(() => {
 function statusLabel(status: string): string {
   return ({ resolved: '自动确认', resolved_auto: '自动确认', resolved_manual: '人工确认', needs_review: '待审核', excluded: '已排除', review_required: '需复核' } as Record<string, string>)[status] ?? status
 }
-function statusType(status: string): 'success' | 'warning' | 'danger' | 'info' {
-  if (status === 'resolved' || status === 'resolved_auto' || status === 'resolved_manual') return 'success'
-  if (status === 'needs_review') return 'warning'
-  if (status === 'excluded') return 'danger'
-  return 'info'
-}
 function conflictLabel(type: string): string {
-  return ({ ability_changed: '能力', contract_changed: '合同', valuation_changed: '身价', club_changed: '俱乐部', position_changed: '位置', physical_data_changed: '身体', missing_vs_present: '缺失/有值', source_changed: '来源', reader_version_changed: 'Reader 版本', mixed_changes: '混合变化' } as Record<string, string>)[type] ?? type
+  return ({ ability_changed: '能力', contract_changed: '合同', valuation_changed: '身价', club_changed: '俱乐部', position_changed: '位置', physical_data_changed: '身体', missing_vs_present: '缺失/有值', source_changed: '来源', reader_version_changed: '读取器版本', mixed_changes: '混合变化' } as Record<string, string>)[type] ?? type
 }
 function actionLabel(action: string): string {
   return ({ select_snapshot: '选择快照', exclude_game_date: '排除日期', keep_pending: '保持待审' } as Record<string, string>)[action] ?? action

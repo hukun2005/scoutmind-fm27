@@ -6,6 +6,8 @@ import type { ConfidenceLevel, CoverageMap, DataSource } from './common'
 export interface PlayerSummary {
   instance_id: number
   player_id: number
+  /** 存档内稳定 ID（阵容 CSV 等场景复用）。 */
+  save_local_uid?: string
   name: string
   age: number | null
   birth_date: string | null
@@ -19,6 +21,8 @@ export interface PlayerSummary {
   market_value: number | null
   wage: number | null
   contract_end: string | null
+  /** 游戏内观察日期；列表接口返回，旧响应可能缺失。 */
+  game_date?: string | null
   /** 身高（cm）；仅球员详情返回，列表可能为 null。 */
   height_cm?: number | null
   /** 惯用脚；仅球员详情返回，原始值由后端给出。 */
@@ -32,6 +36,9 @@ export interface PlayerSummary {
 /** Sortable columns accepted by `GET /players?sort=` (prefix `-` for descending). */
 export type PlayerSortField = 'age' | 'ca' | 'pa' | 'market_value' | 'name' | 'updated_at'
 
+/** 惯用脚（协议枚举）。 */
+export type PlayerFoot = 'left' | 'right' | 'both'
+
 /** Filters accepted by `GET /players`; the same object is `filters` in `/scouting/search`. */
 export interface PlayerFilters {
   query?: string
@@ -40,11 +47,35 @@ export interface PlayerFilters {
   min_age?: number
   max_age?: number
   min_ca?: number
+  min_pa?: number
   max_pa?: number
   max_value?: number
   max_wage?: number
   club_id?: number
+  /** 真实存在的国籍值，来自 `/players/facets`。 */
+  nationality?: string
+  /** 联赛名，来自 `/players/facets`；后端按俱乐部联赛过滤。 */
+  league?: string
+  /** 惯用脚；只接受协议枚举 left/right/both。 */
+  foot?: PlayerFoot
+  min_height?: number
+  max_height?: number
+  /** 合同在该日期（含）前到期。 */
+  contract_end_before?: string
   watchlist_only?: boolean
+}
+
+/** One real filter value of `/players/facets` with its population count. */
+export interface PlayerFacetValue {
+  value: string
+  count: number
+}
+
+/** `GET /players/facets` payload. */
+export interface PlayerFacets {
+  total_players: number | null
+  nationalities: PlayerFacetValue[]
+  leagues: PlayerFacetValue[]
 }
 
 /** Query string of `GET /players`. */

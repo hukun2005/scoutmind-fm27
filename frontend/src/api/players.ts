@@ -3,12 +3,21 @@
 import type {
   PlayerDetail,
   PlayerDevelopmentResponse,
+  PlayerFacets,
   PlayerHistoryResponse,
   PlayerListQuery,
   PlayerListResponse,
 } from '../types/players'
 import type { QueryParams } from './client'
 import { apiGet } from './client'
+
+/**
+ * `GET /players/facets` — real nationality and league values of the save.
+ * @param saveId Active save; omitted when the backend should use its default.
+ */
+export function getPlayerFacets(saveId?: number): Promise<PlayerFacets> {
+  return apiGet<PlayerFacets>('/players/facets', { save_id: saveId })
+}
 
 /**
  * `GET /players` — server-side filtered, sorted and paged player list.

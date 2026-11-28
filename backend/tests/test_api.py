@@ -6,7 +6,7 @@ import json
 
 from app.config import settings
 
-from tests.helpers import import_document, player_row, scan_document, transfer_row
+from tests.helpers import club_row, import_document, player_row, scan_document, transfer_row
 
 
 def _seed(db) -> None:
@@ -88,6 +88,46 @@ def test_transfer_stats_endpoint(client, db, save):
     assert response.status_code == 200
     assert body["sample_size"] == 2
     assert body["median"] == 17_000_000
+
+
+def test_players_advanced_filters_and_facets(client, db, save):
+    """V4.0-03：国籍、联赛、脚型、身高与合同筛选全部来自真实列，facets 只返回存在的值。"""
+    italy = player_row("P3", "Italy Player", ca=150, position="ST", value=30_000_000)
+    italy.update({"nationality": "Italy", "height_cm": 190, "foot": "left"})
+    england = player_row("P4", "England Player", ca=120, position="DC", value=8_000_000, contract_end="2027-06-30")
+    england.update({"nationality": "England", "height_cm": 178, "foot": "right", "club_uid": "C2"})
+    import_document(
+        db,
+        scan_document(
+            scan_id="scan-advanced",
+            players=[italy, england],
+            clubs=[
+                club_row("C1", "Northbridge United", league="Premier Division", user_club=True),
+                club_row("C2", "Kingsport City", league="Championship"),
+            ],
+        ),
+    )
+
+    def total(**params: object) -> int:
+        query = "&".join(f"{key}={value}" for key, value in params.items())
+        response = client.get(f"/api/v1/players?save_id={save.id}&{query}")
+        assert response.status_code == 200, response.text
+        return response.json()["total"]
+
+    assert total(nationality="Italy") == 1
+    assert total(league="Championship") == 1
+    assert total(foot="left") == 1
+    assert total(min_height=185) == 1
+    assert total(contract_end_before="2027-12-31") == 1
+    # 不存在的国籍不会被伪造成结果，也不会报错。
+    assert total(nationality="Atlantis") == 0
+
+    facets = client.get(f"/api/v1/players/facets?save_id={save.id}")
+    assert facets.status_code == 200
+    body = facets.json()
+    assert body["total_players"] == 2
+    assert {item["value"]: item["count"] for item in body["nationalities"]} == {"Italy": 1, "England": 1}
+    assert {item["value"]: item["count"] for item in body["leagues"]} == {"Premier Division": 1, "Championship": 1}
 
 
 def test_invalid_sort_is_rejected(client, db, save):

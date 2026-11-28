@@ -281,7 +281,7 @@ test('导航按任务分组，技术页面默认隐藏并可折叠展开', async
   await expect(sidebar.getByRole('link', { name: '球员中心' })).toHaveCount(0)
   await expect(sidebar.getByRole('link', { name: '数据治理' })).toHaveCount(0)
 
-  await sidebar.getByRole('button', { name: /高级工具/ }).click()
+  await sidebar.getByRole('button', { name: /高级诊断/ }).click()
   await expect(sidebar.getByRole('link', { name: '数据治理' })).toBeVisible()
 })
 

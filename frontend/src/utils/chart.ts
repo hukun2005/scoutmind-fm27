@@ -11,10 +11,10 @@ import type { PlayerHistoryPoint } from '../types/players'
 import type { DistributionBucket } from '../types/transfers'
 import type { TransferFlowBucket, ValueScatterPoint } from '../types/visualization'
 
-const TEXT_2 = '#9db0c9'
-const TEXT_3 = '#7689a3'
-const BORDER = 'rgba(122, 162, 220, 0.18)'
-const SPLIT = 'rgba(122, 162, 220, 0.1)'
+const TEXT_2 = '#475569'
+const TEXT_3 = '#64748b'
+const BORDER = '#e5eaf1'
+const SPLIT = '#eef2f7'
 
 /** 系统是否要求减少动态效果；图表据此关闭入场动画。 */
 function reducedMotion(): boolean {
@@ -22,27 +22,27 @@ function reducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
-/** 系列颜色：与设计 Token 的强调色一致，保证跨页面可识别。 */
+/** 系列颜色：与 V4.1 设计 Token 的品牌蓝 / 低饱和语义色一致，保证跨页面可识别。 */
 export const CHART_COLORS = {
-  ca: '#4d8dff',
-  pa: '#6b7f9b',
-  value: '#34d399',
-  minutes: '#4d8dff',
-  appearances: '#f5b544',
-  fee: '#4d8dff',
-  blue: '#4d8dff',
-  cyan: '#22d3ee',
-  violet: '#a78bfa',
+  ca: '#315fce',
+  pa: '#94a3b8',
+  value: '#16865b',
+  minutes: '#315fce',
+  appearances: '#b7791f',
+  fee: '#315fce',
+  blue: '#315fce',
+  cyan: '#5b84e0',
+  teal: '#0e7490',
 } as const
 
-/** 深色画布上的统一 tooltip 外观。 */
+/** 浅色画布上的统一 tooltip 外观。 */
 const TOOLTIP_STYLE = {
-  backgroundColor: 'rgba(8, 16, 28, 0.96)',
-  borderColor: 'rgba(122, 162, 220, 0.28)',
+  backgroundColor: '#ffffff',
+  borderColor: '#e5eaf1',
   borderWidth: 1,
   padding: [8, 10] as [number, number],
-  textStyle: { color: '#eef5ff', fontSize: 12 },
-  extraCssText: 'border-radius:10px;box-shadow:0 18px 40px -24px rgba(2,7,16,.9);',
+  textStyle: { color: '#172033', fontSize: 12 },
+  extraCssText: 'border-radius:10px;box-shadow:0 12px 30px -18px rgba(23,32,51,.24);',
 }
 
 /** Date label of a history point: game date when present, otherwise the observation date. */
@@ -226,7 +226,7 @@ export function buildTrendChart(trend: TrendPoint[]): EChartsOption {
         ),
         lineStyle: { width: 2, color: CHART_COLORS.value },
         itemStyle: { color: CHART_COLORS.value },
-        areaStyle: { color: 'rgba(53, 201, 138, 0.12)' },
+        areaStyle: { color: 'rgba(22, 134, 91, 0.12)' },
       },
       {
         name: 'CA 均值',
@@ -248,14 +248,14 @@ export interface RadarSeries {
 }
 
 /** 雷达图配色；比较人数超过颜色数时循环使用。 */
-const RADAR_COLORS = ['#22d3ee', '#4d8dff', '#a78bfa', '#34d399', '#f5b544'] as const
+const RADAR_COLORS = ['#315fce', '#16865b', '#0e7490', '#b7791f', '#c2414b'] as const
 
 /**
  * Player comparison radar, the screen the recruitment report is built around.
  * @param dimensions Axis labels shared by every series (for example the six score dimensions).
  * @param series One entry per compared player; `null` values are drawn as zero and must be labelled by the caller.
  * @param max Axis maximum; 100 for scores, 20 for raw attributes.
- * @returns Radar chart option sized for the dark canvas.
+ * @returns Radar chart option sized for the light canvas.
  */
 export function buildRadarChart(dimensions: string[], series: RadarSeries[], max = 100): EChartsOption {
   return {
@@ -277,7 +277,7 @@ export function buildRadarChart(dimensions: string[], series: RadarSeries[], max
       splitNumber: 4,
       axisName: { color: TEXT_3, fontSize: 11 },
       splitLine: { lineStyle: { color: BORDER } },
-      splitArea: { areaStyle: { color: ['rgba(255,255,255,0.02)', 'rgba(255,255,255,0.05)'] } },
+      splitArea: { areaStyle: { color: ['rgba(49,95,206,0.02)', 'rgba(49,95,206,0.05)'] } },
       axisLine: { lineStyle: { color: BORDER } },
     },
     series: [
@@ -314,7 +314,7 @@ export function buildSquadRadar(components: Array<{ label: string; value: number
       splitNumber: 4,
       axisName: { color: TEXT_2, fontSize: 11 },
       splitLine: { lineStyle: { color: BORDER } },
-      splitArea: { areaStyle: { color: ['rgba(255,255,255,0.015)', 'rgba(34,211,238,0.035)'] } },
+      splitArea: { areaStyle: { color: ['rgba(49,95,206,0.02)', 'rgba(49,95,206,0.05)'] } },
       axisLine: { lineStyle: { color: BORDER } },
     },
     series: [
@@ -327,7 +327,7 @@ export function buildSquadRadar(components: Array<{ label: string; value: number
             value: usable.map((entry) => Number(entry.value.toFixed(1))),
             lineStyle: { width: 2, color: CHART_COLORS.cyan },
             itemStyle: { color: CHART_COLORS.cyan },
-            areaStyle: { color: 'rgba(34, 211, 238, 0.16)' },
+            areaStyle: { color: 'rgba(49, 95, 206, 0.14)' },
           },
         ],
       },
@@ -368,8 +368,8 @@ export function buildAgeDistribution(
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: '#22d3ee' },
-              { offset: 1, color: 'rgba(37, 99, 235, 0.35)' },
+              { offset: 0, color: '#5b84e0' },
+              { offset: 1, color: 'rgba(49, 95, 206, 0.32)' },
             ],
           },
         },
@@ -380,8 +380,8 @@ export function buildAgeDistribution(
         symbol: 'circle' as const,
         symbolSize: 5,
         data: buckets.map((bucket) => Number((bucket.ideal_share * 100).toFixed(1))),
-        lineStyle: { width: 1.5, type: 'dashed' as const, color: CHART_COLORS.violet },
-        itemStyle: { color: CHART_COLORS.violet },
+        lineStyle: { width: 1.5, type: 'dashed' as const, color: CHART_COLORS.teal },
+        itemStyle: { color: CHART_COLORS.teal },
       },
     ],
   }
@@ -418,7 +418,7 @@ export function buildPositionDistribution(rows: Array<{ slot: string; slot_name:
         type: 'bar' as const,
         barMaxWidth: 11,
         data: items.map((row) => row.required),
-        itemStyle: { color: 'rgba(167, 139, 250, 0.5)', borderRadius: [0, 4, 4, 0] as [number, number, number, number] },
+        itemStyle: { color: 'rgba(100, 116, 139, 0.45)', borderRadius: [0, 4, 4, 0] as [number, number, number, number] },
       },
     ],
   }
@@ -445,7 +445,7 @@ function formatBucketRange(start: number, end: number): string {
 /**
  * 球员价值散点：年龄 × 身价，点大小与颜色反映能力档位。
  * @param points 后端已排除身价缺失的球员。
- * @returns 深色主题散点图。
+ * @returns 浅色主题散点图。
  */
 export function buildValueScatter(points: ValueScatterPoint[]): EChartsOption {
   const usable = points.filter(
@@ -496,10 +496,10 @@ export function buildValueScatter(points: ValueScatterPoint[]): EChartsOption {
             if (typeof ca !== 'number') return 'rgba(157, 176, 201, 0.55)'
             if (ca >= 160) return CHART_COLORS.cyan
             if (ca >= 135) return CHART_COLORS.blue
-            return CHART_COLORS.violet
+            return CHART_COLORS.teal
           },
           opacity: 0.82,
-          borderColor: 'rgba(5, 10, 19, 0.55)',
+          borderColor: '#ffffff',
           borderWidth: 1,
         },
       },
@@ -550,7 +550,7 @@ export function buildTransferFlow(bucket: TransferFlowBucket): EChartsOption {
             color:
               index === 4
                 ? value > 0
-                  ? CHART_COLORS.violet
+                  ? CHART_COLORS.teal
                   : CHART_COLORS.value
                 : index === 0 || index === 3
                   ? CHART_COLORS.blue

@@ -21,6 +21,7 @@ import ErrorState from '../components/ErrorState.vue'
 import NumberCell from '../components/NumberCell.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
+import AppTag from '../components/AppTag.vue'
 import type { Alert, WatchStatus, WatchlistGroup, WatchlistItem } from '../types/watchlist'
 import type { TableColumn } from '../types/table'
 import { useSessionStore } from '../stores/session'
@@ -442,7 +443,7 @@ watch(signature, () => void reload(), { immediate: true })
             </el-select>
           </template>
           <template v-else-if="column.prop === 'tag'">
-            <el-tag v-if="row.tag" size="small" type="info" disable-transitions>{{ row.tag }}</el-tag>
+            <AppTag v-if="row.tag" :tag="row.tag" />
             <span v-else class="sm-null">—</span>
           </template>
           <template v-else-if="column.prop === 'note'">
@@ -496,7 +497,7 @@ watch(signature, () => void reload(), { immediate: true })
           <div class="alert__body">
             <div class="alert__title">
               {{ alert.title }}
-              <el-tag size="small" type="info" disable-transitions>{{ alertTypeLabel(alert.type) }}</el-tag>
+              <AppTag :tag="alert.type" :label="alertTypeLabel(alert.type)" />
             </div>
             <p class="alert__message">{{ alert.message }}</p>
             <p class="alert__meta">

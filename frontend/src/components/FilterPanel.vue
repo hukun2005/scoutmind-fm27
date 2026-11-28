@@ -59,9 +59,7 @@ withDefaults(
   padding: var(--sm-space-4);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-lg);
-  background:
-    linear-gradient(170deg, rgba(20, 35, 56, 0.42) 0%, rgba(9, 18, 32, 0.9) 60%),
-    var(--sm-surface);
+  background: var(--sm-surface);
   box-shadow: var(--sm-shadow-1);
 }
 

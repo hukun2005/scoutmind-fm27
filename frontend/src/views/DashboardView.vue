@@ -762,12 +762,12 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
   justify-content: space-between;
   gap: var(--sm-space-5);
   padding: var(--sm-space-5);
-  border: 1px solid var(--sm-border-strong);
+  border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-xl);
   background:
-    radial-gradient(520px 220px at 88% -30%, rgba(34, 211, 238, 0.16), transparent 70%),
-    linear-gradient(140deg, rgba(12, 30, 48, 0.94), rgba(10, 18, 34, 0.96) 60%);
-  box-shadow: var(--sm-shadow-2);
+    radial-gradient(520px 220px at 88% -30%, rgba(49, 95, 206, 0.08), transparent 70%),
+    var(--sm-surface);
+  box-shadow: var(--sm-shadow-1);
 }
 
 .welcome__body {
@@ -819,7 +819,7 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
   padding: 3px var(--sm-space-2);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-pill);
-  background: rgba(8, 17, 30, 0.72);
+  background: var(--sm-surface-2);
   color: var(--sm-text-2);
   font-size: var(--sm-fs-2xs);
   white-space: nowrap;
@@ -875,7 +875,7 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
   border: 1px solid var(--sm-border);
   border-left: 2px solid var(--sm-accent-blue);
   border-radius: var(--sm-radius-sm);
-  background: rgba(12, 23, 39, 0.55);
+  background: var(--sm-surface-2);
 }
 
 .brief__row--warn {
@@ -946,7 +946,7 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
   border: 1px solid var(--sm-border);
   border-left: 2px solid var(--sm-border-strong);
   border-radius: var(--sm-radius-sm);
-  background: rgba(12, 23, 39, 0.6);
+  background: var(--sm-surface-2);
 }
 
 .highlight--info {
@@ -1076,7 +1076,7 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
   grid-column: 1 / -1;
   height: 3px;
   border-radius: 2px;
-  background: rgba(22, 37, 59, 0.9);
+  background: var(--sm-surface-3);
   overflow: hidden;
 }
 
@@ -1084,7 +1084,7 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
   display: block;
   height: 100%;
   border-radius: 2px;
-  background: linear-gradient(90deg, rgba(34, 211, 238, 0.55), rgba(167, 139, 250, 0.75));
+  background: var(--sm-gradient-accent);
 }
 
 .link-btn {
@@ -1115,7 +1115,7 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
   padding: var(--sm-space-2) var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
-  background: rgba(12, 23, 39, 0.55);
+  background: var(--sm-surface-2);
   color: inherit;
   transition:
     border-color var(--sm-dur-1) var(--sm-ease-out),
@@ -1123,8 +1123,8 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
 }
 
 .quick-link:hover {
-  border-color: rgba(34, 211, 238, 0.4);
-  background: rgba(34, 211, 238, 0.08);
+  border-color: var(--sm-border-glow);
+  background: var(--sm-surface-hover);
   text-decoration: none;
 }
 
@@ -1136,8 +1136,8 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
   flex: 0 0 auto;
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-sm);
-  color: var(--sm-accent-cyan);
-  background: rgba(8, 17, 30, 0.8);
+  color: var(--sm-accent-blue);
+  background: var(--sm-surface);
 }
 
 .quick-link__text {

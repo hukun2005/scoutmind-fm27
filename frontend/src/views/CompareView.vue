@@ -720,9 +720,9 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   padding: 4px 6px 4px 10px;
-  border: 1px solid rgba(34, 211, 238, 0.28);
+  border: 1px solid rgba(49, 95, 206, 0.24);
   border-radius: var(--sm-radius-pill);
-  background: rgba(34, 211, 238, 0.08);
+  background: var(--sm-accent-weak);
   font-size: var(--sm-fs-xs);
 }
 
@@ -732,8 +732,8 @@ onBeforeUnmount(() => {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: rgba(34, 211, 238, 0.22);
-  color: var(--sm-text-primary);
+  background: rgba(49, 95, 206, 0.16);
+  color: var(--sm-accent-blue);
   font-size: 9px;
 }
 
@@ -774,7 +774,7 @@ onBeforeUnmount(() => {
   padding: 6px 10px;
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-sm);
-  background: rgba(12, 23, 39, 0.55);
+  background: var(--sm-surface-2);
 }
 
 .candidate__main {
@@ -808,7 +808,7 @@ onBeforeUnmount(() => {
 
 .compare-row--head {
   border-bottom-color: var(--sm-border-strong);
-  background: rgba(34, 211, 238, 0.04);
+  background: var(--sm-surface-2);
 }
 
 .compare-cell {
@@ -849,8 +849,8 @@ onBeforeUnmount(() => {
 }
 
 .compare-cell--lead {
-  background: rgba(52, 211, 153, 0.08);
-  box-shadow: inset 2px 0 0 rgba(52, 211, 153, 0.45);
+  background: rgba(22, 163, 106, 0.07);
+  box-shadow: inset 2px 0 0 rgba(22, 163, 106, 0.45);
 }
 
 .compare-cell__lead {

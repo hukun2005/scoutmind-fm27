@@ -20,6 +20,7 @@ import {
 import AttributeBar from '../components/AttributeBar.vue'
 import ChartCard from '../components/ChartCard.vue'
 import ConfidenceTag from '../components/ConfidenceTag.vue'
+import AppTag from '../components/AppTag.vue'
 import DataTable from '../components/DataTable.vue'
 import EChart from '../components/EChart.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -50,6 +51,7 @@ import { useCompareStore } from '../stores/compare'
 import { useSessionStore } from '../stores/session'
 import { buildAppearanceChart, buildGrowthChart, buildRadarChart } from '../utils/chart'
 import { rememberRecent } from '../utils/recent'
+import { visibleTags } from '../utils/tags'
 import {
   EMPTY,
   displayText,
@@ -70,7 +72,6 @@ import {
   positionGroupLabel,
   positionLabel,
   similarityFactorLabel,
-  sourceLabel,
   transferStatusLabel,
   valuationAdjustmentLabel,
   valuationMethodLabel,
@@ -760,11 +761,10 @@ void loadRoles()
       back-label="返回球员中心"
     >
       <template #meta>
-        <el-tag v-if="summary" size="small" type="info" disable-transitions>来源：{{ sourceLabel(summary.source) }}</el-tag>
         <span v-if="summary" class="sm-text-xs sm-text-faint">
-          实例 ID {{ summary.instance_id }} · 最近观测 {{ formatDateTime(summary.observed_at) }}
+          最近观测 {{ formatDateTime(summary.observed_at) }}
         </span>
-        <el-tag v-if="watchItem" size="small" type="success" disable-transitions>关注：{{ displayText(watchItem.tag) }}</el-tag>
+        <AppTag v-if="watchItem" tag="watching" />
       </template>
       <template #actions>
         <el-tooltip
@@ -852,7 +852,7 @@ void loadRoles()
                 AI 交易分析：合同 · 条款 · 买入/出售报价 · 谈判
               </router-link>
               <div v-if="detail.tags.length > 0" class="player-hero__tags">
-                <el-tag v-for="tag in detail.tags" :key="tag" size="small" type="info" disable-transitions>{{ tag }}</el-tag>
+                <AppTag v-for="tag in visibleTags(detail.tags)" :key="tag.key" :tag="tag.key" :label="tag.label" />
               </div>
             </div>
           </div>
@@ -1525,12 +1525,12 @@ void loadRoles()
   gap: var(--sm-space-5);
   padding: var(--sm-space-5);
   overflow: hidden;
-  border: 1px solid var(--sm-border-strong);
+  border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-xl);
   background:
-    linear-gradient(120deg, rgba(10, 34, 54, 0.92) 0%, rgba(9, 18, 34, 0.94) 50%, rgba(24, 16, 46, 0.9) 100%),
+    linear-gradient(120deg, rgba(49, 95, 206, 0.06) 0%, rgba(255, 255, 255, 0.96) 50%, rgba(49, 95, 206, 0.05) 100%),
     var(--sm-surface);
-  box-shadow: var(--sm-shadow-2);
+  box-shadow: var(--sm-shadow-1);
 }
 
 .player-hero__glow {
@@ -1540,7 +1540,7 @@ void loadRoles()
   width: 340px;
   height: 280px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(167, 139, 250, 0.2), transparent 70%);
+  background: radial-gradient(circle, rgba(49, 95, 206, 0.12), transparent 70%);
   filter: blur(4px);
   pointer-events: none;
 }
@@ -1628,7 +1628,7 @@ void loadRoles()
   padding: 3px var(--sm-space-2);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-pill);
-  background: rgba(8, 17, 30, 0.72);
+  background: var(--sm-surface-2);
   color: var(--sm-text-3);
   font-size: var(--sm-fs-2xs);
   white-space: nowrap;
@@ -1831,7 +1831,7 @@ void loadRoles()
 }
 
 .chip--good {
-  border-color: rgba(53, 201, 138, 0.35);
+  border-color: rgba(22, 134, 91, 0.35);
   background: var(--sm-success-weak);
   color: var(--sm-success);
 }
@@ -1965,9 +1965,7 @@ void loadRoles()
   padding: var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
-  background:
-    linear-gradient(160deg, rgba(22, 37, 59, 0.45) 0%, rgba(11, 21, 36, 0.85) 100%),
-    var(--sm-surface-2);
+  background: var(--sm-surface-2);
 }
 
 .attribute-card__head {
