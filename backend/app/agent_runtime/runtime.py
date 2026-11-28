@@ -30,6 +30,7 @@ from .state import (
     STATUS_QUEUED,
     STATUS_RUNNING,
     STATUS_WAITING_APPROVAL,
+    TERMINAL_STATUSES,
     AgentTaskState,
     Limits,
     state_from_task,
@@ -60,6 +61,7 @@ class AgentRuntime:
         self.clock = clock
         self._graph: Any = None
         self._graph_error: AgentRuntimeError | None = None
+        self._nodes: Any = None
         self._semaphore = threading.BoundedSemaphore(max(1, self.limits.max_concurrent_tasks))
         self._locks: dict[str, threading.Lock] = {}
         self._locks_guard = threading.Lock()
@@ -91,6 +93,7 @@ class AgentRuntime:
                     clock=self.clock,
                 )
             )
+            self._nodes = nodes
             self._graph = build_graph(nodes, self.checkpointer)
         except AgentRuntimeError as exc:
             self._graph_error = exc
@@ -238,6 +241,8 @@ class AgentRuntime:
             persistence.apply_state(session, task, state)
         finally:
             session.close()
+        if state.get("execution_status") in TERMINAL_STATUSES:
+            self._release_task(task_id)
         return dict(result)
 
     def _load(self, task_id: str) -> AgentTask:
@@ -267,6 +272,13 @@ class AgentRuntime:
             )
         finally:
             session.close()
+        self._release_task(task_id)
+
+    def _release_task(self, task_id: str) -> None:
+        """任务终态后释放节点缓存（写缓存按任务累积，不释放会随进程运行时间增长）。"""
+        nodes = getattr(self, "_nodes", None)
+        if nodes is not None:
+            nodes.release(task_id)
 
     def _lock_for(self, thread_id: str) -> threading.Lock:
         with self._locks_guard:

@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import false, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..models import Club, PlayerInstance, PlayerSnapshot, Transfer
@@ -116,6 +116,53 @@ def build_query(save_id: int, filters: TransferFilter):  # noqa: ANN201 - SQLAlc
     return query
 
 
+def _position_codes(group: str) -> list[str]:
+    """SQL 侧位置码集合；与 :func:`position_group` 的分组表保持同一来源。"""
+    from ..ingestion.attributes import POSITION_GROUPS
+
+    wanted = group.strip().upper()
+    return [code for code, value in POSITION_GROUPS.items() if value == wanted]
+
+
+def relational_conditions(save_id: int, filters: TransferFilter) -> list:
+    """把位置 / 联赛筛选下推成 SQL 条件。
+
+    语义与旧的 Python 逐行过滤完全一致：
+
+    * 位置只做单码精确匹配，``"AMR, MR"`` 这类多码字符串不会被当成 FW 或 MF；
+    * 位置来自 ``PlayerInstance.position``（与旧实现同一数据源），``NULL`` 不匹配任何分组；
+    * 联赛匹配转出或转入俱乐部所属联赛。
+
+    这样 LIMIT/OFFSET、COUNT 与覆盖率聚合都能在数据库内完成，不再把整张转会表读进内存。
+    """
+    conditions: list = []
+    if filters.league:
+        league_clubs = select(Club.id).where(Club.fm_save_id == save_id, Club.league == filters.league)
+        conditions.append(
+            or_(Transfer.from_club_id.in_(league_clubs), Transfer.to_club_id.in_(league_clubs))
+        )
+    if filters.position_group:
+        codes = _position_codes(filters.position_group)
+        if not codes:
+            # 未知分组在旧实现里匹配不到任何行。
+            conditions.append(false())
+        else:
+            instance_ids = select(PlayerInstance.id).where(
+                PlayerInstance.fm_save_id == save_id,
+                func.upper(func.trim(PlayerInstance.position)).in_(codes),
+            )
+            conditions.append(Transfer.player_instance_id.in_(instance_ids))
+    return conditions
+
+
+def _with_relational_filters(save_id: int, filters: TransferFilter):
+    """带全部筛选条件的基础查询（含位置/联赛下推）。"""
+    query = build_query(save_id, filters)
+    for condition in relational_conditions(save_id, filters):
+        query = query.where(condition)
+    return query
+
+
 def fetch_transfers(
     session: Session,
     save_id: int,
@@ -126,8 +173,8 @@ def fetch_transfers(
 ) -> list[Transfer]:
     """Load one page of transfers.
 
-    位置与联赛筛选依赖关联数据，先在 SQL 里筛掉能筛的条件，再把剩余的行按位置/联赛过滤；
-    没有这类筛选时 LIMIT/OFFSET 完全下推到数据库，不会把整张转会表读进内存。
+    位置、联赛、状态等条件全部下推到 SQL，LIMIT/OFFSET 真正由数据库执行；
+    任何筛选组合都不会把整张转会表读进内存。
     排序只允许 ``SORTABLE_TRANSFER_FIELDS`` 中的字段，未知字段抛 ``ValueError``。
     """
     key = sort_key_of(sort)
@@ -141,73 +188,35 @@ def fetch_transfers(
         # 缺失金额的行与其它字段一样参与分页，但始终排在末尾，避免空值抢占首屏。
         order_columns = [primary.nulls_last()]
     order_columns.append(Transfer.id.desc())
-    query = build_query(save_id, filters).order_by(*order_columns)
-    needs_python_filter = bool(filters.position_group or filters.league)
-    if not needs_python_filter:
-        if offset:
-            query = query.offset(offset)
-        if limit is not None:
-            query = query.limit(limit)
-        return list(session.scalars(query))
-
-    # 有 Python 侧筛选时只能逐行判断；仍然在 SQL 里做联赛/位置可下推的部分（league 在 Club 表上）。
-    if filters.league:
-        from sqlalchemy import or_
-
-        league_clubs = select(Club.id).where(Club.fm_save_id == save_id, Club.league == filters.league)
-        query = query.where(or_(Transfer.from_club_id.in_(league_clubs), Transfer.to_club_id.in_(league_clubs)))
-
-    rows = list(session.scalars(query))
-    if filters.position_group:
-        positions = _instance_positions(session, [row.player_instance_id for row in rows])
-        rows = [row for row in rows if _position_group_of(row, positions) == filters.position_group]
-    return rows[offset : offset + limit] if limit is not None else rows[offset:]
+    query = _with_relational_filters(save_id, filters).order_by(*order_columns)
+    if offset:
+        query = query.offset(offset)
+    if limit is not None:
+        query = query.limit(limit)
+    return list(session.scalars(query))
 
 
 def count_transfers(session: Session, save_id: int, filters: TransferFilter) -> int:
     """Count matching transfers with a COUNT query, never by loading the page."""
-    from sqlalchemy import func as sql_func
-
-    query = build_query(save_id, filters)
-    if not (filters.position_group or filters.league):
-        return int(session.scalar(select(sql_func.count()).select_from(query.subquery())) or 0)
-    # 位置筛选无法纯 SQL 表达（位置来自球员实例），退回计数时只做 SQL 可下推的部分。
-    return len(fetch_transfers(session, save_id, filters))
+    query = _with_relational_filters(save_id, filters)
+    return int(session.scalar(select(func.count()).select_from(query.subquery())) or 0)
 
 
 def transfer_list_coverage(session: Session, save_id: int, filters: TransferFilter) -> dict[str, float]:
     """Non-null ratios of the listed fields over the **whole** filtered set.
 
     覆盖率描述的是筛选结果，不是当前页：分页或换页不会改变这些数字。
-    没有位置/联赛筛选时用一条聚合查询完成；有这两类 Python 侧筛选时退回整集遍历，与
-    :func:`count_transfers` 的口径保持一致。
+    位置/联赛条件已下推，因此任何筛选组合都只需一条聚合查询。
     """
-    from sqlalchemy import func as sql_func
-
     keys = ("effective_fee", "transfer_date", "ca_at_transfer", "contract_remaining_months")
     zeros = {key: 0.0 for key in keys}
-    if filters.position_group or filters.league:
-        rows = fetch_transfers(session, save_id, filters)
-        total = len(rows)
-        if total == 0:
-            return zeros
-        return {
-            "effective_fee": round(sum(1 for row in rows if row.effective_fee is not None) / total, 4),
-            "transfer_date": round(sum(1 for row in rows if row.transfer_date is not None) / total, 4),
-            "ca_at_transfer": round(
-                sum(1 for row in rows if row.player_ca_at_transfer is not None) / total, 4
-            ),
-            "contract_remaining_months": round(
-                sum(1 for row in rows if row.contract_remaining_months is not None) / total, 4
-            ),
-        }
     total_rows, priced, dated, with_ca, with_contract = session.execute(
-        build_query(save_id, filters).with_only_columns(
-            sql_func.count(Transfer.id),
-            sql_func.count(Transfer.effective_fee),
-            sql_func.count(Transfer.transfer_date),
-            sql_func.count(Transfer.player_ca_at_transfer),
-            sql_func.count(Transfer.contract_remaining_months),
+        _with_relational_filters(save_id, filters).with_only_columns(
+            func.count(Transfer.id),
+            func.count(Transfer.effective_fee),
+            func.count(Transfer.transfer_date),
+            func.count(Transfer.player_ca_at_transfer),
+            func.count(Transfer.contract_remaining_months),
         )
     ).one()
     total = int(total_rows or 0)
@@ -586,19 +595,14 @@ def _filters_payload(filters: TransferFilter) -> dict[str, object]:
 
 
 def _instance_positions(session: Session, instance_ids: list[int | None]) -> dict[int, str | None]:
-    ids = [value for value in instance_ids if value is not None]
-    if not ids:
-        return {}
-    rows = session.scalars(select(PlayerInstance).where(PlayerInstance.id.in_(ids)))
-    return {row.id: row.position for row in rows}
-
-
-def _position_group_of(transfer: Transfer, positions: dict[int, str | None]) -> str | None:
-    from ..ingestion.attributes import position_group
-
-    if transfer.player_instance_id is None:
-        return None
-    return position_group(positions.get(transfer.player_instance_id))
+    """按实例批量读取位置；分块查询，避免超过 SQLite 的绑定变量上限。"""
+    ids = sorted({value for value in instance_ids if value is not None})
+    positions: dict[int, str | None] = {}
+    for start in range(0, len(ids), 500):
+        chunk = ids[start : start + 500]
+        rows = session.scalars(select(PlayerInstance).where(PlayerInstance.id.in_(chunk)))
+        positions.update({row.id: row.position for row in rows})
+    return positions
 
 
 def _target_profile(session: Session, instance: PlayerInstance) -> dict[str, object]:

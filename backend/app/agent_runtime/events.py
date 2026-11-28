@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from sqlalchemy import event as sa_event
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -34,6 +35,15 @@ EVENT_TYPES = frozenset(
 
 _MAX_STRING = 4000
 _SENSITIVE = ("api_key", "apikey", "token", "secret", "password", "traceback")
+# 事务内 seq 缓存：同一事务连续追加事件时不再每条都做一次 MAX(seq) 扫描。
+# 事务结束即失效，避免另一个会话/线程已写入更高 seq 时仍复用旧值。
+_SEQ_CACHE = "agent_event_seq"
+
+
+@sa_event.listens_for(Session, "after_commit")
+@sa_event.listens_for(Session, "after_rollback")
+def _drop_seq_cache(session: Session) -> None:
+    session.info.pop(_SEQ_CACHE, None)
 
 
 def sanitize(payload: Any, *, depth: int = 0) -> Any:
@@ -69,20 +79,36 @@ class TaskEventBus:
         task_id: str,
         event_type: str,
         payload: dict[str, Any] | None = None,
+        *,
+        commit: bool = True,
     ) -> dict[str, Any]:
         if event_type not in EVENT_TYPES:
             raise ValueError(f"未知事件类型：{event_type}")
-        seq = session.scalar(select(func.max(AgentTaskEvent.seq)).where(AgentTaskEvent.task_id == task_id)) or 0
+        cache: dict[str, int] = session.info.setdefault(_SEQ_CACHE, {})
+        seq = cache.get(task_id)
+        if seq is None:
+            seq = int(
+                session.scalar(select(func.max(AgentTaskEvent.seq)).where(AgentTaskEvent.task_id == task_id))
+                or 0
+            )
+        next_seq = int(seq) + 1
         record = AgentTaskEvent(
             task_id=task_id,
-            seq=int(seq) + 1,
+            seq=next_seq,
             event_type=event_type,
             payload_json=json.dumps(sanitize(payload or {}), ensure_ascii=False, default=str),
         )
         session.add(record)
-        session.flush()
+        try:
+            session.flush()
+        except Exception:
+            # 回滚后缓存可能领先于数据库，丢弃以便下次重新读取 MAX(seq)。
+            cache.pop(task_id, None)
+            raise
+        cache[task_id] = next_seq
         data = serialize_event(record)
-        session.commit()
+        if commit:
+            session.commit()
         return data
 
     def list_after(self, session: Session, task_id: str, after: int = 0, limit: int = 500) -> list[dict[str, Any]]:

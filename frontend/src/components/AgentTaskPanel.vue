@@ -243,7 +243,8 @@ let timer: number | null = null
 onMounted(() => {
   void loadTasks()
   timer = window.setInterval(() => {
-    if (isActive.value) void refreshAll()
+    // 后台标签页不轮询：既省请求，也避免隐藏页面持续触发重渲染。
+    if (isActive.value && !document.hidden) void refreshAll()
   }, 2500)
 })
 
