@@ -24,6 +24,7 @@ import InsightPanel from '../components/InsightPanel.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
 import StatStrip from '../components/StatStrip.vue'
+import AppTag from '../components/AppTag.vue'
 import type { CompatibilityItem, CompatibilityResponse, OverviewResponse } from '../types/analytics'
 import type { ImportJob, ScanImportResponse } from '../types/imports'
 import type {
@@ -208,12 +209,6 @@ const diagnostics = ref<DiagnosticsResponse | null>(null)
 const checkLoading = ref(false)
 const healthRepairing = ref(false)
 
-const HEALTH_TAG_TYPES: Record<string, 'success' | 'warning' | 'danger'> = {
-  ok: 'success',
-  warn: 'warning',
-  error: 'danger',
-}
-
 /** True when the save has no players/clubs/transfers/opportunities at all. */
 const healthIsEmpty = computed(() => {
   const value = health.value
@@ -350,13 +345,6 @@ function goToImport(): void {
   const target = document.getElementById('import')
   if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' })
   else window.location.hash = 'import'
-}
-
-/** Map a diagnostic check status to an Element Plus tag type. */
-function checkStatusType(status: string): 'success' | 'warning' | 'danger' {
-  if (status === 'pass') return 'success'
-  if (status === 'warn') return 'warning'
-  return 'danger'
 }
 
 /** Human label for a diagnostic check status. */
@@ -763,10 +751,11 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
       description="连接游戏或导入数据文件，系统会自动识别、校验、修复、去重并验证。"
     >
       <template #meta>
-        <el-tag size="small" :type="session.hasRealScanData ? 'success' : 'warning'" disable-transitions>
-          {{ session.hasRealScanData ? '已有真实扫描数据' : '尚无真实扫描数据' }}
-        </el-tag>
-        <el-tag v-if="session.demoMode" size="small" type="warning" disable-transitions>demo_mode = true</el-tag>
+        <AppTag
+          :tag="session.hasRealScanData ? 'synced' : 'not_synced'"
+          :label="session.hasRealScanData ? '已有真实扫描数据' : '尚无真实扫描数据'"
+        />
+        <AppTag v-if="session.demoMode" tag="demo" label="演示数据" />
         <span class="sm-text-xs sm-text-faint">
           后端版本 {{ session.version }} · 存档 {{ session.activeSave ? session.activeSave.name : EMPTY }}
         </span>
@@ -832,9 +821,7 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
           <div class="hub-status-cell">
             <span class="sm-label">数据状态</span>
             <span class="sm-num">
-              <el-tag size="small" :type="HEALTH_TAG_TYPES[health.status.level] ?? 'info'" disable-transitions>
-                {{ health.status.label }}
-              </el-tag>
+              <AppTag :tag="health.status.level" :label="health.status.label" />
             </span>
           </div>
           <div class="hub-status-cell">
@@ -884,9 +871,7 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
         <ul v-if="diagnostics" class="health-checks">
           <li v-for="check in diagnostics.checks" :key="check.key">
             <span>{{ check.label }}</span>
-            <el-tag size="small" :type="checkStatusType(check.status)" disable-transitions>
-              {{ checkStatusLabel(check.status) }}
-            </el-tag>
+            <AppTag :tag="check.status" :label="checkStatusLabel(check.status)" />
             <span v-if="check.detail" class="sm-text-2xs sm-text-faint">{{ check.detail }}</span>
           </li>
         </ul>
@@ -905,9 +890,7 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
             <div>
               <dt>FM27</dt>
               <dd>
-                <el-tag size="small" :type="hub.game.running ? 'success' : 'info'" disable-transitions>
-                  {{ hub.game.running ? '运行中' : '未运行' }}
-                </el-tag>
+                <AppTag :tag="hub.game.running ? 'game_running' : 'game_stopped'" />
                 <span v-if="hub.game.version" class="sm-text-2xs sm-text-faint">版本 {{ hub.game.version }}</span>
               </dd>
             </div>
@@ -919,9 +902,7 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
               <dt>当前存档</dt>
               <dd>
                 {{ hub.save.name }}
-                <el-tag size="small" :type="hub.save.recognized ? 'success' : 'warning'" disable-transitions>
-                  {{ hub.save.recognized ? '已识别' : '待确认' }}
-                </el-tag>
+                <AppTag :tag="hub.save.recognized ? 'recognized' : 'unrecognized'" />
               </dd>
             </div>
           </dl>
@@ -1037,13 +1018,7 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
           <div class="hub-status-cell">
             <span class="sm-label">数据健康</span>
             <span class="sm-num">
-              <el-tag
-                size="small"
-                :type="hub.health.status === 'ok' ? 'success' : hub.health.status === 'attention' ? 'warning' : 'info'"
-                disable-transitions
-              >
-                {{ HEALTH_LABELS[hub.health.status] ?? hub.health.status }}
-              </el-tag>
+              <AppTag :tag="hub.health.status" :label="HEALTH_LABELS[hub.health.status] ?? hub.health.status" />
             </span>
           </div>
           <div class="hub-status-cell">
@@ -1089,15 +1064,12 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
         <div class="upload-meta">
           <p class="sm-label">当前能力</p>
           <div class="capability-list">
-            <el-tag
+            <AppTag
               v-for="capability in capabilities"
               :key="capability.label"
-              size="small"
-              :type="capability.enabled ? 'success' : 'info'"
-              disable-transitions
-            >
-              {{ capability.label }} {{ capability.enabled ? '启用' : '未启用' }}
-            </el-tag>
+              :tag="capability.enabled ? 'enabled' : 'disabled'"
+              :label="`${capability.label} ${capability.enabled ? '启用' : '未启用'}`"
+            />
           </div>
           <p class="sm-text-2xs sm-text-faint">
             数据源记录数：{{ session.dataSources.length === 0 ? EMPTY : session.dataSources.map((entry) => `${sourceLabel(entry.source)} ${formatInt(entry.records)}`).join(' · ') }}
@@ -1390,12 +1362,10 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
 
         <template v-if="squadCsvResult">
           <div class="squad-csv__counts">
-            <el-tag type="success" effect="plain">已关联 {{ squadCsvResult.counts.assigned ?? 0 }}</el-tag>
-            <el-tag type="warning" effect="plain">待确认 {{ squadCsvResult.counts.review ?? 0 }}</el-tag>
-            <el-tag type="info" effect="plain">未匹配 {{ squadCsvResult.counts.unmatched ?? 0 }}</el-tag>
-            <el-tag v-if="squadCsvResult.clubs_created > 0" type="info" effect="plain">
-              新建俱乐部 {{ squadCsvResult.clubs_created }}
-            </el-tag>
+            <AppTag tag="synced" :label="`已关联 ${squadCsvResult.counts.assigned ?? 0}`" />
+            <AppTag tag="needs_confirmation" :label="`待确认 ${squadCsvResult.counts.review ?? 0}`" />
+            <AppTag tag="unknown" :label="`未匹配 ${squadCsvResult.counts.unmatched ?? 0}`" />
+            <AppTag v-if="squadCsvResult.clubs_created > 0" tag="unknown" :label="`新建俱乐部 ${squadCsvResult.clubs_created}`" />
           </div>
           <ul v-if="squadCsvResult.warnings.length > 0" class="squad-csv__warnings">
             <li v-for="warning in squadCsvResult.warnings" :key="warning">{{ warning }}</li>
@@ -1507,13 +1477,10 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
       >
         <template #cell="{ row, column }">
           <template v-if="column.prop === 'status'">
-            <el-tag
-              size="small"
-              :type="row.status === 'verified' ? 'success' : row.status === 'unsupported' ? 'danger' : 'warning'"
-              disable-transitions
-            >
-              {{ row.status === 'verified' ? '已验证' : row.status === 'unsupported' ? '不支持' : row.status === 'candidate' ? '待验证' : row.status }}
-            </el-tag>
+            <AppTag
+              :tag="row.status === 'verified' ? 'verified' : row.status === 'unsupported' ? 'error' : 'candidate'"
+              :label="row.status === 'verified' ? '已验证' : row.status === 'unsupported' ? '不支持' : row.status === 'candidate' ? '待验证' : row.status"
+            />
           </template>
           <template v-else>
             {{ column.formatter ? column.formatter(row) : EMPTY }}
@@ -1521,15 +1488,13 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
         </template>
         <template #toolbar>
           <span class="sm-text-2xs sm-text-faint">读取器版本：</span>
-          <el-tag
+          <AppTag
             v-for="version in compatibility?.reader_versions ?? []"
             :key="version"
-            size="small"
-            type="info"
-            disable-transitions
-          >
-            {{ version }}
-          </el-tag>
+            :label="version"
+            tone="neutral"
+            allow-internal
+          />
           <span v-if="(compatibility?.reader_versions ?? []).length === 0" class="sm-text-2xs sm-text-faint">未上报</span>
         </template>
       </DataTable>

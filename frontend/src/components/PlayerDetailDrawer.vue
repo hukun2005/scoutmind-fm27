@@ -11,8 +11,11 @@ import { asApiError, type ApiError } from '../api/client'
 import { getPlayer } from '../api/players'
 import { getPlayerStatus } from '../api/status'
 import { getValuation } from '../api/transfers'
+import AppIcon from './AppIcon.vue'
+import AppTag from './AppTag.vue'
 import type { PlayerAttribute, PlayerDetail, Valuation } from '../types/players'
 import type { PlayerStatus } from '../types/status'
+import { visibleTags } from '../utils/tags'
 import {
   EMPTY,
   displayText,
@@ -277,15 +280,15 @@ onBeforeUnmount(() => {
         <aside class="pd-panel" role="dialog" aria-modal="true" aria-label="球员详情">
           <header class="pd-head">
             <div class="pd-head__nav">
-              <button type="button" class="pd-icon" :disabled="!hasPrev" aria-label="上一位球员" @click="emit('prev')">
-                ‹
+              <button type="button" class="pd-icon" :disabled="!hasPrev" aria-label="上一位球员" title="上一位球员" @click="emit('prev')">
+                <AppIcon name="chevron-left" :size="16" />
               </button>
-              <button type="button" class="pd-icon" :disabled="!hasNext" aria-label="下一位球员" @click="emit('next')">
-                ›
+              <button type="button" class="pd-icon" :disabled="!hasNext" aria-label="下一位球员" title="下一位球员" @click="emit('next')">
+                <AppIcon name="chevron-right" :size="16" />
               </button>
             </div>
-            <button type="button" class="pd-icon pd-head__close" aria-label="关闭球员详情" @click="emit('close')">
-              ×
+            <button type="button" class="pd-icon pd-head__close" aria-label="关闭球员详情" title="关闭" @click="emit('close')">
+              <AppIcon name="close" :size="16" />
             </button>
           </header>
 
@@ -405,7 +408,13 @@ onBeforeUnmount(() => {
                 {{ formatInt(detail?.snapshot_count) }} 次
               </p>
               <div v-if="detail?.tags?.length" class="pd-tags">
-                <span v-for="tag in detail.tags" :key="tag">{{ tag }}</span>
+                <AppTag
+                  v-for="tag in visibleTags(detail.tags)"
+                  :key="tag.key"
+                  :tag="tag.key"
+                  :label="tag.label"
+                  surface="light"
+                />
               </div>
               <p v-if="detail?.notes" class="pd-note">{{ detail.notes }}</p>
             </section>
@@ -755,14 +764,6 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
-}
-
-.pd-tags span {
-  padding: 2px 8px;
-  border: 1px solid var(--pd-border);
-  border-radius: 999px;
-  color: var(--pd-text-2);
-  font-size: 11px;
 }
 
 .pd-note {

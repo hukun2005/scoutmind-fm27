@@ -14,6 +14,7 @@ import { listClubs } from '../api/clubs'
 import { getPlayerFacets, listPlayers } from '../api/players'
 import { addWatchlistItem, deleteWatchlistItem, listWatchlist } from '../api/watchlist'
 import PlayerDetailDrawer from '../components/PlayerDetailDrawer.vue'
+import AppIcon from '../components/AppIcon.vue'
 import { MAX_COMPARE, useCompareStore } from '../stores/compare'
 import { usePlayersStore } from '../stores/players'
 import { useSessionStore } from '../stores/session'
@@ -526,7 +527,7 @@ void loadClubs()
     <section class="pw-search" aria-label="球员搜索与常用筛选">
       <div class="pw-search__row">
         <label class="pw-search__box">
-          <span class="pw-search__icon" aria-hidden="true">⌕</span>
+          <span class="pw-search__icon" aria-hidden="true"><AppIcon name="search" :size="16" /></span>
           <input
             ref="searchInput"
             :value="searchDraft"
@@ -535,8 +536,8 @@ void loadClubs()
             aria-label="按球员姓名搜索"
             @input="onQueryInput"
           />
-          <button v-if="searchDraft" type="button" class="pw-search__clear" aria-label="清空搜索" @click="clearQuery">
-            ×
+          <button v-if="searchDraft" type="button" class="pw-search__clear" aria-label="清空搜索" title="清空搜索" @click="clearQuery">
+            <AppIcon name="close" :size="12" />
           </button>
         </label>
 
@@ -780,7 +781,7 @@ void loadClubs()
                   :disabled="watchPending[row.instance_id]"
                   @click="toggleWatch(row.instance_id)"
                 >
-                  {{ isWatched(row.instance_id) ? '★' : '☆' }}
+                  <AppIcon name="star" :size="15" :filled="isWatched(row.instance_id)" />
                 </button>
                 <button
                   type="button"
@@ -792,7 +793,7 @@ void loadClubs()
                   {{ isInCompare(row.instance_id) ? '已选' : '对比' }}
                 </button>
                 <button type="button" class="pw-icon-btn" aria-label="查看球员档案" title="查看档案" @click="openDetail(row)">
-                  ›
+                  <AppIcon name="chevron-right" :size="15" />
                 </button>
               </div>
             </div>
@@ -828,13 +829,14 @@ void loadClubs()
             <footer class="pw-card__actions">
               <button
                 type="button"
-                class="pw-icon-btn"
+                class="pw-icon-btn pw-icon-btn--label"
                 :class="{ 'pw-icon-btn--on': isWatched(row.instance_id) }"
                 :aria-label="isWatched(row.instance_id) ? `取消关注 ${row.name}` : `关注 ${row.name}`"
                 :disabled="watchPending[row.instance_id]"
                 @click="toggleWatch(row.instance_id)"
               >
-                {{ isWatched(row.instance_id) ? '★ 已关注' : '☆ 关注' }}
+                <AppIcon name="star" :size="14" :filled="isWatched(row.instance_id)" />
+                {{ isWatched(row.instance_id) ? '已关注' : '关注' }}
               </button>
               <button
                 type="button"
@@ -889,7 +891,9 @@ void loadClubs()
                 <h2>高级筛选</h2>
                 <p>只列出存档真实存在的字段；修改后自动查询。</p>
               </div>
-              <button type="button" class="pw-icon-btn" aria-label="关闭高级筛选" @click="advancedOpen = false">×</button>
+              <button type="button" class="pw-icon-btn" aria-label="关闭高级筛选" title="关闭" @click="advancedOpen = false">
+                <AppIcon name="close" :size="14" />
+              </button>
             </header>
 
             <div class="pw-adv__body">
@@ -1745,6 +1749,13 @@ button.pw-th:hover {
   border-color: #f3cf8d;
   background: #fff8e8;
   color: #b45309;
+}
+
+.pw-icon-btn--label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
 }
 
 .pw-compare-btn {

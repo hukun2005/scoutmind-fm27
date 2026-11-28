@@ -24,6 +24,7 @@ import SectionCard from '../components/SectionCard.vue'
 import StatHeader from '../components/StatHeader.vue'
 import StatStrip from '../components/StatStrip.vue'
 import TransferFlowCard from '../components/TransferFlowCard.vue'
+import AppTag from '../components/AppTag.vue'
 import type { Club, ClubTransferProfile } from '../types/clubs'
 import type { TableColumn } from '../types/table'
 import type { InsightItem, InsightTone, StatItem } from '../types/ui'
@@ -734,7 +735,7 @@ if (activeTab.value === 'deals') void loadDealsOverview()
                   <div class="timeline__row">
                     <span class="timeline__player">{{ displayText(row.player_name) }}</span>
                     <span class="timeline__meta">
-                      <el-tag size="small" type="info" disable-transitions>{{ transferStatusLabel(row.status) }}</el-tag>
+                      <AppTag :tag="row.status" :label="transferStatusLabel(row.status)" />
                       <span class="timeline__fee sm-num">{{ formatMoney(row.effective_fee) }}</span>
                     </span>
                   </div>
@@ -979,15 +980,14 @@ if (activeTab.value === 'deals') void loadDealsOverview()
               <template #toolbar>
                 <div class="coverage-chips">
                   <span class="sm-text-2xs sm-text-faint">列表覆盖：</span>
-                  <el-tag
+                  <AppTag
                     v-for="[key, value] in Object.entries(transfers.coverage)"
                     :key="key"
-                    size="small"
-                    type="info"
-                    disable-transitions
-                  >
-                    {{ coverageLabel(key) }} {{ formatPercent(value) }}
-                  </el-tag>
+                    tag="source"
+                    :label="`${coverageLabel(key)} ${formatPercent(value)}`"
+                    tone="neutral"
+                    allow-internal
+                  />
                 </div>
               </template>
             </DataTable>
@@ -1102,7 +1102,7 @@ if (activeTab.value === 'deals') void loadDealsOverview()
               :subtitle="`${displayText(clubProfile.league)} · ${displayText(clubProfile.nation)} · 声望 ${formatInt(clubProfile.reputation)}`"
             >
               <template #actions>
-                <el-tag v-if="clubProfile.is_user_club" size="small" type="success" disable-transitions>玩家俱乐部</el-tag>
+                <AppTag v-if="clubProfile.is_user_club" tag="user_club" />
               </template>
 
               <div class="club-kpis">
@@ -1334,9 +1334,10 @@ if (activeTab.value === 'deals') void loadDealsOverview()
                     <li v-for="component in dealReport.cost.components" :key="component.key">
                       <span>{{ component.label }}</span>
                       <span class="sm-num">{{ formatMoney(component.amount) }}</span>
-                      <el-tag size="small" :type="component.status === 'observed' ? 'success' : component.status === 'assumed' ? 'warning' : 'info'">
-                        {{ component.status }}
-                      </el-tag>
+                      <AppTag
+                        :tag="component.status"
+                        :label="component.status === 'observed' ? '已观测' : component.status === 'assumed' ? '推定' : '推断'"
+                      />
                     </li>
                   </ul>
                   <p class="sm-text-2xs sm-text-faint">
