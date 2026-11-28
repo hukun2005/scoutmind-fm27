@@ -339,19 +339,20 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page)
 })
 
-test('球员探索：结论层与紧凑指标优先，低频筛选收进「更多筛选」', async ({ page }) => {
+test('球员探索：搜索工作区、紧凑状态栏与结果区域（V4.0-03 重设计后）', async ({ page }) => {
   await page.goto('/players')
 
   await expect(page.getByRole('heading', { name: '球员探索', level: 1 })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '球探概览' })).toBeVisible()
-  await expect(page.getByText('规则生成')).toBeVisible()
-  await expect(page.locator('.stat-strip').first()).toBeVisible()
+  await expect(page.getByPlaceholder('输入球员姓名')).toBeVisible()
+  await expect(page.locator('.pw-status')).toContainText('存档球员')
+  await expect(page.locator('.pw-status')).toContainText('当前结果')
   await expect(page.getByText('Mario Bianchi').first()).toBeVisible()
 
-  const advanced = page.locator('details.sm-details').first()
-  await expect(advanced).not.toHaveAttribute('open', '')
-  await advanced.locator('summary').click()
-  await expect(advanced.getByText('潜力上限', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '高级筛选' }).click()
+  const advanced = page.getByRole('dialog', { name: '高级筛选' })
+  await expect(advanced).toBeVisible()
+  await expect(advanced.getByText('潜力上限（PA）')).toBeVisible()
+  await expect(advanced.getByText('只看关注名单')).toBeVisible()
 })
 
 test('球员详情：规则生成的决策摘要与四个分组锚点', async ({ page }) => {

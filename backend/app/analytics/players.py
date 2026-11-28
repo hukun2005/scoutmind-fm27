@@ -34,9 +34,18 @@ class PlayerFilter:
     max_age: int | None = None
     min_ca: int | None = None
     min_pa: int | None = None
+    max_pa: int | None = None
     max_value: int | None = None
     max_wage: int | None = None
     club_id: int | None = None
+    # V4.0-03：以下字段均来自真实数据库列（players / player_snapshots / clubs），
+    # 不做任何推测性筛选，缺失值不会被当成 0 或空字符串参与比较。
+    nationality: str | None = None
+    league: str | None = None
+    foot: str | None = None
+    min_height: int | None = None
+    max_height: int | None = None
+    contract_end_before: date | None = None
     watchlist_only: bool = False
     sort: str = "-updated_at"
 
@@ -62,6 +71,8 @@ def _snapshot_columns() -> list:
         PlayerSnapshot.market_value,
         PlayerSnapshot.wage,
         PlayerSnapshot.contract_end,
+        PlayerSnapshot.height_cm,
+        PlayerSnapshot.foot,
         PlayerSnapshot.minutes_played,
         PlayerSnapshot.appearances,
         PlayerSnapshot.goals,
@@ -150,12 +161,30 @@ def filtered_players(save_id: int, filters: PlayerFilter) -> tuple[Select, Any]:
         query = query.where(base.c.ca >= filters.min_ca)
     if filters.min_pa is not None:
         query = query.where(base.c.pa >= filters.min_pa)
+    if filters.max_pa is not None:
+        query = query.where(base.c.pa <= filters.max_pa)
     if filters.max_value is not None:
         query = query.where(base.c.market_value <= filters.max_value)
     if filters.max_wage is not None:
         query = query.where(base.c.wage <= filters.max_wage)
     if filters.club_id is not None:
         query = query.where(base.c.club_id == filters.club_id)
+    if filters.nationality:
+        query = query.where(base.c.nationality == filters.nationality)
+    if filters.league:
+        query = query.where(
+            base.c.club_id.in_(
+                select(Club.id).where(Club.fm_save_id == save_id, Club.league == filters.league)
+            )
+        )
+    if filters.foot:
+        query = query.where(base.c.foot == filters.foot)
+    if filters.min_height is not None:
+        query = query.where(base.c.height_cm >= filters.min_height)
+    if filters.max_height is not None:
+        query = query.where(base.c.height_cm <= filters.max_height)
+    if filters.contract_end_before is not None:
+        query = query.where(base.c.contract_end <= filters.contract_end_before)
     if filters.watchlist_only:
         query = query.where(
             base.c.instance_id.in_(
@@ -180,6 +209,45 @@ def list_players(
     watched = _watched_ids(session, save_id)
     items = [_row_summary(row, clubs, watched) for row in rows]
     return {"items": items, "total": total, "coverage": _coverage(session, save_id, filters)}
+
+
+def player_facets(session: Session, save_id: int) -> dict[str, object]:
+    """Distinct, real filter values of one save with population counts.
+
+    只统计数据库中存在的国籍与联赛；某个字段完全缺失时返回空列表，
+    前端据此隐藏该筛选项，而不是展示一个永远为空的假条件。
+    """
+    total = int(
+        session.scalar(
+            select(func.count()).select_from(PlayerInstance).where(PlayerInstance.fm_save_id == save_id)
+        )
+        or 0
+    )
+    nationalities = session.execute(
+        select(Player.nationality, func.count())
+        .join(PlayerInstance, PlayerInstance.player_id == Player.id)
+        .where(PlayerInstance.fm_save_id == save_id, Player.nationality.is_not(None))
+        .group_by(Player.nationality)
+        .order_by(func.count().desc(), Player.nationality.asc())
+    ).all()
+    leagues = session.execute(
+        select(Club.league, func.count())
+        .join(PlayerInstance, PlayerInstance.club_id == Club.id)
+        .where(
+            PlayerInstance.fm_save_id == save_id,
+            Club.fm_save_id == save_id,
+            Club.league.is_not(None),
+        )
+        .group_by(Club.league)
+        .order_by(func.count().desc(), Club.league.asc())
+    ).all()
+    return {
+        "total_players": total,
+        "nationalities": [
+            {"value": value, "count": int(count)} for value, count in nationalities if value
+        ],
+        "leagues": [{"value": value, "count": int(count)} for value, count in leagues if value],
+    }
 
 
 def player_instance_or_none(session: Session, instance_id: int) -> PlayerInstance | None:

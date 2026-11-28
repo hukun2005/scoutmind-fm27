@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..analytics.availability import player_status as player_availability_status
-from ..analytics.players import PlayerFilter, development, history, list_players, player_profile
+from ..analytics.players import PlayerFilter, development, history, list_players, player_facets, player_profile
 from ..db import get_db
 from ..models import FmSave, Watchlist
 from ..schemas import WatchItemCreate, WatchItemUpdate, WatchlistCreate
@@ -39,9 +39,16 @@ def players(
     max_age: int | None = Query(default=None, ge=10, le=60),
     min_ca: int | None = Query(default=None, ge=0, le=400),
     min_pa: int | None = Query(default=None, ge=0, le=400),
+    max_pa: int | None = Query(default=None, ge=0, le=400),
     max_value: int | None = Query(default=None, ge=0),
     max_wage: int | None = Query(default=None, ge=0),
     club_id: int | None = Query(default=None),
+    nationality: str | None = Query(default=None, max_length=64),
+    league: str | None = Query(default=None, max_length=128),
+    foot: str | None = Query(default=None, pattern="^(left|right|both)$"),
+    min_height: int | None = Query(default=None, ge=100, le=250),
+    max_height: int | None = Query(default=None, ge=100, le=250),
+    contract_end_before: date | None = Query(default=None),
     watchlist_only: bool = Query(default=False),
     sort: str = Query(default="-updated_at"),
     limit: int = Query(default=50, ge=1, le=200),
@@ -61,13 +68,30 @@ def players(
         max_age=max_age,
         min_ca=min_ca,
         min_pa=min_pa,
+        max_pa=max_pa,
         max_value=max_value,
         max_wage=max_wage,
         club_id=club_id,
+        nationality=nationality,
+        league=league,
+        foot=foot,
+        min_height=min_height,
+        max_height=max_height,
+        contract_end_before=contract_end_before,
         watchlist_only=watchlist_only,
         sort=sort,
     )
     return list_players(db, save_id or save.id, filters, limit=limit, offset=offset)
+
+
+@router.get("/players/facets")
+def player_facets_route(
+    save_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    save: FmSave = Depends(get_active_save),
+) -> dict[str, Any]:
+    """真实存在的国籍与联赛筛选值；空列表表示该字段在存档中缺失。"""
+    return player_facets(db, save_id or save.id)
 
 
 @router.get("/players/{instance_id}")

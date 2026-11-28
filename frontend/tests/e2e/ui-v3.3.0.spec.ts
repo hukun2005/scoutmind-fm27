@@ -74,7 +74,7 @@ test.beforeEach(async ({ page }) => {
 test('球员中心在没有数据时引导同步，而不是只显示空表', async ({ page }) => {
   await page.goto('/players')
   await expect(page.getByRole('heading', { name: '球员探索', level: 1 })).toBeVisible()
-  await expect(page.getByText('还没有球员数据')).toBeVisible()
+  await expect(page.getByText('还没有可探索的球员')).toBeVisible()
   await expect(page.getByRole('button', { name: '同步游戏数据' })).toBeVisible()
   await expect(page.getByPlaceholder('输入球员姓名')).toBeVisible()
 })
@@ -83,7 +83,7 @@ test('球员中心在筛选无结果时提供清除条件，而不是提示没�
   await page.goto('/players')
   await page.getByPlaceholder('输入球员姓名').fill('不存在的人')
   await expect(page.getByText('没有找到符合条件的球员')).toBeVisible()
-  await expect(page.getByRole('button', { name: '清除筛选条件' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '清空筛选条件' })).toBeVisible()
 })
 
 test('首页没有数据时给出明确入口', async ({ page }) => {
