@@ -496,6 +496,17 @@ def _assert_tool_scope(session: Session, save_id: int, arguments: dict[str, Any]
 # -- 第三阶段工具：模拟、预测、俱乐部情报、ROI、推荐、职业轨迹 --------------------------------
 
 
+def validate_tool_arguments(spec: dict[str, Any], arguments: dict[str, Any]) -> dict[str, Any]:
+    """公开入口：严格校验单个工具的参数（V3.3.3 Runtime 复用同一套规则）。"""
+    return _validate_arguments(spec, arguments)
+
+
+def assert_tool_scope(session: Session, save_id: int, arguments: dict[str, Any]) -> None:
+    """公开入口：调用工具前校验实体归属（V3.3.3 Runtime 复用同一套规则）。"""
+    _assert_tool_scope(session, save_id, arguments)
+
+
+
 def _tool_call(name: str, result: dict[str, Any], summary: str) -> ToolCall:
     return ToolCall(name=name, arguments={}, result=result, summary=summary)
 

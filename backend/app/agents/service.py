@@ -1000,6 +1000,39 @@ def _resolve_instance(session: Session, save_id: int, question: str) -> PlayerIn
     return None
 
 
+def resolve_player_instance(session: Session, save_id: int, question: str) -> int | None:
+    """公开入口：从自然语言里定位当前存档内的球员实例（V3.3.3 Runtime 规划阶段复用）。"""
+    instance = _resolve_instance(session, save_id, question)
+    return None if instance is None else instance.id
+
+
+def compose_tool_answer(
+    session: Session,
+    save_id: int,
+    question: str,
+    calls: list[ToolCall],
+    *,
+    mode: str = "deterministic",
+    trace: list[dict[str, object]] | None = None,
+    fallback_reason: str | None = None,
+) -> dict[str, object]:
+    """把 Runtime 已执行的工具结果组装成与旧 Agent 同构的回答结构。
+
+    数字全部来自 ``call.payload()``；这里只做拼接与标注，不做任何估算。
+    """
+    planned = llm_planner.PlanResult(calls=calls, trace=list(trace or []), mode=mode)
+    answer = _compose_llm_answer(session, save_id, question, planned)
+    answer["mode"] = mode
+    answer["filters"] = {}
+    answer["tool_call_limit"] = llm_planner.MAX_TOOL_CALLS
+    if fallback_reason:
+        answer["llm_fallback"] = fallback_reason
+    if _has_demo_data(session, save_id):
+        answer["disclaimers"] = list(answer["disclaimers"]) + [DEMO_WARNING]
+    answer["generated_at"] = iso(utcnow())
+    return answer
+
+
 def _has_demo_data(session: Session, save_id: int) -> bool:
     return (
         session.scalar(

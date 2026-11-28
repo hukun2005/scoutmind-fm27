@@ -32,6 +32,7 @@ from .api import (
     routes_transfer_director,
     routes_transfer_learning,
     routes_agent,
+    routes_agent_tasks,
     routes_clubs,
     routes_core,
     routes_development,
@@ -160,6 +161,7 @@ def create_app() -> FastAPI:
         routes_performance.router,
         routes_transfers.router,
         routes_agent.router,
+        routes_agent_tasks.router,
         routes_ops.router,
         routes_compat.router,
         routes_career.router,
@@ -246,6 +248,15 @@ def create_app() -> FastAPI:
         resumed = background_scan.recover(SessionLocal)
         if resumed:
             logger.warning("检测到 %d 个未完成的后台任务，已按检查点恢复或安全停止", resumed)
+        # V3.3.3-01：重启后中断的 Agent 任务安全标记；等待确认的任务保留可恢复。
+        try:
+            from .agent_runtime import get_runtime
+
+            interrupted = get_runtime().recover()
+            if interrupted:
+                logger.warning("检测到 %d 个中断的 Agent 任务，已标记为失败", interrupted)
+        except Exception as exc:  # noqa: BLE001 - Runtime 不可用不能阻塞旧 Agent
+            logger.warning("Agent Runtime 恢复跳过：%s", exc)
         if not settings.api_token:
             logger.warning("SCOUTMIND_API_TOKEN 未配置：本地 API 无鉴权，只能监听 127.0.0.1")
 

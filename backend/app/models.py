@@ -886,6 +886,83 @@ class AgentMessage(TimestampMixin, Base):
 
     conversation: Mapped[AgentConversation] = relationship(back_populates="messages")
 
+
+class AgentTask(TimestampMixin, Base):
+    """V3.3.3-01：一次可恢复、可审计的 Agent 任务（LangGraph 运行单元）。
+
+    ``id``/``thread_id`` 由服务端生成，模型与前端都不参与；``save_generation`` 在创建时绑定，
+    与 ``save_write_gates.generation`` 不一致时任务不再允许写操作。
+    """
+
+    __tablename__ = "agent_tasks"
+    __table_args__ = (
+        Index("ix_agent_tasks_save_created", "fm_save_id", "created_at"),
+        Index("ix_agent_tasks_status", "status"),
+        UniqueConstraint("thread_id", name="uq_agent_tasks_thread"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    thread_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    conversation_id: Mapped[int | None] = mapped_column(ForeignKey("agent_conversations.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False)
+    save_generation: Mapped[int | None] = mapped_column(Integer)
+    task_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    user_goal: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="queued", nullable=False)
+    progress: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    current_step: Mapped[str | None] = mapped_column(String(64))
+    final_result_json: Mapped[str | None] = mapped_column(Text)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_summary: Mapped[str | None] = mapped_column(Text)
+    provider_id: Mapped[str | None] = mapped_column(String(32))
+    model_id: Mapped[str | None] = mapped_column(String(64))
+    mode: Mapped[str | None] = mapped_column(String(24))
+    step_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    tool_call_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class AgentTaskEvent(Base):
+    """任务事件流：任务内 ``seq`` 严格递增，供 SSE/轮询游标重放。"""
+
+    __tablename__ = "agent_task_events"
+    __table_args__ = (
+        UniqueConstraint("task_id", "seq", name="uq_agent_task_event_seq"),
+        Index("ix_agent_task_events_task_seq", "task_id", "seq"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("agent_tasks.id"), nullable=False)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class AgentApproval(TimestampMixin, Base):
+    """人机协作确认：一次性、带载荷哈希、存档代次与过期时间。"""
+
+    __tablename__ = "agent_approvals"
+    __table_args__ = (Index("ix_agent_approvals_task_status", "task_id", "status"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("agent_tasks.id"), nullable=False)
+    approval_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    operation_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    fm_save_id: Mapped[int] = mapped_column(ForeignKey("fm_saves.id"), nullable=False)
+    save_generation: Mapped[int | None] = mapped_column(Integer)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
 class FieldEvidenceSample(TimestampMixin, Base):
     """One captured field sample, scoped to a save and player instance.
 
