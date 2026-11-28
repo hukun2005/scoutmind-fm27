@@ -253,7 +253,14 @@ class AgentNodes:
             if task.cancel_requested:
                 self._emit(session, task.id, "task_cancelled", {"reason": "用户取消"})
                 return {"execution_status": STATUS_CANCELLED, "error": {"code": "AGENT_TASK_CANCELLED", "message": "任务已取消"}}
-            self._emit(session, task.id, "step_started", {"step_id": step_id, "tool": step["tool"], "reason": step.get("reason")})
+            # 两个事件合并为一次提交：前端仍能在工具执行前看到进度，但少一次 fsync。
+            self._emit(
+                session,
+                task.id,
+                "step_started",
+                {"step_id": step_id, "tool": step["tool"], "reason": step.get("reason")},
+                commit=False,
+            )
             self._emit(session, task.id, "tool_started", {"tool": step["tool"]})
             try:
                 call, reused = self.ctx.adapter.execute(
@@ -694,9 +701,22 @@ class AgentNodes:
         except (TypeError, ValueError):
             return False
 
-    def _emit(self, session: Session, task_id: str, event_type: str, payload: dict[str, Any] | None = None) -> None:
-        self.ctx.events.append(session, task_id, event_type, payload)
+    def _emit(
+        self,
+        session: Session,
+        task_id: str,
+        event_type: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        commit: bool = True,
+    ) -> None:
+        self.ctx.events.append(session, task_id, event_type, payload, commit=commit)
 
     def _cache_for(self, task_id: str) -> dict[str, ToolCall]:
         with self._lock:
             return self._write_cache.setdefault(task_id, {})
+
+    def release(self, task_id: str) -> None:
+        """任务结束后丢弃该任务的写缓存，避免长期运行的进程持续增长。"""
+        with self._lock:
+            self._write_cache.pop(task_id, None)

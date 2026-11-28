@@ -140,6 +140,16 @@ def test_report_keeps_real_candidates_from_tool_results(client, db, save: FmSave
     assert report["sections"][0]["result"]["total"] >= 1
 
 
+def test_write_cache_is_released_after_task(client, db, save: FmSave) -> None:
+    """任务终态后节点写缓存必须清空：长期运行的进程不能按任务累积内存。"""
+    _seed_players(db, save)
+    runtime = _runtime()
+    task = _create(runtime, db, save, "我的阵容怎么样？")
+    runtime.run(task.id)
+    assert runtime._nodes is not None
+    assert task.id not in runtime._nodes._write_cache
+
+
 def test_events_are_ordered_and_replayable(client, db, save: FmSave) -> None:
     _seed_players(db, save)
     runtime = _runtime()
