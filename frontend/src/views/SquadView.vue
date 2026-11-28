@@ -1,5 +1,8 @@
 /**
- * 阵容智能：六维阵容评分、位置深度、年龄与工资结构、合同预警、短板排序与接班规划。
+ * 阵容分析（V4.0）：结论优先的决策工作区。
+ *
+ * 信息层次：本队概览 → AI 阵容诊断 → 补强优先级 → 位置深度 → 重点球员 → 更多分析（图表/年龄/工资/合同/接班）。
+ * 所有结论只使用后端返回的真实字段；缺失值显示为「—」或「未知」，不记为 0，也不把推测写成游戏属性。
  */
 
 <script setup lang="ts">
@@ -42,7 +45,7 @@ const router = useRouter()
 const overview = ref<SquadOverview | null>(null)
 const profiles = ref<SquadProfile[]>([])
 const selectedProfile = ref('')
-const loading = ref(false)
+const loading = ref(true)
 const error = ref<ApiError | null>(null)
 const weightDraft = ref<Record<string, number>>({})
 
@@ -58,7 +61,7 @@ const userClubMeta = ref<{
   assignment_source: string | null
 }>({ source_label: null, confidence: null, assignment_source: null })
 
-/** 阵容构成：来自阵容 CSV 的归属，缺数据时明确说"未导入"而不是把所有人当一线队。 */
+/** 阵容构成：来自阵容 CSV 的归属，缺数据时明确说「未导入」。 */
 const composition = computed<SquadComposition | null>(() => overview.value?.composition ?? null)
 
 /** Search clubs for the picker; empty query returns the first page. */
@@ -107,7 +110,7 @@ async function loadUserClub(): Promise<void> {
   }
 }
 
-/** 没有本队时，各区块的空状态要说明真正原因，而不是把缺席归咎于字段。 */
+/** 没有本队时，各区块的空状态要说明真正原因。 */
 const noClubReason = computed<string | null>(() =>
   overview.value && !overview.value.club ? '该存档没有标记为「我的俱乐部」的球队，无法计算该区块' : null,
 )
@@ -125,6 +128,12 @@ const components = computed<SquadComponent[]>(() => {
       COMPONENT_ORDER.indexOf(b.key as (typeof COMPONENT_ORDER)[number]),
   )
 })
+
+/** 阵容完整度：直接使用覆盖维度分值，不二次估算。 */
+const completeness = computed<number | null>(() => components.value.find((item) => item.key === 'coverage')?.value ?? null)
+
+/** 潜力储备：直接使用潜力维度分值。 */
+const potentialScore = computed<number | null>(() => components.value.find((item) => item.key === 'potential')?.value ?? null)
 
 const profileOptions = computed(() =>
   profiles.value.map((profile) => ({ value: profile.key, label: profile.name })),
@@ -172,6 +181,136 @@ function dimWidth(value: number | null): string {
 
 /** Depth table without the synthetic "unknown position" row. */
 const depthRows = computed<DepthRow[]>(() => (overview.value?.depth ?? []).filter((row) => row.slot !== 'UNKNOWN'))
+
+/** 全部阵容球员（按 instance_id 去重）。 */
+const squadMembers = computed<SquadMember[]>(() => {
+  const seen = new Map<number, SquadMember>()
+  for (const row of depthRows.value) {
+    for (const player of row.players ?? []) {
+      if (!seen.has(player.instance_id)) seen.set(player.instance_id, player)
+    }
+  }
+  return [...seen.values()]
+})
+
+/** 核心球员：按 CA 排序的前 3 名；缺少 CA 的球员不参与比较。 */
+const corePlayers = computed<SquadMember[]>(() =>
+  squadMembers.value
+    .filter((player) => player.ca !== null)
+    .sort((a, b) => (b.ca ?? 0) - (a.ca ?? 0))
+    .slice(0, 3),
+)
+
+/** 高潜力球员：PA 与 CA 差值最大的前 3 名。 */
+const prospectPlayers = computed<SquadMember[]>(() =>
+  squadMembers.value
+    .filter((player) => player.pa !== null && player.ca !== null && (player.pa ?? 0) > (player.ca ?? 0))
+    .sort((a, b) => ((b.pa ?? 0) - (b.ca ?? 0)) - ((a.pa ?? 0) - (a.ca ?? 0)))
+    .slice(0, 3),
+)
+
+/** 合同风险球员：取后端 6 个月与 12 个月内到期的记录。 */
+const expiringPlayers = computed<ContractEntry[]>(() => {
+  const buckets = overview.value?.contracts.buckets ?? {}
+  const rows = [...(buckets['6m'] ?? []), ...(buckets['12m'] ?? [])]
+  const seen = new Set<number>()
+  return rows.filter((row) => {
+    if (seen.has(row.instance_id)) return false
+    seen.add(row.instance_id)
+    return true
+  })
+})
+
+/** 替补深度问题：人数不达标的位置。 */
+const thinSlots = computed<DepthRow[]>(() => depthRows.value.filter((row) => row.count < row.required))
+
+/** 最优先补强建议。 */
+const weakest = computed<WeaknessRow | null>(() => overview.value?.weakness[0] ?? null)
+
+/** 最强维度。 */
+const strongestComponent = computed<SquadComponent | null>(() => {
+  const available = components.value.filter((item) => item.value !== null)
+  if (available.length === 0) return null
+  return [...available].sort((a, b) => (b.value ?? 0) - (a.value ?? 0))[0] ?? null
+})
+
+/** AI 阵容诊断：六条结论，全部可追溯到真实字段。 */
+const diagnosis = computed<
+  Array<{ key: string; label: string; title: string; detail: string; tone: 'good' | 'info' | 'warn' | 'danger'; to?: string }>
+>(() => {
+  const current = overview.value
+  if (!current) return []
+  const rows: Array<{ key: string; label: string; title: string; detail: string; tone: 'good' | 'info' | 'warn' | 'danger'; to?: string }> = []
+
+  rows.push({
+    key: 'strength',
+    label: '最大优势',
+    title: strongestComponent.value
+      ? `${strongestComponent.value.label} ${formatDecimal(strongestComponent.value.value, 1)}`
+      : '可用维度不足',
+    detail: strongestComponent.value?.evidence[0] ?? '后端未返回任何可计算的维度。',
+    tone: 'good',
+  })
+
+  rows.push({
+    key: 'weakness',
+    label: '最明显薄弱位置',
+    title: weakest.value ? `${weakest.value.slot_name}（${weakest.value.count}/${weakest.value.required}）` : '没有明显缺口',
+    detail: weakest.value?.suggestion ?? '每个位置都达到模板最低人数要求。',
+    tone: weakest.value ? (weakest.value.severity >= 2 ? 'danger' : 'warn') : 'good',
+    to: weakest.value ? `/recruitment?slot=${encodeURIComponent(weakest.value.slot)}` : undefined,
+  })
+
+  const age = current.age_structure
+  rows.push({
+    key: 'age',
+    label: '主力年龄结构',
+    title:
+      age.average_age === null
+        ? '年龄数据缺失'
+        : `平均 ${formatDecimal(age.average_age, 1)} 岁 · 中位 ${formatDecimal(age.median_age, 1)} 岁`,
+    detail:
+      current.succession.length > 0
+        ? `${formatInt(current.succession.length)} 名 29 岁以上主力需要接班规划。`
+        : '队内没有需要规划接班的 29 岁以上主力。',
+    tone: age.average_age === null ? 'warn' : 'info',
+  })
+
+  rows.push({
+    key: 'depth',
+    label: '替补深度',
+    title: thinSlots.value.length > 0 ? `${formatInt(thinSlots.value.length)} 个位置人手不足` : '各位置人数达标',
+    detail:
+      thinSlots.value.length > 0
+        ? thinSlots.value.slice(0, 4).map((row) => `${row.slot_name} ${row.count}/${row.required}`).join('、')
+        : '按当前位置模板，所有位置都满足最低人数要求。',
+    tone: thinSlots.value.length > 0 ? 'warn' : 'good',
+  })
+
+  rows.push({
+    key: 'potential',
+    label: '潜力储备',
+    title: potentialScore.value === null ? '潜力数据缺失' : `潜力维度 ${formatDecimal(potentialScore.value, 1)}`,
+    detail:
+      prospectPlayers.value.length > 0
+        ? prospectPlayers.value.map((player) => `${player.name}（${player.ca ?? EMPTY}→${player.pa ?? EMPTY}）`).join('、')
+        : '没有 PA 高于 CA 的球员，或数据源未提供潜力字段。',
+    tone: potentialScore.value === null ? 'warn' : 'info',
+  })
+
+  rows.push({
+    key: 'next',
+    label: '最优先补强',
+    title: weakest.value ? `补强 ${weakest.value.slot_name}` : '保持现状并持续观察',
+    detail: weakest.value
+      ? '进入引援机会，按同一套确定性规则查看候选、理由与成本。'
+      : '没有必须补强的位置，可继续跟踪合同与潜力球员。',
+    tone: 'info',
+    to: weakest.value ? `/recruitment?slot=${encodeURIComponent(weakest.value.slot)}` : '/recruitment',
+  })
+
+  return rows
+})
 
 /** Weight inputs bound to the active profile; the user can override any component before re-scoring. */
 const weightTotal = computed(() => Object.values(weightDraft.value).reduce((sum, value) => sum + (value || 0), 0))
@@ -325,7 +464,6 @@ function componentTone(component: SquadComponent): 'default' | 'accent' | 'warn'
   return 'accent'
 }
 
-/** Contract entry rows reused by the contract bucket tables. */
 /** Human labels for the composition buckets. */
 function compositionLabel(key: string): string {
   const labels: Record<string, string> = {
@@ -357,7 +495,7 @@ onMounted(async () => {
   <div class="sm-page">
     <PageHeader
       title="阵容分析"
-      description="看清球队哪里强、哪里弱：位置覆盖、深度、年龄、战术适配、工资结构与潜力储备。缺少数据时明确标注，不会记零。"
+      description="先看结论：强项、最薄弱位置、替补深度与下一步动作；需要时再展开图表、工资与合同的详细数据。缺失字段会明确标注，不会记零。"
     >
       <template #actions>
         <el-select v-model="selectedProfile" size="small" class="squad__profile" aria-label="权重模板" @change="load">
@@ -367,13 +505,19 @@ onMounted(async () => {
       </template>
     </PageHeader>
 
-    <PositionHeatmapCard :save-id="session.activeSaveId" />
-
     <ErrorState v-if="error" :error="error" title="阵容数据加载失败" @retry="load" />
     <LoadingBlock v-else-if="loading && !overview" :rows="4" />
+    <EmptyState
+      v-else-if="!overview"
+      title="还没有阵容数据"
+      description="先在游戏数据中同步存档，并指定主执教俱乐部，这里才能计算位置深度与补强建议。"
+    >
+      <el-button size="small" type="primary" @click="router.push('/data')">同步游戏数据</el-button>
+    </EmptyState>
 
-    <template v-else-if="overview">
-      <section class="squad-hero" aria-label="阵容指挥条">
+    <template v-else>
+      <!-- 第一层：球队概览 -->
+      <section class="squad-hero" aria-label="阵容概览">
         <div class="squad-hero__glow" aria-hidden="true" />
         <div class="squad-hero__grid" aria-hidden="true" />
 
@@ -386,13 +530,16 @@ onMounted(async () => {
               : '数据源没有标记「我的俱乐部」，阵容评分无法覆盖本队' }}
           </p>
           <div class="squad-hero__chips">
-            <span class="hero-chip">阵容人数 <strong>{{ formatInt(overview.squad_size) }}</strong></span>
+            <span class="hero-chip">一线队 <strong>{{ formatInt(overview.squad_size) }}</strong></span>
             <span class="hero-chip">
               平均年龄
               <strong>{{ overview.age_structure.average_age === null ? EMPTY : formatDecimal(overview.age_structure.average_age, 1) }}</strong>
             </span>
+            <span class="hero-chip">
+              阵容完整度 <strong>{{ formatDecimal(completeness, 1) }}</strong>
+            </span>
             <span class="hero-chip" :class="{ 'hero-chip--warn': overview.contracts.at_risk_count > 0 }">
-              12 个月内到期 <strong>{{ formatInt(overview.contracts.at_risk_count) }}</strong>
+              合同风险 <strong>{{ formatInt(overview.contracts.at_risk_count) }}</strong>
             </span>
           </div>
           <p class="squad-hero__hint">
@@ -411,7 +558,7 @@ onMounted(async () => {
               : `六维综合评分 ${formatDecimal(overview.score, 1)} 分，满分 100`"
           >
             <span class="gauge__value sm-num">{{ overview.score === null ? EMPTY : formatDecimal(overview.score, 1) }}</span>
-            <span class="gauge__label">六维综合评分</span>
+            <span class="gauge__label">阵容综合评分</span>
           </div>
           <p class="gauge__hint">
             模板：{{ overview.profile.name }}{{ overview.profile.overridden ? '（自定义权重）' : '' }}
@@ -436,174 +583,89 @@ onMounted(async () => {
         </ul>
       </section>
 
-      <div class="sm-grid sm-grid--2">
-        <ChartCard
-          title="六维雷达"
-          subtitle="至少三个维度有数值时绘制，缺失维度不按 0 计入"
-          :empty="!radarReady"
-          empty-title="六维数据不足"
-          empty-description="后端返回的有效维度少于 3 个，无法画出可读的雷达形状；补齐覆盖、深度、年龄、适配、工资或潜力数据后会重新绘制。"
-          :footnote="radarFootnote"
-        >
-          <EChart :option="radarOption" height="260px" aria-label="阵容六维评分雷达图" />
-        </ChartCard>
-
-        <ChartCard
-          title="年龄分布"
-          subtitle="实际占比与后端给出的理想占比"
-          :empty="ageBuckets.length === 0"
-          empty-title="没有年龄区间"
-          empty-description="后端未返回 age_structure.buckets，无法绘制年龄分布；下方年龄结构区块仍会列出可用字段。"
-          :footnote="`共 ${ageBuckets.length} 个区间 · 平均 ${formatDecimal(overview.age_structure.average_age ?? null, 1)} 岁 · 中位 ${formatDecimal(overview.age_structure.median_age ?? null, 1)} 岁`"
-        >
-          <EChart :option="ageOption" height="260px" aria-label="阵容年龄分布与理想占比" />
-        </ChartCard>
-      </div>
-
-      <div class="sm-grid sm-grid--wide-left">
-        <SectionCard title="主执教俱乐部" subtitle="阵容分析以它作为「本队」；手动指定不会改变任何球员的所属俱乐部">
-          <div class="club">
-            <div class="club__current">
-              <span class="sm-label">当前本队</span>
-              <div class="club__name">
-                {{ userClub ? userClub.name : '尚未指定' }}
-                <el-tag v-if="userClubMeta.source_label" size="small" type="info" effect="plain">
-                  来源：{{ userClubMeta.source_label }}
-                </el-tag>
-                <el-tag
-                  v-if="userClubMeta.confidence !== null"
-                  size="small"
-                  :type="userClubMeta.confidence >= 0.9 ? 'success' : 'warning'"
-                  effect="plain"
-                >
-                  记录可信度 {{ formatDecimal(userClubMeta.confidence, 1) }}
-                </el-tag>
-                <el-tag v-if="userClubMeta.assignment_source" size="small" effect="plain">
-                  {{ userClubMeta.assignment_source === 'manual' ? '你手动指定' : '报文声明' }}
-                </el-tag>
-              </div>
-              <p class="club__hint">
-                {{ userClub
-                  ? `${userClub.league ?? '联赛未知'} · ${userClub.nation ?? '国家未知'}`
-                  : '数据源没有提供主执教俱乐部，需要你手动选择；在此之前阵容分析无法进行' }}
-              </p>
-            </div>
-            <label class="club__field">
-              <span class="sm-label">搜索并切换</span>
-              <el-select
-                filterable
-                remote
-                clearable
-                :remote-method="searchClubOptions"
-                :loading="clubSearching"
-                placeholder="搜索俱乐部名称"
+      <!-- 本队设置：没有本队时，这是唯一必须先完成的动作 -->
+      <SectionCard
+        title="主执教俱乐部"
+        subtitle="阵容分析以它作为「本队」；手动指定不会改变任何球员的所属俱乐部"
+        dense
+      >
+        <div class="club">
+          <div class="club__current">
+            <span class="sm-label">当前本队</span>
+            <div class="club__name">
+              {{ userClub ? userClub.name : '尚未指定' }}
+              <el-tag v-if="userClubMeta.source_label" size="small" type="info" effect="plain">
+                来源：{{ userClubMeta.source_label }}
+              </el-tag>
+              <el-tag
+                v-if="userClubMeta.confidence !== null"
                 size="small"
-                aria-label="主执教俱乐部"
-                @change="(value: number) => value && applyUserClub(value)"
+                :type="userClubMeta.confidence >= 0.9 ? 'success' : 'warning'"
+                effect="plain"
               >
-                <el-option
-                  v-for="item in clubOptions"
-                  :key="item.id"
-                  :value="item.id"
-                  :label="`${item.name}（${item.players} 人）`"
-                >
-                  <span>{{ item.name }}</span>
-                  <span class="club__option">
-                    {{ item.players }} 人 · {{ item.source_label ?? '来源未知' }}
-                    <template v-if="item.confidence !== null"> · 可信度 {{ formatDecimal(item.confidence, 1) }}</template>
-                  </span>
-                </el-option>
-              </el-select>
-            </label>
-            <el-button size="small" :loading="selectingClub" @click="searchClubOptions('')">刷新列表</el-button>
-          </div>
-        </SectionCard>
-
-        <SectionCard title="阵容构成" subtitle="一线队 / 预备队 / 青年队 / 外租 / 租入；没有名单依据的球员标为未知，不当成自由球员">
-          <template v-if="composition && composition.available">
-            <div class="composition">
-              <div v-for="(count, key) in composition.counts" :key="key" class="composition__item">
-                <span class="composition__count">{{ count }}</span>
-                <span class="composition__label">{{ compositionLabel(String(key)) }}</span>
-              </div>
+                记录可信度 {{ formatDecimal(userClubMeta.confidence, 1) }}
+              </el-tag>
+              <el-tag v-if="userClubMeta.assignment_source" size="small" effect="plain">
+                {{ userClubMeta.assignment_source === 'manual' ? '你手动指定' : '报文声明' }}
+              </el-tag>
             </div>
-            <ul v-if="composition.gaps && composition.gaps.length" class="composition__gaps">
-              <li v-for="gap in composition.gaps" :key="gap">{{ gap }}</li>
-            </ul>
-          </template>
-          <EmptyState
-            v-else
-            title="没有阵容名单"
-            :description="
-              (composition?.missing ?? []).join('；') ||
-              '数据源不提供一线队/预备队/青年队与租借状态，请到数据中心导入阵容 CSV'
-            "
-          />
-        </SectionCard>
-      </div>
-
-      <SectionCard title="六个维度" subtitle="权重可在下方调整后重算；缺数据的维度会重新分配权重">
-        <div class="dims">
-          <article v-for="component in components" :key="component.key" class="dim-card">
-            <header class="dim-card__head">
-              <span class="dim-card__label">{{ component.label }}</span>
-              <span class="dim-card__score" :class="`dim-card__score--${componentTone(component)}`">
-                {{ component.value === null ? '不可计算' : formatDecimal(component.value, 1) }}
-              </span>
-            </header>
-            <div class="dim-card__weight">权重 {{ formatPercent(component.weight, 0) }}</div>
-            <div class="dim-card__track" aria-hidden="true">
-              <i :style="{ width: dimWidth(component.value) }" />
-            </div>
-            <ul class="dim-card__evidence">
-              <li v-for="line in component.evidence" :key="line">{{ line }}</li>
-            </ul>
-            <ul v-if="component.missing.length > 0" class="dim-card__missing">
-              <li v-for="line in component.missing" :key="line">{{ line }}</li>
-            </ul>
-          </article>
+            <p class="club__hint">
+              {{ userClub
+                ? `${userClub.league ?? '联赛未知'} · ${userClub.nation ?? '国家未知'}`
+                : '数据源没有提供主执教俱乐部，需要你手动选择；在此之前阵容分析无法进行' }}
+            </p>
+          </div>
+          <label class="club__field">
+            <span class="sm-label">搜索并切换</span>
+            <el-select
+              filterable
+              remote
+              clearable
+              :remote-method="searchClubOptions"
+              :loading="clubSearching"
+              placeholder="搜索俱乐部名称"
+              size="small"
+              aria-label="主执教俱乐部"
+              @change="(value: number) => value && applyUserClub(value)"
+            >
+              <el-option
+                v-for="item in clubOptions"
+                :key="item.id"
+                :value="item.id"
+                :label="`${item.name}（${item.players} 人）`"
+              >
+                <span>{{ item.name }}</span>
+                <span class="club__option">
+                  {{ item.players }} 人 · {{ item.source_label ?? '来源未知' }}
+                  <template v-if="item.confidence !== null"> · 可信度 {{ formatDecimal(item.confidence, 1) }}</template>
+                </span>
+              </el-option>
+            </el-select>
+          </label>
+          <el-button size="small" :loading="selectingClub" @click="searchClubOptions('')">刷新列表</el-button>
         </div>
-
-        <div class="weights sm-glass">
-          <div class="weights__head">
-            <span class="sm-label">自定义权重</span>
-            <span class="weights__total">合计 {{ formatDecimal(weightTotal, 2) }}</span>
-          </div>
-          <div class="weights__fields">
-            <label v-for="component in components" :key="component.key" class="weights__field">
-              <span>{{ component.label.split('（')[0] }}</span>
-              <el-input-number
-                v-model="weightDraft[component.key]"
-                :min="0"
-                :max="1"
-                :step="0.05"
-                :precision="2"
-                size="small"
-                controls-position="right"
-                :aria-label="`${component.label.split('（')[0]} 权重`"
-              />
-            </label>
-          </div>
-          <div class="weights__actions">
-            <el-button size="small" type="primary" :loading="loading" @click="applyWeights">按此权重重算</el-button>
-            <el-button size="small" @click="resetWeights">恢复模板</el-button>
-          </div>
-        </div>
-
-        <el-alert
-          v-if="overview.data_gaps && overview.data_gaps.length > 0"
-          class="dims__gaps"
-          type="warning"
-          :closable="false"
-          show-icon
-          title="数据缺口"
-        >
-          <ul class="dim-card__evidence">
-            <li v-for="gap in overview.data_gaps" :key="gap">{{ gap }}</li>
-          </ul>
-        </el-alert>
       </SectionCard>
 
+      <!-- 第二层：AI 阵容诊断 -->
+      <SectionCard
+        title="阵容诊断"
+        subtitle="按当前真实字段生成的结论；每条都指向可核查的数据或下一步操作"
+        accent
+      >
+        <div class="diagnosis">
+          <article v-for="item in diagnosis" :key="item.key" class="diagnosis__item" :class="`diagnosis__item--${item.tone}`">
+            <span class="diagnosis__label">{{ item.label }}</span>
+            <p class="diagnosis__title">{{ item.title }}</p>
+            <p class="diagnosis__detail">{{ item.detail }}</p>
+            <button v-if="item.to" type="button" class="diagnosis__link" @click="router.push(item.to)">查看 →</button>
+          </article>
+        </div>
+        <template #footer>
+          以上为规则生成的解读，不是游戏内隐藏属性；所有数值来自当前存档的可观测字段。
+        </template>
+      </SectionCard>
+
+      <!-- 第三层：补强优先级 -->
       <SectionCard
         title="补强优先级"
         subtitle="按后端缺口评分排序；只给出分析与入口，不会修改你的球队"
@@ -632,7 +694,10 @@ onMounted(async () => {
         </ol>
       </SectionCard>
 
-      <SectionCard title="位置深度" subtitle="人数、替补质量与建议；位置映射把翼卫并入边后卫">
+      <!-- 第四层：位置深度 -->
+      <PositionHeatmapCard :save-id="session.activeSaveId" />
+
+      <SectionCard title="位置深度明细" subtitle="按位置查看全部球员；缺少 CA 的球员不参与能力比较" dense>
         <DataTable
           :columns="depthColumns"
           :rows="depthRows"
@@ -659,90 +724,265 @@ onMounted(async () => {
         </DataTable>
       </SectionCard>
 
-      <div class="sm-grid sm-grid--2">
-        <SectionCard title="阵容短板" subtitle="按缺口严重程度排序，可追溯到人数与替补质量">
-          <DataTable
-            :columns="weaknessColumns"
-            :rows="overview.weakness"
-            row-key="slot"
-            empty-title="没有短板数据"
+      <!-- 第五层：重点球员 -->
+      <div class="sm-grid sm-grid--3">
+        <SectionCard title="核心球员" subtitle="按当前能力（CA）排序的前 3 名">
+          <EmptyState
+            v-if="corePlayers.length === 0"
+            title="没有带 CA 的球员"
+            description="数据源未提供当前能力字段，无法判断核心球员。"
+            compact
           />
+          <ul v-else class="player-list">
+            <li v-for="player in corePlayers" :key="player.instance_id" class="player-row">
+              <button type="button" class="player-row__main" @click="openPlayer(player.instance_id)">
+                <span class="player-row__name">{{ player.name }}</span>
+                <span class="player-row__meta">
+                  {{ positionLabel(player.position) }} · {{ player.age ?? EMPTY }} 岁
+                </span>
+              </button>
+              <span class="player-row__stat">CA {{ player.ca ?? EMPTY }}</span>
+            </li>
+          </ul>
         </SectionCard>
 
-        <SectionCard title="年龄结构" subtitle="与基线分布对比，偏差越大扣分越多">
-          <StatHeader :items="ageStats" />
-          <div v-if="ageBuckets.length > 0" class="age-list">
-            <div v-for="bucket in ageBuckets" :key="bucket.bucket" class="age-row">
-              <span class="age-row__label">{{ bucket.bucket }}</span>
-              <div class="age-row__track">
-                <div class="age-row__bar" :style="{ width: `${Math.min(100, bucket.share * 100)}%` }" />
-                <div class="age-row__ideal" :style="{ left: `${Math.min(100, bucket.ideal_share * 100)}%` }" />
-              </div>
-              <span class="age-row__value">{{ bucket.count }} 人 · {{ formatPercent(bucket.share, 0) }}</span>
-            </div>
-          </div>
-          <p v-else class="sm-text-2xs sm-text-faint">后端未返回年龄区间。</p>
-          <template #footer>竖线为基线占比；平均年龄 {{ formatDecimal(overview.age_structure.average_age ?? null, 1) }}，中位 {{ formatDecimal(overview.age_structure.median_age ?? null, 1) }}</template>
+        <SectionCard title="高潜力球员" subtitle="PA 高于 CA 且差值最大的前 3 名">
+          <EmptyState
+            v-if="prospectPlayers.length === 0"
+            title="没有可比较的潜力差值"
+            description="需要同时提供 CA 与 PA 才能计算成长空间。"
+            compact
+          />
+          <ul v-else class="player-list">
+            <li v-for="player in prospectPlayers" :key="player.instance_id" class="player-row">
+              <button type="button" class="player-row__main" @click="openPlayer(player.instance_id)">
+                <span class="player-row__name">{{ player.name }}</span>
+                <span class="player-row__meta">
+                  {{ positionLabel(player.position) }} · {{ player.age ?? EMPTY }} 岁
+                </span>
+              </button>
+              <span class="player-row__stat">{{ player.ca ?? EMPTY }} → {{ player.pa ?? EMPTY }}</span>
+            </li>
+          </ul>
+        </SectionCard>
+
+        <SectionCard title="合同风险球员" subtitle="6–12 个月内到期，需要优先处理">
+          <EmptyState
+            v-if="expiringPlayers.length === 0"
+            title="近期没有到期合同"
+            description="按当前合同到期日计算，6–12 个月内没有球员合同到期。"
+            compact
+          />
+          <ul v-else class="player-list">
+            <li v-for="player in expiringPlayers.slice(0, 4)" :key="player.instance_id" class="player-row">
+              <button type="button" class="player-row__main" @click="openPlayer(player.instance_id)">
+                <span class="player-row__name">{{ player.name }}</span>
+                <span class="player-row__meta">{{ player.contract_end ?? '到期日未知' }}</span>
+              </button>
+              <span class="player-row__stat">CA {{ player.ca ?? EMPTY }}</span>
+            </li>
+          </ul>
         </SectionCard>
       </div>
 
-      <div class="sm-grid sm-grid--2">
-        <SectionCard title="工资结构" subtitle="集中度与低产出高薪球员共同决定工分">
-          <div class="wage">
-            <StatHeader :items="wageStats" />
-            <DataTable
-              :columns="[
-                { prop: 'name', label: '球员', minWidth: 140 },
-                { prop: 'wage', label: '工资', width: 110, align: 'right', formatter: (row) => formatMoney(row.wage) },
-                { prop: 'minutes_played', label: '出场分钟', width: 96, align: 'right' },
-                { prop: 'age', label: '年龄', width: 64, align: 'right' },
-              ]"
-              :rows="overview.wage_structure.top_earners"
-              row-key="instance_id"
-              dense
-              :show-pagination="false"
-              empty-title="没有工资数据"
-              :empty-description="wageEmpty"
-            />
-          </div>
-        </SectionCard>
-
-        <SectionCard title="合同预警" subtitle="按到期时间分桶，尽早处理即将自由身的主力">
-          <el-collapse v-if="contractBuckets.length > 0" class="contracts">
-            <el-collapse-item
-              v-for="bucket in contractBuckets"
-              :key="bucket.key"
-              :title="`${bucket.label}（${bucket.entries.length}）`"
-              :name="bucket.key"
+      <!-- 更多分析：图表与技术明细，默认折叠 -->
+      <details class="sm-details">
+        <summary>更多阵容分析（六维权重、图表、年龄、工资、合同与接班规划）</summary>
+        <div class="sm-details__body">
+          <div class="sm-grid sm-grid--2">
+            <ChartCard
+              title="六维雷达"
+              subtitle="至少三个维度有数值时绘制，缺失维度不按 0 计入"
+              :empty="!radarReady"
+              empty-title="六维数据不足"
+              empty-description="后端返回的有效维度少于 3 个，无法画出可读的雷达形状；补齐覆盖、深度、年龄、适配、工资或潜力数据后会重新绘制。"
+              :footnote="radarFootnote"
             >
-              <DataTable
-                :columns="[
-                  { prop: 'name', label: '球员', minWidth: 140 },
-                  { prop: 'contract_end', label: '到期日', width: 108 },
-                  { prop: 'age', label: '年龄', width: 64, align: 'right' },
-                  { prop: 'ca', label: 'CA', width: 60, align: 'right' },
-                  { prop: 'market_value', label: '身价', width: 110, align: 'right', formatter: (row) => formatMoney(row.market_value) },
-                ]"
-                :rows="contractRows(bucket.entries)"
-                row-key="instance_id"
-                dense
-                :show-pagination="false"
-              />
-            </el-collapse-item>
-          </el-collapse>
-          <p v-else class="sm-text-2xs sm-text-faint">没有合同到期数据。</p>
-        </SectionCard>
-      </div>
+              <EChart :option="radarOption" height="260px" aria-label="阵容六维评分雷达图" />
+            </ChartCard>
 
-      <SectionCard title="接班规划" subtitle="每个 29 岁以上的主力都给出内部接班人与外部搜索画像">
-        <DataTable
-          :columns="successionColumns"
-          :rows="overview.succession"
-          :row-key="(row) => String(row.player.instance_id)"
-          empty-title="没有需要规划接班的球员"
-          :empty-description="successionEmpty"
-        />
-      </SectionCard>
+            <ChartCard
+              title="年龄分布"
+              subtitle="实际占比与后端给出的理想占比"
+              :empty="ageBuckets.length === 0"
+              empty-title="没有年龄区间"
+              empty-description="后端未返回 age_structure.buckets，无法绘制年龄分布；下方年龄结构区块仍会列出可用字段。"
+              :footnote="`共 ${ageBuckets.length} 个区间 · 平均 ${formatDecimal(overview.age_structure.average_age ?? null, 1)} 岁 · 中位 ${formatDecimal(overview.age_structure.median_age ?? null, 1)} 岁`"
+            >
+              <EChart :option="ageOption" height="260px" aria-label="阵容年龄分布与理想占比" />
+            </ChartCard>
+          </div>
+
+          <SectionCard title="六个维度" subtitle="权重可在下方调整后重算；缺数据的维度会重新分配权重">
+            <div class="dims">
+              <article v-for="component in components" :key="component.key" class="dim-card">
+                <header class="dim-card__head">
+                  <span class="dim-card__label">{{ component.label }}</span>
+                  <span class="dim-card__score" :class="`dim-card__score--${componentTone(component)}`">
+                    {{ component.value === null ? '不可计算' : formatDecimal(component.value, 1) }}
+                  </span>
+                </header>
+                <div class="dim-card__weight">权重 {{ formatPercent(component.weight, 0) }}</div>
+                <div class="dim-card__track" aria-hidden="true">
+                  <i :style="{ width: dimWidth(component.value) }" />
+                </div>
+                <ul class="dim-card__evidence">
+                  <li v-for="line in component.evidence" :key="line">{{ line }}</li>
+                </ul>
+                <ul v-if="component.missing.length > 0" class="dim-card__missing">
+                  <li v-for="line in component.missing" :key="line">{{ line }}</li>
+                </ul>
+              </article>
+            </div>
+
+            <div class="weights sm-glass">
+              <div class="weights__head">
+                <span class="sm-label">自定义权重</span>
+                <span class="weights__total">合计 {{ formatDecimal(weightTotal, 2) }}</span>
+              </div>
+              <div class="weights__fields">
+                <label v-for="component in components" :key="component.key" class="weights__field">
+                  <span>{{ component.label.split('（')[0] }}</span>
+                  <el-input-number
+                    v-model="weightDraft[component.key]"
+                    :min="0"
+                    :max="1"
+                    :step="0.05"
+                    :precision="2"
+                    size="small"
+                    controls-position="right"
+                    :aria-label="`${component.label.split('（')[0]} 权重`"
+                  />
+                </label>
+              </div>
+              <div class="weights__actions">
+                <el-button size="small" type="primary" :loading="loading" @click="applyWeights">按此权重重算</el-button>
+                <el-button size="small" @click="resetWeights">恢复模板</el-button>
+              </div>
+            </div>
+
+            <el-alert
+              v-if="overview.data_gaps && overview.data_gaps.length > 0"
+              class="dims__gaps"
+              type="warning"
+              :closable="false"
+              show-icon
+              title="数据缺口"
+            >
+              <ul class="dim-card__evidence">
+                <li v-for="gap in overview.data_gaps" :key="gap">{{ gap }}</li>
+              </ul>
+            </el-alert>
+          </SectionCard>
+
+          <SectionCard title="阵容构成" subtitle="一线队 / 预备队 / 青年队 / 外租 / 租入；没有名单依据的球员标为未知，不当成自由球员">
+            <template v-if="composition && composition.available">
+              <div class="composition">
+                <div v-for="(count, key) in composition.counts" :key="key" class="composition__item">
+                  <span class="composition__count">{{ count }}</span>
+                  <span class="composition__label">{{ compositionLabel(String(key)) }}</span>
+                </div>
+              </div>
+              <ul v-if="composition.gaps && composition.gaps.length" class="composition__gaps">
+                <li v-for="gap in composition.gaps" :key="gap">{{ gap }}</li>
+              </ul>
+            </template>
+            <EmptyState
+              v-else
+              title="没有阵容名单"
+              :description="
+                (composition?.missing ?? []).join('；') ||
+                '数据源不提供一线队/预备队/青年队与租借状态，请到游戏数据导入阵容 CSV'
+              "
+            />
+          </SectionCard>
+
+          <div class="sm-grid sm-grid--2">
+            <SectionCard title="阵容短板" subtitle="按缺口严重程度排序，可追溯到人数与替补质量">
+              <DataTable
+                :columns="weaknessColumns"
+                :rows="overview.weakness"
+                row-key="slot"
+                empty-title="没有短板数据"
+              />
+            </SectionCard>
+
+            <SectionCard title="年龄结构" subtitle="与基线分布对比，偏差越大扣分越多">
+              <StatHeader :items="ageStats" />
+              <div v-if="ageBuckets.length > 0" class="age-list">
+                <div v-for="bucket in ageBuckets" :key="bucket.bucket" class="age-row">
+                  <span class="age-row__label">{{ bucket.bucket }}</span>
+                  <div class="age-row__track">
+                    <div class="age-row__bar" :style="{ width: `${Math.min(100, bucket.share * 100)}%` }" />
+                    <div class="age-row__ideal" :style="{ left: `${Math.min(100, bucket.ideal_share * 100)}%` }" />
+                  </div>
+                  <span class="age-row__value">{{ bucket.count }} 人 · {{ formatPercent(bucket.share, 0) }}</span>
+                </div>
+              </div>
+              <p v-else class="sm-text-2xs sm-text-faint">后端未返回年龄区间。</p>
+              <template #footer>竖线为基线占比；平均年龄 {{ formatDecimal(overview.age_structure.average_age ?? null, 1) }}，中位 {{ formatDecimal(overview.age_structure.median_age ?? null, 1) }}</template>
+            </SectionCard>
+          </div>
+
+          <div class="sm-grid sm-grid--2">
+            <SectionCard title="工资结构" subtitle="集中度与低产出高薪球员共同决定工分">
+              <div class="wage">
+                <StatHeader :items="wageStats" />
+                <DataTable
+                  :columns="[
+                    { prop: 'name', label: '球员', minWidth: 140 },
+                    { prop: 'wage', label: '工资', width: 110, align: 'right', formatter: (row) => formatMoney(row.wage) },
+                    { prop: 'minutes_played', label: '出场分钟', width: 96, align: 'right' },
+                    { prop: 'age', label: '年龄', width: 64, align: 'right' },
+                  ]"
+                  :rows="overview.wage_structure.top_earners"
+                  row-key="instance_id"
+                  dense
+                  :show-pagination="false"
+                  empty-title="没有工资数据"
+                  :empty-description="wageEmpty"
+                />
+              </div>
+            </SectionCard>
+
+            <SectionCard title="合同预警" subtitle="按到期时间分桶，尽早处理即将自由身的主力">
+              <el-collapse v-if="contractBuckets.length > 0" class="contracts">
+                <el-collapse-item
+                  v-for="bucket in contractBuckets"
+                  :key="bucket.key"
+                  :title="`${bucket.label}（${bucket.entries.length}）`"
+                  :name="bucket.key"
+                >
+                  <DataTable
+                    :columns="[
+                      { prop: 'name', label: '球员', minWidth: 140 },
+                      { prop: 'contract_end', label: '到期日', width: 108 },
+                      { prop: 'age', label: '年龄', width: 64, align: 'right' },
+                      { prop: 'ca', label: 'CA', width: 60, align: 'right' },
+                      { prop: 'market_value', label: '身价', width: 110, align: 'right', formatter: (row) => formatMoney(row.market_value) },
+                    ]"
+                    :rows="contractRows(bucket.entries)"
+                    row-key="instance_id"
+                    dense
+                    :show-pagination="false"
+                  />
+                </el-collapse-item>
+              </el-collapse>
+              <p v-else class="sm-text-2xs sm-text-faint">没有合同到期数据。</p>
+            </SectionCard>
+          </div>
+
+          <SectionCard title="接班规划" subtitle="每个 29 岁以上的主力都给出内部接班人与外部搜索画像">
+            <DataTable
+              :columns="successionColumns"
+              :rows="overview.succession"
+              :row-key="(row) => String(row.player.instance_id)"
+              empty-title="没有需要规划接班的球员"
+              :empty-description="successionEmpty"
+            />
+          </SectionCard>
+        </div>
+      </details>
     </template>
   </div>
 </template>
@@ -752,7 +992,7 @@ onMounted(async () => {
   width: 168px;
 }
 
-/* ---------- 阵容指挥条 ---------- */
+/* ---------- 阵容概览 ---------- */
 
 .squad-hero {
   position: relative;
@@ -993,6 +1233,136 @@ onMounted(async () => {
   color: var(--sm-text-3);
   font-size: var(--sm-fs-2xs);
   line-height: 1.5;
+}
+
+/* ---------- 阵容诊断 ---------- */
+
+.diagnosis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--sm-space-3);
+}
+
+.diagnosis__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-left: 2px solid var(--sm-accent-blue);
+  border-radius: var(--sm-radius-md);
+  background: rgba(12, 23, 39, 0.6);
+}
+
+.diagnosis__item--good {
+  border-left-color: var(--sm-success);
+}
+
+.diagnosis__item--warn {
+  border-left-color: var(--sm-status-warning);
+}
+
+.diagnosis__item--danger {
+  border-left-color: var(--sm-status-danger);
+}
+
+.diagnosis__label {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  letter-spacing: var(--sm-tracking-label);
+}
+
+.diagnosis__title {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-sm);
+  font-weight: var(--sm-fw-semibold);
+}
+
+.diagnosis__detail {
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.6;
+}
+
+.diagnosis__link {
+  align-self: flex-start;
+  margin-top: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sm-accent-cyan);
+  font: inherit;
+  font-size: var(--sm-fs-2xs);
+  cursor: pointer;
+}
+
+.diagnosis__link:hover {
+  text-decoration: underline;
+}
+
+/* ---------- 重点球员 ---------- */
+
+.player-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.player-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sm-space-3);
+  padding-bottom: var(--sm-space-2);
+  border-bottom: 1px solid var(--sm-border);
+}
+
+.player-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.player-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.player-row__name {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-sm);
+  font-weight: var(--sm-fw-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-row__main:hover .player-row__name {
+  color: var(--sm-accent-cyan);
+}
+
+.player-row__meta {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+.player-row__stat {
+  color: var(--sm-text);
+  font-size: var(--sm-fs-xs);
+  font-weight: var(--sm-fw-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* ---------- 六维卡片与权重面板 ---------- */
@@ -1275,68 +1645,7 @@ onMounted(async () => {
   font-size: var(--sm-fs-sm);
 }
 
-/* ---------- 响应式 ---------- */
-
-@media (max-width: 1180px) {
-  .squad-hero {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: flex-start;
-  }
-
-  .squad-hero__dims {
-    display: grid;
-    grid-column: 1 / -1;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--sm-space-3) var(--sm-space-4);
-  }
-}
-
-@media (max-width: 768px) {
-  .squad-hero {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--sm-space-4);
-    padding: var(--sm-space-4);
-  }
-
-  .squad-hero__gauge {
-    align-items: flex-start;
-  }
-
-  .gauge {
-    width: 132px;
-    height: 132px;
-  }
-
-  .gauge__value {
-    font-size: var(--sm-fs-2xl);
-  }
-
-  .gauge__hint {
-    text-align: left;
-  }
-
-  .squad-hero__dims {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 480px) {
-  .squad-hero__dims {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .age-row {
-    grid-template-columns: 56px minmax(0, 1fr) 92px;
-  }
-
-  .club__field {
-    flex: 1 1 100%;
-  }
-
-  .weights__fields {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
+/* ---------- 补强优先级 ---------- */
 
 .priority-list {
   display: flex;
@@ -1409,5 +1718,68 @@ onMounted(async () => {
 
 .player-link:hover {
   text-decoration: underline;
+}
+
+/* ---------- 响应式 ---------- */
+
+@media (max-width: 1180px) {
+  .squad-hero {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: flex-start;
+  }
+
+  .squad-hero__dims {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--sm-space-3) var(--sm-space-4);
+  }
+}
+
+@media (max-width: 768px) {
+  .squad-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sm-space-4);
+    padding: var(--sm-space-4);
+  }
+
+  .squad-hero__gauge {
+    align-items: flex-start;
+  }
+
+  .gauge {
+    width: 132px;
+    height: 132px;
+  }
+
+  .gauge__value {
+    font-size: var(--sm-fs-2xl);
+  }
+
+  .gauge__hint {
+    text-align: left;
+  }
+
+  .squad-hero__dims {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .squad-hero__dims {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .age-row {
+    grid-template-columns: 56px minmax(0, 1fr) 92px;
+  }
+
+  .club__field {
+    flex: 1 1 100%;
+  }
+
+  .weights__fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

@@ -14,6 +14,7 @@ import { getOverview } from '../api/analytics'
 import { getDataHubStatus } from '../api/datahub'
 import { listImports } from '../api/imports'
 import { listPlayers } from '../api/players'
+import { getHiddenValue } from '../api/recruitment'
 import { getSquadOverview } from '../api/squad'
 import { getTransferStats, listTransfers } from '../api/transfers'
 import AppIcon from '../components/AppIcon.vue'
@@ -29,6 +30,7 @@ import type { OverviewResponse } from '../types/analytics'
 import type { DataHubStatus } from '../types/datahub'
 import type { ImportJob } from '../types/imports'
 import type { PlayerSummary } from '../types/players'
+import type { HiddenValueResponse } from '../types/recruitment'
 import type { SquadOverview } from '../types/squad'
 import type { TableColumn } from '../types/table'
 import type { Transfer, TransferStatsResponse } from '../types/transfers'
@@ -86,6 +88,97 @@ const transfersError = ref<ApiError | null>(null)
 
 const hub = ref<DataHubStatus | null>(null)
 
+const opportunities = ref<HiddenValueResponse | null>(null)
+const oppLoading = ref(false)
+
+/** 俱乐部名称：用于首屏标题，缺省时回退到分析员口吻。 */
+const clubName = computed(() => squad.value?.club?.name ?? '分析员')
+
+/** 当前存档的联赛与游戏版本。 */
+const leagueLine = computed(() => {
+  const league = squad.value?.club?.league
+  const version = session.activeSave?.game_version
+  const parts = [league, version ? `游戏版本 ${version}` : null].filter(Boolean)
+  return parts.length > 0 ? parts.join(' · ') : '联赛与游戏版本未知'
+})
+
+/** AI 简报：全部来自当前存档真实字段，界面明确标注为规则生成。 */
+const briefing = computed<
+  Array<{ key: string; label: string; title: string; detail: string; to?: string; tone: 'info' | 'warn' | 'danger' }>
+>(() => {
+  const current = squad.value
+  const rows: Array<{ key: string; label: string; title: string; detail: string; to?: string; tone: 'info' | 'warn' | 'danger' }> = []
+  if (!current) return rows
+
+  const weakestSlot = current.weakness[0]
+  rows.push({
+    key: 'problem',
+    label: '最大问题',
+    title: weakestSlot ? `${weakestSlot.slot_name} 人手不足` : '未发现明显短板',
+    detail: weakestSlot
+      ? `现有 ${weakestSlot.count} 人，模板要求 ${weakestSlot.required} 人。${weakestSlot.suggestion}`
+      : '当前阵容每个位置都达到最低人数要求。',
+    to: '/squad',
+    tone: weakestSlot && weakestSlot.severity >= 2 ? 'danger' : 'warn',
+  })
+
+  const top = opportunities.value?.items?.[0]
+  rows.push({
+    key: 'opportunity',
+    label: '引援机会',
+    title: top ? top.player.name : '暂无可用引援机会',
+    detail: top
+      ? `${top.player.club ?? '俱乐部未知'} · ${top.rule_label}。${top.evidence[0] ?? ''}`
+      : '需要更多带身价、年龄与合同的扫描数据后，才会生成可追溯的引援机会。',
+    to: '/recruitment',
+    tone: top ? 'info' : 'warn',
+  })
+
+  rows.push({
+    key: 'contract',
+    label: '合同风险',
+    title:
+      current.contracts.at_risk_count > 0
+        ? `${formatInt(current.contracts.at_risk_count)} 名球员 12 个月内到期`
+        : '近期没有合同到期风险',
+    detail:
+      current.contracts.at_risk_names.slice(0, 4).join('、') ||
+      (current.contracts.at_risk_count > 0 ? '到期名单未返回姓名。' : '按当前合同到期日计算。'),
+    to: '/squad',
+    tone: current.contracts.at_risk_count > 0 ? 'warn' : 'info',
+  })
+
+  const watch = current.succession[0]?.player ?? topPlayers.value[0] ?? null
+  rows.push({
+    key: 'watch',
+    label: '值得关注球员',
+    title: watch ? watch.name : '暂无可用球员',
+    detail: watch
+      ? current.succession[0]
+        ? current.succession[0].verdict
+        : `当前能力 ${watch.ca ?? EMPTY} · 潜力 ${watch.pa ?? EMPTY}`
+      : '导入球员数据后，这里会列出最值得跟踪的球员。',
+    to: watch ? `/players/${watch.instance_id}` : '/players',
+    tone: 'info',
+  })
+
+  const next = weakestSlot
+    ? `优先补强 ${weakestSlot.slot_name}，并核对合同到期主力。`
+    : '继续同步游戏数据，保持阵容与转会样本最新。'
+  rows.push({
+    key: 'next',
+    label: '下一步',
+    title: next,
+    detail: weakestSlot
+      ? '点击右侧进入引援机会，系统会按同一套确定性规则给出候选与理由。'
+      : '也可以在 AI 足球总监中提出更具体的问题。',
+    to: weakestSlot ? `/recruitment?slot=${encodeURIComponent(weakestSlot.slot)}` : '/director',
+    tone: 'info',
+  })
+
+  return rows
+})
+
 /** 本队是否可分析。 */
 const squadAvailable = computed(() => (squad.value?.squad_size ?? 0) > 0)
 
@@ -102,13 +195,6 @@ const connection = computed<{ text: string; tone: 'ok' | 'idle' | 'warn' }>(() =
   }
   if (session.hasRealScanData) return { text: '已有扫描数据', tone: 'ok' }
   return { text: '尚未导入数据', tone: 'idle' }
-})
-
-/** 存档与俱乐部摘要。 */
-const clubLine = computed(() => {
-  const club = squad.value?.club
-  if (!club) return '未指定本队'
-  return club.league ? `${club.name} · ${club.league}` : club.name
 })
 
 /** 主要短板。 */
@@ -168,14 +254,14 @@ const highlights = computed<Array<{ tone: 'info' | 'warn' | 'danger'; title: str
 /** Top 5 身价最大值，用作条形宽度比例。 */
 const topValueMax = computed(() => Math.max(0, ...topPlayers.value.map((row) => row.market_value ?? 0)))
 
-/** 快捷入口：只保留主流程。 */
+/** 快捷入口：按用户任务组织，而不是按页面模块组织。 */
 const quickLinks = [
-  { to: '/players', icon: 'players' as const, title: '球员中心', description: '搜索球员，查看能力与潜力' },
-  { to: '/compare', icon: 'players' as const, title: '球员对比', description: '2–4 名球员横向比较能力与价值' },
-  { to: '/squad', icon: 'squad' as const, title: '阵容分析', description: '看清强项、短板与合同风险' },
-  { to: '/recruitment', icon: 'scouting' as const, title: '引援中心', description: '找到值得引进的目标' },
-  { to: '/transfers', icon: 'transfers' as const, title: '转会情报', description: '查看交易状态与费用' },
-  { to: '/data', icon: 'data' as const, title: '数据中心', description: '同步或导入游戏数据' },
+  { to: '/squad', icon: 'squad' as const, title: '分析阵容', description: '看清强项、短板与补强优先级' },
+  { to: '/players', icon: 'players' as const, title: '搜索球员', description: '按位置、年龄与能力筛选目标' },
+  { to: '/recruitment', icon: 'scouting' as const, title: '发现引援机会', description: '按确定性规则获得候选与理由' },
+  { to: '/compare', icon: 'players' as const, title: '比较球员', description: '2–4 名球员横向比较能力与成本' },
+  { to: '/transfer-director', icon: 'transfers' as const, title: '生成转会策略', description: '买入、出售与租借方案与谈判记录' },
+  { to: '/director', icon: 'agent' as const, title: '向 AI 足球总监提问', description: '用一句话提出阵容或引援问题' },
 ]
 
 // ---------- 高级区图表 ----------
@@ -330,6 +416,17 @@ async function loadAll(): Promise<void> {
     // 数据中心接口不可用时只隐藏连接细节，不影响首页其它内容。
     hub.value = null
   }
+
+  oppLoading.value = true
+  opportunities.value = null
+  try {
+    opportunities.value = await getHiddenValue(squad.value?.weakness[0]?.slot, 3)
+  } catch {
+    // 引援引擎不可用时，简报会明确说明「暂无可用引援机会」。
+    opportunities.value = null
+  } finally {
+    oppLoading.value = false
+  }
 }
 
 function go(path: string): void {
@@ -343,16 +440,17 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
   <div class="sm-page dashboard">
     <section class="welcome" aria-label="当前存档">
       <div class="welcome__body">
-        <h1 class="welcome__title">欢迎回来<span class="welcome__name">，分析员</span></h1>
-        <p class="welcome__subtitle">
-          {{ displayText(session.activeSave?.name) }} · {{ clubLine }}
+        <p class="welcome__eyebrow">
+          {{ displayText(session.activeSave?.name) }} · {{ displayText(session.activeSave?.game_version) }}
         </p>
+        <h1 class="welcome__title">欢迎回来，<span class="welcome__name">{{ clubName }}</span></h1>
+        <p class="welcome__subtitle">{{ leagueLine }}</p>
         <div class="welcome__chips">
           <span class="chip" :class="`chip--${connection.tone}`">
             <i aria-hidden="true" />
             {{ connection.text }}
           </span>
-          <span class="chip">游戏版本 {{ displayText(session.activeSave?.game_version) }}</span>
+          <span class="chip">当前存档 {{ displayText(session.activeSave?.name) }}</span>
           <span class="chip">
             最近导入 {{ formatDateTime(overview?.last_import?.finished_at ?? null) }}
           </span>
@@ -377,7 +475,7 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
       description="同步 FM27 游戏数据后，这里会显示球队规模、平均年龄、阵容短板和需要注意的合同。"
     >
       <el-button size="small" type="primary" @click="go('/data')">同步游戏数据</el-button>
-      <el-button size="small" @click="go('/players')">先看看球员中心</el-button>
+      <el-button size="small" @click="go('/players')">先看看球员探索</el-button>
     </EmptyState>
 
     <template v-else>
@@ -394,6 +492,14 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
           :value="formatDecimal(squad?.age_structure.average_age, 1)"
           :hint="squad?.age_structure.median_age ? `中位 ${formatDecimal(squad.age_structure.median_age, 1)} 岁` : '需要阵容数据'"
           :loading="squadLoading && !squad"
+        />
+        <KpiCard
+          label="阵容综合评分"
+          :value="formatDecimal(squad?.score ?? null, 1)"
+          :hint="squad?.profile?.name ? `模板：${squad.profile.name}` : '需要阵容数据'"
+          tone="accent"
+          :loading="squadLoading && !squad"
+          to="/squad"
         />
         <KpiCard
           label="主要短板"
@@ -414,28 +520,41 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
       </div>
 
       <div class="sm-grid sm-grid--wide-left">
-        <SectionCard title="重点关注" subtitle="根据当前阵容与数据自动整理">
-          <div v-if="squadLoading && !squad" class="sm-stack">
-            <el-skeleton :rows="3" animated />
-          </div>
+        <SectionCard
+          title="AI 总监简报"
+          subtitle="基于当前存档真实字段的规则生成结论，不替代游戏内数据"
+          accent
+        >
+          <el-skeleton v-if="(squadLoading && !squad) || (oppLoading && !opportunities)" :rows="5" animated />
           <EmptyState
-            v-else-if="highlights.length === 0"
-            title="暂时没有需要特别关注的问题"
-            description="指定本队并导入更多扫描数据后，这里会显示位置短板、合同风险和接班规划。"
+            v-else-if="!squad"
+            title="还没有球队上下文"
+            description="指定本队并导入扫描后，这里会给出最大问题、引援机会、合同风险与下一步建议。"
             compact
-          />
-          <ul v-else class="highlights">
-            <li v-for="item in highlights" :key="item.title" class="highlight" :class="`highlight--${item.tone}`">
-              <span class="highlight__dot" aria-hidden="true" />
-              <div class="highlight__body">
-                <p class="highlight__title">{{ item.title }}</p>
-                <p class="highlight__detail">{{ item.detail }}</p>
+          >
+            <el-button size="small" type="primary" @click="go('/data')">同步游戏数据</el-button>
+          </EmptyState>
+          <ol v-else class="brief">
+            <li v-for="row in briefing" :key="row.key" class="brief__row" :class="`brief__row--${row.tone}`">
+              <span class="brief__label">{{ row.label }}</span>
+              <div class="brief__body">
+                <p class="brief__title">{{ row.title }}</p>
+                <p class="brief__detail">{{ row.detail }}</p>
               </div>
-              <button v-if="item.to" type="button" class="highlight__link" :aria-label="`查看 ${item.title}`" @click="go(item.to)">
-                →
+              <button
+                v-if="row.to"
+                type="button"
+                class="brief__link"
+                :aria-label="`查看${row.label}`"
+                @click="go(row.to)"
+              >
+                查看 →
               </button>
             </li>
-          </ul>
+          </ol>
+          <template #footer>
+            简报只使用当前存档可观测字段；缺失字段会说明原因，不会被记为 0，也不会把推测当成游戏真实属性。
+          </template>
         </SectionCard>
 
         <SectionCard title="值得关注的球员" subtitle="按身价排序的前 5 名">
@@ -466,6 +585,27 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
           </template>
         </SectionCard>
       </div>
+
+      <SectionCard title="重要提醒" subtitle="需要你处理或了解的事项；不展示没有行动价值的系统日志" dense>
+        <EmptyState
+          v-if="highlights.length === 0"
+          title="暂时没有需要处理的事项"
+          description="位置短板、合同风险与关注提醒会在这里集中出现。"
+          compact
+        />
+        <ul v-else class="highlights">
+          <li v-for="item in highlights" :key="item.title" class="highlight" :class="`highlight--${item.tone}`">
+            <span class="highlight__dot" aria-hidden="true" />
+            <div class="highlight__body">
+              <p class="highlight__title">{{ item.title }}</p>
+              <p class="highlight__detail">{{ item.detail }}</p>
+            </div>
+            <button v-if="item.to" type="button" class="highlight__link" :aria-label="`查看 ${item.title}`" @click="go(item.to)">
+              →
+            </button>
+          </li>
+        </ul>
+      </SectionCard>
 
       <SectionCard title="最近转会动态" subtitle="按转会日期倒序的前 5 条" flush>
         <DataTable
@@ -592,7 +732,7 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
               row-key="id"
               clickable
               empty-title="还没有导入记录"
-              empty-description="在数据中心导入扫描文件后，这里会显示导入结果。"
+              empty-description="在游戏数据中导入扫描文件后，这里会显示导入结果。"
               @row-click="go('/data')"
               @retry="loadAll"
             />
@@ -657,6 +797,14 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
   font-size: var(--sm-fs-sm);
 }
 
+.welcome__eyebrow {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  font-weight: var(--sm-fw-semibold);
+  letter-spacing: var(--sm-tracking-label);
+  text-transform: uppercase;
+}
+
 .welcome__chips {
   display: flex;
   flex-wrap: wrap;
@@ -705,6 +853,78 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--sm-space-2);
+}
+
+/* ---------- AI 总监简报 ---------- */
+
+.brief {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.brief__row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--sm-space-3);
+  padding: var(--sm-space-2) var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-left: 2px solid var(--sm-accent-blue);
+  border-radius: var(--sm-radius-sm);
+  background: rgba(12, 23, 39, 0.55);
+}
+
+.brief__row--warn {
+  border-left-color: var(--sm-status-warning);
+}
+
+.brief__row--danger {
+  border-left-color: var(--sm-status-danger);
+}
+
+.brief__label {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  letter-spacing: var(--sm-tracking-label);
+  white-space: nowrap;
+}
+
+.brief__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.brief__title {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-sm);
+  font-weight: var(--sm-fw-medium);
+}
+
+.brief__detail {
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.6;
+}
+
+.brief__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sm-accent-cyan);
+  font: inherit;
+  font-size: var(--sm-fs-2xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.brief__link:hover {
+  text-decoration: underline;
 }
 
 /* ---------- 关注点 ---------- */

@@ -351,7 +351,7 @@ test.beforeEach(async ({ page }) => {
 
 test('Ctrl+K 打开全局搜索并跳转球员详情', async ({ page }) => {
   await page.goto('/players')
-  await expect(page.getByRole('heading', { name: '球员中心', level: 1 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '球员探索', level: 1 })).toBeVisible()
   await page.keyboard.press('Control+K')
   const input = page.getByPlaceholder('搜索球员、俱乐部、转会或关注名单')
   await expect(input).toBeVisible()
