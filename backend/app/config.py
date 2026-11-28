@@ -106,6 +106,7 @@ class Settings(BaseSettings):
 
     agent_llm_enabled: bool = False
     agent_llm_base_url: str = "https://api.deepseek.com"
+    agent_llm_chat_path: str = "/v1/chat/completions"
     agent_llm_model: str = "deepseek-chat"
     agent_llm_api_key: str | None = None
     # SM-046：超时、重试与成本估算（真实联调仍需要 API Key）。
