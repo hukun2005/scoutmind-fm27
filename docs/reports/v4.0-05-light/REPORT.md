@@ -1,8 +1,8 @@
 # ScoutMind FM27 · V4.0-05 Premium Light 全应用浅色主题统一改造报告
 
 - 分支：`feature/v4.0-05-premium-light`（基于 `feature/v4.0-04-brand-tag-system`，基线 `e3eb12d`）
-- 代码提交：待回填
-- Pull Request：待创建后回填
+- 代码提交：`5d0c34d`
+- Pull Request：https://github.com/hukun2005/scoutmind-fm27/pull/37
 - 验收环境：Windows / Chromium / FastAPI 本地同端口托管构建产物；真实只读数据库副本（存档 2，54,570 名球员）
 
 ---
@@ -153,8 +153,8 @@ Element Plus 的 Modal、Drawer、Dropdown、Select、Tooltip、Popover、Toast/
 
 - 分支：`feature/v4.0-05-premium-light`
 - 基线：`e3eb12d`（`feature/v4.0-04-brand-tag-system`）
-- 提交 SHA：待回填
-- PR：待创建后回填
+- 提交 SHA：`5d0c34d`（实现）；报告回填为后续文档提交
+- PR：https://github.com/hukun2005/scoutmind-fm27/pull/37
 
 未执行：合并 main、发布应用、构建 Windows 安装包、安装/卸载/签名测试。
 本次完成后暂停，等待用户审核。
