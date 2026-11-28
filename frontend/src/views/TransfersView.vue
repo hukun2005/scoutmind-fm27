@@ -1577,7 +1577,7 @@ if (activeTab.value === 'deals') void loadDealsOverview()
   bottom: calc(-1 * var(--sm-space-2));
   left: 96px;
   width: 1px;
-  background: linear-gradient(180deg, rgba(53, 106, 230, 0.3), rgba(124, 107, 214, 0.06));
+  background: linear-gradient(180deg, rgba(49, 95, 206, 0.3), rgba(49, 95, 206, 0.06));
 }
 
 .timeline__item:last-child::before {
@@ -1596,7 +1596,7 @@ if (activeTab.value === 'deals') void loadDealsOverview()
   margin: 6px auto 0;
   border-radius: 50%;
   background: var(--sm-accent-blue);
-  box-shadow: 0 0 0 3px rgba(53, 106, 230, 0.12);
+  box-shadow: 0 0 0 3px rgba(49, 95, 206, 0.12);
 }
 
 .timeline__body {
@@ -1652,7 +1652,7 @@ if (activeTab.value === 'deals') void loadDealsOverview()
   display: block;
   height: 100%;
   border-radius: 2px;
-  background: linear-gradient(90deg, #356ae6, #7c6bd6);
+  background: var(--sm-gradient-accent);
 }
 
 @media (max-width: 640px) {

@@ -526,7 +526,7 @@ onBeforeUnmount(() => {
 }
 
 .pd-icon:hover:not(:disabled) {
-  border-color: #c9d5e6;
+  border-color: var(--sm-border-strong);
   color: var(--pd-text);
 }
 
@@ -550,8 +550,8 @@ onBeforeUnmount(() => {
   height: 56px;
   flex: 0 0 auto;
   border-radius: 16px;
-  background: linear-gradient(160deg, #e8f0ff, #dfe9f9);
-  color: #2c4a7c;
+  background: linear-gradient(160deg, #eaf1ff, #dfe9f9);
+  color: #2a52b4;
   font-size: 18px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -644,7 +644,7 @@ onBeforeUnmount(() => {
   height: 4px;
   margin: 6px 0 8px;
   border-radius: 999px;
-  background: #e8eef7;
+  background: var(--sm-surface-3);
   overflow: hidden;
 }
 
@@ -652,7 +652,7 @@ onBeforeUnmount(() => {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #3b82f6;
+  background: var(--sm-accent-blue);
 }
 
 .pd-attrs {
@@ -738,12 +738,12 @@ onBeforeUnmount(() => {
 }
 
 .pd-risks--warning {
-  background: #fff7ed !important;
+  background: var(--sm-warn-weak) !important;
   color: var(--pd-warn) !important;
 }
 
 .pd-risks--danger {
-  background: #fef2f2 !important;
+  background: var(--sm-danger-weak) !important;
   color: var(--pd-danger) !important;
 }
 
@@ -801,24 +801,24 @@ onBeforeUnmount(() => {
 }
 
 .pd-btn:hover {
-  border-color: #c9d5e6;
+  border-color: var(--sm-border-strong);
   text-decoration: none;
 }
 
 .pd-btn--active {
-  border-color: #bfd3f7;
+  border-color: rgba(49, 95, 206, 0.28);
   background: var(--pd-primary-weak);
-  color: #1d4ed8;
+  color: var(--sm-accent-blue);
 }
 
 .pd-btn--primary {
-  border-color: #2563eb;
-  background: #2563eb;
+  border-color: var(--sm-accent-blue);
+  background: var(--sm-accent-blue);
   color: #ffffff;
 }
 
 .pd-btn--primary:hover {
-  background: #1d4ed8;
+  background: var(--sm-accent-hover);
   color: #ffffff;
 }
 
@@ -830,7 +830,7 @@ onBeforeUnmount(() => {
 
 .pd-skeleton {
   border-radius: 10px;
-  background: linear-gradient(90deg, #eef2f7 25%, #f6f8fb 50%, #eef2f7 75%);
+  background: linear-gradient(90deg, var(--sm-surface-3) 25%, var(--sm-surface-2) 50%, var(--sm-surface-3) 75%);
   background-size: 200% 100%;
   animation: pd-shimmer 1.4s ease-in-out infinite;
 }

@@ -70,7 +70,7 @@ withDefaults(
   border-left: 3px solid var(--insight-accent);
   border-radius: var(--sm-radius-lg);
   background:
-    radial-gradient(520px 180px at 100% 0%, rgba(53, 106, 230, 0.05), transparent 72%),
+    radial-gradient(520px 180px at 100% 0%, rgba(49, 95, 206, 0.05), transparent 72%),
     var(--sm-surface);
 }
 

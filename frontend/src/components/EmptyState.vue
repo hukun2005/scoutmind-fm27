@@ -47,7 +47,7 @@ const descriptionText = computed(() => props.description || props.hint)
   border: 1px dashed var(--sm-border-strong);
   border-radius: var(--sm-radius-md);
   background:
-    radial-gradient(320px 120px at 0% 0%, rgba(53, 106, 230, 0.05), transparent 70%),
+    radial-gradient(320px 120px at 0% 0%, rgba(49, 95, 206, 0.05), transparent 70%),
     var(--sm-surface-2);
 }
 

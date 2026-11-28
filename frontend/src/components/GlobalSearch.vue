@@ -557,8 +557,8 @@ onBeforeUnmount(() => {
 }
 
 .gs-tab--active {
-  border-color: rgba(53, 106, 230, 0.28);
-  background: rgba(53, 106, 230, 0.08);
+  border-color: rgba(49, 95, 206, 0.28);
+  background: rgba(49, 95, 206, 0.08);
   color: var(--sm-accent-blue);
 }
 
@@ -598,7 +598,7 @@ onBeforeUnmount(() => {
 
 .gs-result--active,
 .gs-result:hover {
-  background: #f5f8ff;
+  background: var(--sm-surface-hover);
 }
 
 .gs-result__icon {
@@ -699,7 +699,7 @@ onBeforeUnmount(() => {
 }
 
 .gs-recent:hover {
-  background: #f5f8ff;
+  background: var(--sm-surface-hover);
 }
 
 .gs-recent__name {
@@ -718,7 +718,7 @@ onBeforeUnmount(() => {
 .gs-result__name mark,
 .gs-result__sub mark {
   border-radius: 2px;
-  background: rgba(53, 106, 230, 0.16);
+  background: rgba(49, 95, 206, 0.16);
   color: var(--sm-text-primary);
 }
 

@@ -765,7 +765,7 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-xl);
   background:
-    radial-gradient(520px 220px at 88% -30%, rgba(53, 106, 230, 0.08), transparent 70%),
+    radial-gradient(520px 220px at 88% -30%, rgba(49, 95, 206, 0.08), transparent 70%),
     var(--sm-surface);
   box-shadow: var(--sm-shadow-1);
 }
@@ -1084,7 +1084,7 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
   display: block;
   height: 100%;
   border-radius: 2px;
-  background: linear-gradient(90deg, #356ae6, #7c6bd6);
+  background: var(--sm-gradient-accent);
 }
 
 .link-btn {
@@ -1124,7 +1124,7 @@ watch([() => session.activeSaveId, () => session.dataRevision], () => void loadA
 
 .quick-link:hover {
   border-color: var(--sm-border-glow);
-  background: #f5f8ff;
+  background: var(--sm-surface-hover);
   text-decoration: none;
 }
 

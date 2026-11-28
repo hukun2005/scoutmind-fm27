@@ -363,7 +363,7 @@ watch(
 }
 
 .sm-table__row:hover td {
-  background: #f5f8ff;
+  background: var(--sm-surface-hover);
 }
 
 .sm-table__row--clickable {

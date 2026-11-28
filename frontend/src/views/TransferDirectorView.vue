@@ -2430,7 +2430,7 @@ function directionLabel(direction: string): string {
 }
 .scan-progress-text {
   font-size: 12px;
-  color: var(--sm-text-muted, #909399);
+  color: var(--sm-text-2, #64748b);
   white-space: nowrap;
 }
 .health-actions {
@@ -2453,7 +2453,7 @@ function directionLabel(direction: string): string {
   width: 220px;
 }
 .alert-item {
-  border-bottom: 1px solid var(--sm-border, #ebeef5);
+  border-bottom: 1px solid var(--sm-border, #e5eaf1);
   padding: 10px 0;
   cursor: pointer;
 }
@@ -2568,7 +2568,7 @@ function directionLabel(direction: string): string {
 }
 .learning-patterns li {
   padding: 8px 10px;
-  border: 1px solid var(--sm-border, #ebeef5);
+  border: 1px solid var(--sm-border, #e5eaf1);
   border-radius: 8px;
 }
 .learning-version {
@@ -2609,7 +2609,7 @@ function directionLabel(direction: string): string {
 }
 .feedback-hint {
   margin: 0 0 0 86px;
-  color: var(--el-color-danger, #f56c6c);
+  color: var(--sm-danger, #c2414b);
   font-size: 12px;
 }
 @media (max-width: 1100px) {

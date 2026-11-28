@@ -15,10 +15,8 @@ body,
 
 body {
   background-color: var(--sm-bg);
-  /* 浅色画布：极淡的品牌冷色晕染，避免大面积纯白显得刺眼。 */
-  background-image:
-    radial-gradient(1100px 620px at 12% -12%, rgba(53, 106, 230, 0.05), transparent 62%),
-    radial-gradient(900px 560px at 92% -6%, rgba(109, 91, 208, 0.04), transparent 60%);
+  /* 浅色画布：极淡的品牌蓝晕染，避免大面积纯白显得刺眼；不使用紫色与大面积渐变。 */
+  background-image: radial-gradient(1100px 620px at 12% -12%, rgba(49, 95, 206, 0.045), transparent 62%);
   background-attachment: fixed;
   color: var(--sm-text);
   font-family: var(--sm-font-sans);
@@ -52,7 +50,7 @@ button {
 }
 
 ::selection {
-  background: rgba(53, 106, 230, 0.18);
+  background: rgba(49, 95, 206, 0.16);
   color: #172033;
 }
 
@@ -464,12 +462,12 @@ html[data-reduce-motion='1'] *::after {
   0%,
   100% {
     opacity: 1;
-    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.45);
+    box-shadow: 0 0 0 0 rgba(22, 134, 91, 0.35);
   }
 
   50% {
     opacity: 0.85;
-    box-shadow: 0 0 0 4px rgba(52, 211, 153, 0);
+    box-shadow: 0 0 0 4px rgba(22, 134, 91, 0);
   }
 }
 

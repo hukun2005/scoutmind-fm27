@@ -56,7 +56,7 @@ withDefaults(
   inset: 0 0 auto;
   height: 1px;
   border-radius: var(--sm-radius-lg) var(--sm-radius-lg) 0 0;
-  background: linear-gradient(90deg, rgba(53, 106, 230, 0.35), rgba(53, 106, 230, 0.08) 42%, transparent);
+  background: linear-gradient(90deg, rgba(49, 95, 206, 0.35), rgba(49, 95, 206, 0.08) 42%, transparent);
   opacity: 0.55;
   pointer-events: none;
 }
