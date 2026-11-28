@@ -48,7 +48,7 @@ if (-not $SkipBackend) {
     Write-Host "==> 打包本地服务（PyInstaller）" -ForegroundColor Cyan
     if (-not (Test-Path $python)) { python -m venv $buildVenv }
     & $python -m pip install -r (Join-Path $repo "backend\requirements.txt") --quiet
-    & $python -m pip install "pyinstaller>=6.22,<7" --quiet
+    & $python -m pip install "pywebview>=6.2,<7" "pyinstaller>=6.22,<7" --quiet
 
     $work = Join-Path $repo "backend-build\work"
     $dist = Join-Path $repo "backend-build\dist"
@@ -61,6 +61,12 @@ if (-not $SkipBackend) {
         --add-data "$repo\backend\alembic.ini;backend" `
         --collect-submodules app `
         --collect-submodules uvicorn `
+        --collect-all langgraph `
+        --collect-all langgraph_sdk `
+        --collect-all langgraph_checkpoint `
+        --collect-all langgraph_checkpoint_sqlite `
+        --collect-all langchain_core `
+        --collect-all ormsgpack `
         --collect-all webview `
         --collect-all clr_loader `
         --collect-all pythonnet `
