@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -469,6 +470,18 @@ def _validate_arguments(spec: dict[str, Any], arguments: dict[str, Any]) -> dict
     for key in params.get("required", []):
         if key not in cleaned:
             raise PlannerError(f"缺少必需参数 {key}")
+    # 上下限必须自洽：真实联调中模型会给出 min_age=23/max_age=22 这类空区间计划，
+    # 静默执行只会返回 0 条结果并误导用户，因此直接拒绝并要求重新规划。
+    for low, high in (
+        ("min_age", "max_age"),
+        ("min_ca", "max_ca"),
+        ("min_pa", "max_pa"),
+        ("min_value", "max_value"),
+        ("min_fee", "max_fee"),
+        ("min_minutes", "max_minutes"),
+    ):
+        if low in cleaned and high in cleaned and cleaned[low] > cleaned[high]:
+            raise PlannerError(f"{low} 不能大于 {high}")
     return cleaned
 
 
@@ -494,6 +507,17 @@ def _assert_tool_scope(session: Session, save_id: int, arguments: dict[str, Any]
 
 
 # -- 第三阶段工具：模拟、预测、俱乐部情报、ROI、推荐、职业轨迹 --------------------------------
+
+
+def validate_tool_arguments(spec: dict[str, Any], arguments: dict[str, Any]) -> dict[str, Any]:
+    """公开入口：严格校验单个工具的参数（V3.3.3 Runtime 复用同一套规则）。"""
+    return _validate_arguments(spec, arguments)
+
+
+def assert_tool_scope(session: Session, save_id: int, arguments: dict[str, Any]) -> None:
+    """公开入口：调用工具前校验实体归属（V3.3.3 Runtime 复用同一套规则）。"""
+    _assert_tool_scope(session, save_id, arguments)
+
 
 
 def _tool_call(name: str, result: dict[str, Any], summary: str) -> ToolCall:
@@ -672,8 +696,8 @@ def chat_completion(
 
     import httpx
 
-    url = settings.agent_llm_base_url.rstrip("/") + "/v1/chat/completions"
-    payload = {
+    url = settings.agent_llm_base_url.rstrip("/") + "/" + settings.agent_llm_chat_path.lstrip("/")
+    payload: dict[str, Any] = {
         "model": settings.agent_llm_model,
         "messages": messages,
         "temperature": 0,
@@ -683,6 +707,7 @@ def chat_completion(
     last_error: Exception | None = None
     while attempt <= max(0, settings.agent_llm_max_retries):
         attempt += 1
+        retry_pause = 0.0
         try:
             response = httpx.post(
                 url,
@@ -690,7 +715,17 @@ def chat_completion(
                 timeout=timeout if timeout is not None else settings.agent_llm_timeout_seconds,
                 headers={"Authorization": f"Bearer {settings.agent_llm_api_key}"},
             )
+            if (
+                response.status_code in {400, 422}
+                and "response_format" in payload
+                and "response_format" in response.text
+            ):
+                # 部分 OpenAI 兼容端点不支持 JSON 模式；去掉该参数再试一次。
+                payload = {key: value for key, value in payload.items() if key != "response_format"}
+                continue
             if response.status_code in {429, 500, 502, 503, 504}:
+                # 429 常见于免费档限流：退避后再试，避免瞬时重试全部撞墙。
+                retry_pause = min(1.5 * attempt, 6.0)
                 raise httpx.HTTPStatusError("retryable status", request=response.request, response=response)
             response.raise_for_status()
             data = response.json()
@@ -701,6 +736,8 @@ def chat_completion(
         except Exception as exc:  # noqa: BLE001 - 统一降级
             last_error = exc
             if attempt <= max(0, settings.agent_llm_max_retries):
+                if retry_pause > 0:
+                    time.sleep(retry_pause)
                 continue
     raise LlmUnavailable(f"LLM 调用失败（{attempt} 次尝试）：{last_error}") from last_error
 

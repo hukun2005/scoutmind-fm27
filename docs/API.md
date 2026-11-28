@@ -572,3 +572,31 @@
 `POST /captures` 与 `PATCH /captures/{id}` 可携带 `save_identity_id` / `save_session_id`；
 声明时回填归属列，后续写入必须与解析出的上下文一致，否则 409。
 
+
+## 17. Agent 任务与人工确认（V3.3.3-01 新增）
+
+LangGraph Runtime 的任务接口。所有端点归属当前活动存档与当前用户；越权访问统一返回 404
+`AGENT_TASK_NOT_FOUND`（不泄露任务存在性）。旧的 `/agent/conversations*` 与 `/agent/director/*`
+保持兼容，行为不变。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/agent/tasks` | 创建任务并异步执行；body：`{"goal": "...", "task_type": "general", "conversation_id": 1}` |
+| GET | `/agent/tasks` | 任务列表；支持 `status` / `limit` / `offset` |
+| GET | `/agent/tasks/{id}` | 任务详情：状态、进度、报告、错误、待确认数 |
+| GET | `/agent/tasks/{id}/events` | 按 `seq` 游标重放事件（`after` / `limit`） |
+| GET | `/agent/tasks/{id}/events/stream` | SSE 事件流；支持 `Last-Event-ID` 续传，结束发送 `event: done` |
+| GET | `/agent/tasks/{id}/approvals` | 待确认操作（过期单在读取时标记为 `expired`） |
+| POST | `/agent/tasks/{id}/approvals/{approval_id}/approve` | 确认并继续执行（一次性） |
+| POST | `/agent/tasks/{id}/approvals/{approval_id}/reject` | 拒绝写操作，任务安全结束 |
+| POST | `/agent/tasks/{id}/resume` | 恢复已确认但尚未执行的暂停任务 |
+| POST | `/agent/tasks/{id}/cancel` | 取消任务（幂等；已结束任务再次取消仍返回成功态） |
+
+任务状态：`queued` → `running` →（`waiting_approval` ↔ `running`）→ `completed` / `failed` / `cancelled`。
+写操作（当前为 `record_negotiation`）在确认前不会产生任何持久化副作用；确认单绑定
+`payload_hash`、`save_generation` 与 TTL（默认 600s），消费后不可重放。
+
+关键错误码：`AGENT_SCOPE_VIOLATION`、`AGENT_PLAN_INVALID`、`AGENT_LIMIT_EXCEEDED`、
+`AGENT_TOOL_FAILED`、`AGENT_APPROVAL_INVALID`、`AGENT_APPROVAL_EXPIRED`、`AGENT_APPROVAL_CONSUMED`、
+`AGENT_CHECKPOINT_UNSUPPORTED`、`AGENT_RUNTIME_UNAVAILABLE`、`AGENT_TASK_NOT_FOUND`、`AGENT_TASK_CONFLICT`。
+错误体与既有接口一致：`{"error": {"code": "...", "message": "..."}}`。

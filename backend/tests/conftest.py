@@ -10,6 +10,9 @@ TMP_ROOT = Path(tempfile.mkdtemp(prefix="scoutmind-tests-"))
 os.environ["SCOUTMIND_DATABASE_URL"] = f"sqlite:///{(TMP_ROOT / 'test.db').as_posix()}"
 os.environ["SCOUTMIND_DATA_DIR"] = str(TMP_ROOT / "data")
 os.environ.pop("SCOUTMIND_API_TOKEN", None)
+# 测试必须与开发机 backend/.env 解耦：即使本机配置了真实模型，也不能在测试中发起真实网络调用。
+os.environ["SCOUTMIND_AGENT_LLM_ENABLED"] = "false"
+os.environ["SCOUTMIND_AGENT_LLM_API_KEY"] = ""
 # V3.3.2-08：测试直接调用学习服务，避免导入接口在后台线程争用测试数据库。
 os.environ.setdefault("SCOUTMIND_LEARNING_AUTO_START", "0")
 

@@ -388,3 +388,22 @@ class CrossSaveReviewIn(BaseModel):
 
     decision: Literal["same", "different", "defer"]
     note: str | None = Field(default=None, max_length=512)
+
+
+# ---------------------------------------------------------------------------
+# V3.3.3-01 Agent Runtime
+# ---------------------------------------------------------------------------
+
+
+class AgentTaskCreateIn(BaseModel):
+    """创建一个可恢复的 Agent 任务；存档与用户由服务端注入，请求体不接受。"""
+
+    goal: str = Field(min_length=1, max_length=2000)
+    task_type: str = Field(default="general", max_length=32)
+    conversation_id: int | None = Field(default=None, ge=1)
+
+
+class AgentApprovalDecisionIn(BaseModel):
+    """确认/拒绝的理由只用于审计，不参与权限判断。"""
+
+    note: str | None = Field(default=None, max_length=512)

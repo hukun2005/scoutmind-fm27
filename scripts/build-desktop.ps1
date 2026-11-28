@@ -65,6 +65,12 @@ if (Test-Path $OutputRoot) { Remove-Item $OutputRoot -Recurse -Force }
     --add-data "$repo\backend\alembic.ini;backend" `
     --collect-submodules app `
     --collect-submodules uvicorn `
+    --collect-all langgraph `
+    --collect-all langgraph_sdk `
+    --collect-all langgraph_checkpoint `
+    --collect-all langgraph_checkpoint_sqlite `
+    --collect-all langchain_core `
+    --collect-all ormsgpack `
     --collect-all webview `
     --collect-all clr_loader `
     --collect-all pythonnet `

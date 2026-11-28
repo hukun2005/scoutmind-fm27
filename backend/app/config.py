@@ -81,6 +81,15 @@ class Settings(BaseSettings):
             "scan_batch_size": self.scan_batch_size,
             "scan_task_timeout_seconds": self.scan_task_timeout_seconds,
             "scan_max_attempts": self.scan_max_attempts,
+            "agent_max_steps": self.agent_max_steps,
+            "agent_max_tool_calls": self.agent_max_tool_calls,
+            "agent_task_timeout_seconds": self.agent_task_timeout_seconds,
+            "agent_model_timeout_seconds": self.agent_model_timeout_seconds,
+            "agent_tool_timeout_seconds": self.agent_tool_timeout_seconds,
+            "agent_max_concurrent_tasks": self.agent_max_concurrent_tasks,
+            "agent_event_buffer": self.agent_event_buffer,
+            "agent_approval_ttl_seconds": self.agent_approval_ttl_seconds,
+            "agent_checkpoint_retention_days": self.agent_checkpoint_retention_days,
         }
         for name, value in positive.items():
             if int(value) <= 0:
@@ -97,6 +106,7 @@ class Settings(BaseSettings):
 
     agent_llm_enabled: bool = False
     agent_llm_base_url: str = "https://api.deepseek.com"
+    agent_llm_chat_path: str = "/v1/chat/completions"
     agent_llm_model: str = "deepseek-chat"
     agent_llm_api_key: str | None = None
     # SM-046：超时、重试与成本估算（真实联调仍需要 API Key）。
@@ -104,6 +114,20 @@ class Settings(BaseSettings):
     agent_llm_max_retries: int = 2
     agent_llm_input_price_per_mtok: float = 0.0
     agent_llm_output_price_per_mtok: float = 0.0
+
+    # V3.3.3-01：LangGraph Agent Runtime 的硬限制。全部是正整数/正数，防止配置错误放大成本。
+    agent_llm_provider_id: str = "openai-compatible"
+    agent_max_steps: int = 8
+    agent_max_tool_calls: int = 5
+    agent_task_timeout_seconds: int = 120
+    agent_model_timeout_seconds: float = 30.0
+    agent_tool_timeout_seconds: int = 10
+    agent_max_concurrent_tasks: int = 2
+    agent_event_buffer: int = 200
+    agent_approval_ttl_seconds: int = 600
+    agent_checkpoint_retention_days: int = 7
+    # Checkpoint 与业务库分离：独立 SQLite 文件，避免主库锁竞争。
+    agent_checkpoint_path: str | None = None
 
     @property
     def allowed_origins(self) -> list[str]:

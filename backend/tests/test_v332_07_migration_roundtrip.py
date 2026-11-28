@@ -14,8 +14,22 @@ from sqlalchemy.exc import IntegrityError
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PREVIOUS_REVISION = "a9f2c6d31b84"
 NEW_REVISION = "b1f4d7e82c90"
-# V3.3.2-08 起 head 前移到 c7d2f8a41b60；07 的迁移本身仍须可从任意后继 head 回滚。
-HEAD_REVISION = "c7d2f8a41b60"
+
+
+def _head_revision() -> str:
+    """动态解析当前 head：新增迁移不应让历史迁移测试失效，也不能放宽断言。"""
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "heads"],
+        cwd=BACKEND_DIR,
+        env=os.environ.copy(),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.split()[0]
+
+
+HEAD_REVISION = _head_revision()
 
 
 def _alembic(database_url: str, *args: str) -> None:

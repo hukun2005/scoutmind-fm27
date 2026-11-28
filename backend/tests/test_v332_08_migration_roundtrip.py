@@ -11,7 +11,22 @@ from sqlalchemy import create_engine, inspect, text
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PREVIOUS_REVISION = "b1f4d7e82c90"
-HEAD_REVISION = "c7d2f8a41b60"
+
+
+def _head_revision() -> str:
+    """动态解析当前 head：新增迁移不应让历史迁移测试失效，也不能放宽断言。"""
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "heads"],
+        cwd=BACKEND_DIR,
+        env=os.environ.copy(),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.split()[0]
+
+
+HEAD_REVISION = _head_revision()
 NEW_TABLES = {
     "transfer_learning_sessions",
     "transfer_learning_events",
