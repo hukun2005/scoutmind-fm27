@@ -470,6 +470,18 @@ def _validate_arguments(spec: dict[str, Any], arguments: dict[str, Any]) -> dict
     for key in params.get("required", []):
         if key not in cleaned:
             raise PlannerError(f"缺少必需参数 {key}")
+    # 上下限必须自洽：真实联调中模型会给出 min_age=23/max_age=22 这类空区间计划，
+    # 静默执行只会返回 0 条结果并误导用户，因此直接拒绝并要求重新规划。
+    for low, high in (
+        ("min_age", "max_age"),
+        ("min_ca", "max_ca"),
+        ("min_pa", "max_pa"),
+        ("min_value", "max_value"),
+        ("min_fee", "max_fee"),
+        ("min_minutes", "max_minutes"),
+    ):
+        if low in cleaned and high in cleaned and cleaned[low] > cleaned[high]:
+            raise PlannerError(f"{low} 不能大于 {high}")
     return cleaned
 
 

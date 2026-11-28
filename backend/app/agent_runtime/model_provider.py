@@ -133,7 +133,8 @@ class OpenAICompatibleProvider:
         system = (
             "你是 ScoutMind 的任务规划器。只输出 JSON：{\"tool_calls\":[{\"tool\":名称,\"arguments\":{},\"reason\":\"一句中文\"}]}。"
             f"最多 {settings.agent_max_tool_calls} 个调用；只能使用给定工具；不要编造数据；"
-            "绝不要输出 save_id、user_id、thread_id 等作用域参数。"
+            "绝不要输出 save_id、user_id、thread_id 等作用域参数；"
+            "参数必须自洽：不要同时给出互相矛盾的上下限（如 min_age 大于 max_age），不要猜测实体 ID。"
             f"可用工具：{json.dumps(tools, ensure_ascii=False)}"
         )
         try:

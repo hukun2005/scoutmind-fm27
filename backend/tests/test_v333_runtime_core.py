@@ -83,6 +83,8 @@ def test_tool_adapter_validation_and_limits() -> None:
     with pytest.raises(PlanInvalid):
         adapter.validate("search_players", {"limit": 10_000})
     with pytest.raises(PlanInvalid):
+        adapter.validate("search_players", {"min_age": 23, "max_age": 22})
+    with pytest.raises(PlanInvalid):
         adapter.assert_plan_size([{"tool": "squad_overview"}] * 3)
     assert adapter.requires_approval("record_negotiation") is True
     assert adapter.requires_approval("squad_overview") is False
@@ -120,6 +122,22 @@ def test_squad_task_completes_with_deterministic_report(client, db, save: FmSave
 
     events = runtime.snapshot(db, row)
     assert events["pending_approvals"] == 0
+
+
+def test_report_keeps_real_candidates_from_tool_results(client, db, save: FmSave) -> None:
+    """报告必须保留工具返回的真实候选：只有计数、没有姓名/能力的结论不可接受。"""
+    _seed_players(db, save)
+    runtime = _runtime(
+        provider=MockProvider([[{"tool": "search_players", "arguments": {"min_ca": 100, "limit": 5}}]])
+    )
+    task = _create(runtime, db, save, "找一个 CA 100 以上的球员")
+    result = runtime.run(task.id)
+    assert result["execution_status"] == "completed", result.get("error")
+
+    report = result["final_report"]
+    assert [card["name"] for card in report["player_cards"]] == ["Zhang Wei"]
+    assert "Zhang Wei" in report["conclusion"]
+    assert report["sections"][0]["result"]["total"] >= 1
 
 
 def test_events_are_ordered_and_replayable(client, db, save: FmSave) -> None:

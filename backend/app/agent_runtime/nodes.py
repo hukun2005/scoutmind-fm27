@@ -296,7 +296,8 @@ class AgentNodes:
                     "arguments": payload.get("arguments") or {},
                     "summary": payload.get("result_summary"),
                     "warnings": payload.get("warnings") or [],
-                    "result": payload.get("result"),
+                    # 报告阶段需要真实候选球员（姓名 / CA / PA / 位置），因此保留工具结果本体。
+                    "result": call.result,
                     "status": "ok",
                 },
                 call=call,
@@ -503,7 +504,8 @@ class AgentNodes:
                     "arguments": payload.get("arguments") or {},
                     "summary": payload.get("result_summary"),
                     "warnings": payload.get("warnings") or [],
-                    "result": payload.get("result"),
+                    # 报告阶段需要真实候选球员（姓名 / CA / PA / 位置），因此保留工具结果本体。
+                    "result": call.result,
                     "status": "ok",
                 },
                 call=call,

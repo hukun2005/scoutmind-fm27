@@ -111,11 +111,13 @@ def _compose_llm_answer(
     payloads = [call.payload() for call in planned.calls]
     summaries = [str(item.get("result_summary") or "") for item in payloads]
     conclusion = "；".join(summary for summary in summaries if summary) or "当前问题没有足够的确定性数据支持结论。"
+    highlights = _candidate_highlights(planned.calls)
+    if highlights:
+        conclusion = f"{conclusion}。候选：{highlights}"
     return {
         "conclusion": conclusion,
         "sections": [
-            {"tool": payload["name"], "summary": payload.get("result_summary"), "result": payload.get("result")}
-            for payload in payloads
+            {"tool": call.name, "summary": call.summary, "result": call.result} for call in planned.calls
         ],
         "filters": {},
         "evidence": [
@@ -474,6 +476,36 @@ def _transfer_history(session: Session, save_id: int, intent: planner.Intent, ca
         else "没有可复盘的本队交易。"
     )
     return _answer(conclusion, sections, int(summary.get("deals") or 0) if isinstance(summary, dict) else 0, "low", [])
+
+
+def _candidate_highlights(calls: list[ToolCall], limit: int = 5) -> str:
+    """把 ``search_players`` 的真实返回压成一行候选摘要，姓名与能力值全部取自工具结果。"""
+    parts: list[str] = []
+    for call in calls:
+        if call.name != "search_players":
+            continue
+        items = (call.result or {}).get("items")
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if len(parts) >= limit:
+                break
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            details = []
+            if isinstance(item.get("age"), int):
+                details.append(f"{item['age']} 岁")
+            if isinstance(item.get("ca"), int):
+                details.append(f"CA {item['ca']}")
+            if isinstance(item.get("pa"), int):
+                details.append(f"PA {item['pa']}")
+            parts.append(f"{name}（{'，'.join(details)}）" if details else name)
+        if len(parts) >= limit:
+            break
+    return "、".join(parts)
 
 
 def _player_cards(calls: list[ToolCall]) -> list[dict[str, object]]:
