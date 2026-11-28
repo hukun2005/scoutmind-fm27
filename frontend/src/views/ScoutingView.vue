@@ -13,6 +13,7 @@ import NumberCell from '../components/NumberCell.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import SectionCard from '../components/SectionCard.vue'
+import AppTag from '../components/AppTag.vue'
 import type { Club } from '../types/clubs'
 import type { PlayerFilters } from '../types/players'
 import type { RoleEvaluation, RoleTemplate, ScoutingCandidate } from '../types/scouting'
@@ -257,12 +258,12 @@ void loadClubs()
         <span class="sm-text-xs sm-text-faint">
           模板 {{ formatInt(roles.length) }} 个 · 本次返回 {{ formatInt(candidates.length) }} / {{ formatInt(total) }} 名候选人
         </span>
-        <el-tag v-if="selectedRole" size="small" type="info" disable-transitions>
-          {{ selectedRole.name }} · v{{ selectedRole.version }}
-        </el-tag>
-        <el-tag v-if="partialCoverageCount > 0" size="small" type="warning" disable-transitions>
-          {{ partialCoverageCount }} 名候选人属性覆盖不足 100%
-        </el-tag>
+        <AppTag v-if="selectedRole" :label="`${selectedRole.name} · v${selectedRole.version}`" tone="info" />
+        <AppTag
+          v-if="partialCoverageCount > 0"
+          tag="data_incomplete"
+          :label="`${partialCoverageCount} 名候选人属性覆盖不足 100%`"
+        />
       </template>
       <template #actions>
         <el-button size="small" :loading="loading" @click="search">重新检索</el-button>
@@ -479,10 +480,8 @@ void loadClubs()
             <NumberCell :value="row.coverage" kind="percent" />
           </template>
           <template v-else-if="column.prop === 'data_gap'">
-            <el-tag v-if="row.coverage !== null && row.coverage < 1" size="small" type="warning" disable-transitions>
-              缺数据
-            </el-tag>
-            <el-tag v-else-if="row.coverage === null" size="small" type="info" disable-transitions>未知</el-tag>
+            <AppTag v-if="row.coverage !== null && row.coverage < 1" tag="data_incomplete" label="缺数据" />
+            <AppTag v-else-if="row.coverage === null" tag="unknown" label="未知" tone="neutral" />
             <span v-else class="sm-text-2xs sm-text-faint">完整</span>
           </template>
           <template v-else>

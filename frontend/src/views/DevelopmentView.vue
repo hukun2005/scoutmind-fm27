@@ -17,6 +17,7 @@ import LoadingBlock from '../components/LoadingBlock.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
 import StatHeader from '../components/StatHeader.vue'
+import AppTag from '../components/AppTag.vue'
 import { useSessionStore } from '../stores/session'
 import type { DevelopmentBoardRow, GrowthPoint, GrowthProfile } from '../types/development'
 import type { TableColumn } from '../types/table'
@@ -246,7 +247,7 @@ onMounted(() => void loadBoard())
             <li v-for="item in profile.advice" :key="item.action">
               <div class="sm-row sm-row--between">
                 <strong>{{ item.action }}</strong>
-                <el-tag size="small" type="info">{{ confidenceLabel(item.confidence) }}</el-tag>
+                <AppTag tag="unknown" :label="confidenceLabel(item.confidence)" tone="info" />
               </div>
               <p class="sm-text-xs sm-text-2">{{ item.reason }}</p>
               <p class="sm-text-2xs sm-text-faint">{{ item.evidence.join('；') }}</p>

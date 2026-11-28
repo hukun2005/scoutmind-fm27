@@ -1,8 +1,10 @@
-/** Confidence tag: renders the API `confidence` label with a colour band. */
+/** Confidence tag: renders the API `confidence` label with the global semantic palette. */
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import AppTag from './AppTag.vue'
 import { confidenceLabel } from '../utils/labels'
+import type { TagTone } from '../utils/tags'
 
 const props = withDefaults(
   defineProps<{
@@ -16,28 +18,18 @@ const props = withDefaults(
   { label: '置信度', bare: false },
 )
 
-type TagType = 'success' | 'warning' | 'info'
-
-const tagType = computed<TagType>(() => {
-  switch (props.confidence) {
-    case 'high':
-      return 'success'
-    case 'medium':
-      return 'warning'
-    default:
-      return 'info'
-  }
+const tone = computed<TagTone>(() => {
+  if (props.confidence === 'high') return 'success'
+  if (props.confidence === 'medium') return 'warning'
+  if (props.confidence === 'low') return 'info'
+  return 'neutral'
 })
 
-const text = computed(() => confidenceLabel(props.confidence))
-const absent = computed(() => !props.confidence)
+const text = computed(() => `${props.bare ? '' : `${props.label} `}${confidenceLabel(props.confidence)}`)
 </script>
 
 <template>
-  <el-tag class="confidence-tag" :type="tagType" size="small" disable-transitions>
-    <span v-if="!bare">{{ label }} </span>
-    <span :class="{ 'sm-null': absent }">{{ text }}</span>
-  </el-tag>
+  <AppTag class="confidence-tag" :label="text" :tone="tone" />
 </template>
 
 <style scoped>

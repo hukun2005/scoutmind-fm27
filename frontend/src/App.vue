@@ -8,6 +8,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AppIcon from './components/AppIcon.vue'
+import AppLogo from './components/AppLogo.vue'
+import IconButton from './components/IconButton.vue'
 import DemoBanner from './components/DemoBanner.vue'
 import GlobalSearch from './components/GlobalSearch.vue'
 import OnboardingPanel from './components/OnboardingPanel.vue'
@@ -233,7 +235,7 @@ onBeforeUnmount(() => {
     <aside class="sidebar" :class="{ 'sidebar--open': navOpen }" aria-label="主导航栏">
       <div class="brand">
         <span class="brand__mark" aria-hidden="true">
-          <span class="brand__mark-core" />
+          <AppLogo variant="app" :size="34" decorative />
         </span>
         <span class="brand__text">
           <span class="brand__name">SCOUTMIND</span>
@@ -269,7 +271,12 @@ onBeforeUnmount(() => {
           >
             <span class="nav__icon"><AppIcon name="alert" :size="17" /></span>
             <span class="nav__label">高级工具</span>
-            <span class="nav-advanced-toggle__chevron" aria-hidden="true">{{ advancedOpen ? '−' : '+' }}</span>
+            <AppIcon
+              class="nav-advanced-toggle__chevron"
+              name="chevron-down"
+              :size="14"
+              :class="{ 'nav-advanced-toggle__chevron--open': advancedOpen }"
+            />
           </button>
           <template v-if="advancedOpen">
             <router-link
@@ -302,34 +309,31 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="sidebar__actions">
-        <router-link class="icon-btn sidebar__action" to="/settings" aria-label="系统设置" title="系统设置">
+        <IconButton class="icon-btn sidebar__action" to="/settings" label="系统设置">
           <AppIcon name="settings" :size="16" />
-        </router-link>
-        <button
-          type="button"
+        </IconButton>
+        <IconButton
           class="icon-btn sidebar__action"
-          :aria-label="collapsed ? '展开侧栏' : '收起侧栏'"
-          :title="collapsed ? '展开侧栏' : '收起侧栏'"
+          :label="collapsed ? '展开侧栏' : '收起侧栏'"
           @click="toggleCollapsed"
         >
-          <AppIcon :name="collapsed ? 'back' : 'back'" :size="16" :style="{ transform: collapsed ? 'none' : 'rotate(180deg)' }" />
-        </button>
+          <AppIcon :name="collapsed ? 'chevron-right' : 'chevron-left'" :size="16" />
+        </IconButton>
       </div>
     </aside>
 
     <div class="main">
       <header class="topbar">
         <div class="topbar__left">
-          <button
-            type="button"
+          <IconButton
             class="icon-btn topbar__menu"
+            :label="navOpen ? '关闭导航' : '打开导航'"
             :aria-expanded="navOpen"
             aria-controls="primary-sidebar"
-            aria-label="打开导航"
             @click="toggleNav"
           >
-            <span class="hamburger" aria-hidden="true"><i /><i /><i /></span>
-          </button>
+            <AppIcon :name="navOpen ? 'close' : 'menu'" :size="16" />
+          </IconButton>
           <div class="topbar__titles">
             <span class="topbar__eyebrow">{{ activeGroupLabel }}</span>
             <span class="topbar__title">{{ pageTitle }}</span>
@@ -355,9 +359,9 @@ onBeforeUnmount(() => {
             <el-option v-for="save in session.saves" :key="save.id" :label="save.name" :value="save.id" />
           </el-select>
 
-          <router-link class="icon-btn" to="/watchlist" aria-label="通知与关注" title="通知与关注">
-            <AppIcon name="watchlist" :size="16" />
-          </router-link>
+          <IconButton class="icon-btn" to="/watchlist" label="通知与关注">
+            <AppIcon name="bell" :size="16" />
+          </IconButton>
 
           <el-dropdown trigger="click" placement="bottom-end">
             <button type="button" class="avatar" aria-label="用户菜单" title="用户菜单">
@@ -475,31 +479,11 @@ onBeforeUnmount(() => {
 }
 
 .brand__mark {
-  position: relative;
   display: grid;
   place-items: center;
   width: 34px;
   height: 34px;
   flex: 0 0 auto;
-  border-radius: 11px;
-  background: var(--sm-gradient-accent);
-  box-shadow: 0 0 22px -6px rgba(34, 211, 238, 0.75);
-}
-
-.brand__mark::before {
-  content: '';
-  position: absolute;
-  inset: 3px;
-  border-radius: 8px;
-  border: 1px solid rgba(5, 10, 19, 0.55);
-}
-
-.brand__mark-core {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #04121c;
-  box-shadow: 0 0 0 3px rgba(5, 10, 19, 0.28);
 }
 
 .brand__text {
@@ -691,8 +675,12 @@ onBeforeUnmount(() => {
 
 .nav-advanced-toggle__chevron {
   margin-left: auto;
-  font-family: var(--sm-font-mono);
-  font-size: var(--sm-fs-xs);
+  color: currentColor;
+  transition: transform var(--sm-dur-2) var(--sm-ease-out);
+}
+
+.nav-advanced-toggle__chevron--open {
+  transform: rotate(180deg);
 }
 
 .nav__item--advanced {

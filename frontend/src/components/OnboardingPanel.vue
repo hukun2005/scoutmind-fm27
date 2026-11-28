@@ -12,6 +12,8 @@ import { createScan } from '../api/transferDirector'
 import { asApiError } from '../api/client'
 import { useOnboardingStore } from '../stores/onboarding'
 import { formatInt } from '../utils/format'
+import AppLogo from './AppLogo.vue'
+import AppTag from './AppTag.vue'
 
 const store = useOnboardingStore()
 const router = useRouter()
@@ -24,13 +26,6 @@ const STATUS_LABELS: Record<string, string> = {
   unavailable: '暂不可用',
 }
 
-const STATUS_TYPES: Record<string, 'success' | 'warning' | 'info' | 'danger'> = {
-  ready: 'success',
-  checking: 'info',
-  needs_attention: 'warning',
-  unavailable: 'danger',
-}
-
 const summary = computed(() => store.data?.summary ?? null)
 const checks = computed(() => store.data?.checks ?? [])
 const actions = computed(() => store.data?.actions ?? [])
@@ -38,10 +33,6 @@ const recoverable = computed(() => store.data?.data.recoverable_tasks ?? [])
 
 function statusLabel(status: string): string {
   return STATUS_LABELS[status] ?? '正在检查'
-}
-
-function statusType(status: string): 'success' | 'warning' | 'info' | 'danger' {
-  return STATUS_TYPES[status] ?? 'info'
 }
 
 function onVisible(value: boolean): void {
@@ -77,6 +68,14 @@ async function startScan(): Promise<void> {
     @update:model-value="onVisible"
   >
     <div v-loading="store.loading" class="onboarding">
+      <div class="onboarding__brand">
+        <AppLogo variant="app" :size="42" />
+        <div>
+          <p class="onboarding__brand-name">ScoutMind FM27</p>
+          <p class="onboarding__brand-sub">足球情报与 AI 体育总监工作台</p>
+        </div>
+      </div>
+
       <el-alert
         v-if="store.error"
         type="warning"
@@ -92,9 +91,7 @@ async function startScan(): Promise<void> {
         <ul class="checks">
           <li v-for="item in checks" :key="item.key" class="check">
             <span class="check__label">{{ item.label }}</span>
-            <el-tag size="small" :type="statusType(item.status)" effect="dark">
-              {{ statusLabel(item.status) }}
-            </el-tag>
+            <AppTag :tag="item.status" :label="statusLabel(item.status)" />
             <span v-if="item.detail" class="check__detail">{{ item.detail }}</span>
           </li>
         </ul>
@@ -146,6 +143,27 @@ async function startScan(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: var(--sm-space-4);
+}
+
+.onboarding__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sm-space-3);
+  padding-bottom: var(--sm-space-3);
+  border-bottom: 1px solid var(--sm-border);
+}
+
+.onboarding__brand-name {
+  margin: 0;
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-md);
+  font-weight: var(--sm-fw-semibold);
+}
+
+.onboarding__brand-sub {
+  margin: 2px 0 0;
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
 }
 
 .step {

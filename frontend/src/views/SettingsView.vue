@@ -15,6 +15,7 @@ import type { HealthResponse } from '../types/bootstrap'
 import type { DataHubStatus } from '../types/datahub'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
+import AppLogo from '../components/AppLogo.vue'
 import { useSessionStore } from '../stores/session'
 import { useOnboardingStore } from '../stores/onboarding'
 import { displayText, formatInt } from '../utils/format'
@@ -229,6 +230,13 @@ onMounted(() => {
     </div>
 
     <SectionCard title="关于 ScoutMind" subtitle="专业足球情报软件">
+      <div class="about-brand">
+        <AppLogo variant="app" :size="56" />
+        <div class="about-brand__text">
+          <p class="about-brand__name">ScoutMind FM27</p>
+          <p class="about-brand__tagline">Football Intelligence &amp; AI Sporting Director Platform</p>
+        </div>
+      </div>
       <p class="sm-hint">
         ScoutMind FM27 把复杂的球队数据整理成容易理解的页面：球员、阵容、引援、转会、成长与 AI 分析都在本地完成，
         不需要网络，也不会上传你的存档。
@@ -286,6 +294,37 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.about-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sm-space-4);
+  margin-bottom: var(--sm-space-3);
+  padding-bottom: var(--sm-space-3);
+  border-bottom: 1px solid var(--sm-border);
+}
+
+.about-brand__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.about-brand__name {
+  margin: 0;
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-lg);
+  font-weight: var(--sm-fw-semibold);
+  letter-spacing: 0.02em;
+}
+
+.about-brand__tagline {
+  margin: 0;
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  letter-spacing: 0.04em;
+}
+
 .kv {
   display: flex;
   flex-direction: column;

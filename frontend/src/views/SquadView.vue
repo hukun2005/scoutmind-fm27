@@ -21,6 +21,7 @@ import PageHeader from '../components/PageHeader.vue'
 import PositionHeatmapCard from '../components/PositionHeatmapCard.vue'
 import SectionCard from '../components/SectionCard.vue'
 import StatHeader from '../components/StatHeader.vue'
+import AppTag from '../components/AppTag.vue'
 import { useSessionStore } from '../stores/session'
 import type {
   ContractEntry,
@@ -594,20 +595,17 @@ onMounted(async () => {
             <span class="sm-label">当前本队</span>
             <div class="club__name">
               {{ userClub ? userClub.name : '尚未指定' }}
-              <el-tag v-if="userClubMeta.source_label" size="small" type="info" effect="plain">
-                来源：{{ userClubMeta.source_label }}
-              </el-tag>
-              <el-tag
+              <AppTag v-if="userClubMeta.source_label" :label="`来源：${userClubMeta.source_label}`" tone="neutral" />
+              <AppTag
                 v-if="userClubMeta.confidence !== null"
-                size="small"
-                :type="userClubMeta.confidence >= 0.9 ? 'success' : 'warning'"
-                effect="plain"
-              >
-                记录可信度 {{ formatDecimal(userClubMeta.confidence, 1) }}
-              </el-tag>
-              <el-tag v-if="userClubMeta.assignment_source" size="small" effect="plain">
-                {{ userClubMeta.assignment_source === 'manual' ? '你手动指定' : '报文声明' }}
-              </el-tag>
+                :label="`记录可信度 ${formatDecimal(userClubMeta.confidence, 1)}`"
+                :tone="userClubMeta.confidence >= 0.9 ? 'success' : 'warning'"
+              />
+              <AppTag
+                v-if="userClubMeta.assignment_source"
+                :label="userClubMeta.assignment_source === 'manual' ? '你手动指定' : '报文声明'"
+                tone="neutral"
+              />
             </div>
             <p class="club__hint">
               {{ userClub

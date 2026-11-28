@@ -151,6 +151,9 @@ function createWindow() {
     show: false,
     backgroundColor: '#050a13',
     title: PRODUCT,
+    icon: isDev
+      ? path.join(__dirname, '..', 'build', 'icon.ico')
+      : path.join(process.resourcesPath, 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       nodeIntegration: false,
