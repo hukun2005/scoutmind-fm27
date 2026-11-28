@@ -1000,12 +1000,12 @@ onMounted(async () => {
   gap: var(--sm-space-5);
   padding: var(--sm-space-5);
   overflow: hidden;
-  border: 1px solid var(--sm-border-strong);
+  border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-xl);
   background:
-    linear-gradient(120deg, rgba(10, 34, 54, 0.92) 0%, rgba(9, 18, 34, 0.94) 48%, rgba(20, 16, 48, 0.9) 100%),
+    linear-gradient(120deg, rgba(49, 95, 206, 0.06) 0%, rgba(255, 255, 255, 0.96) 48%, rgba(49, 95, 206, 0.05) 100%),
     var(--sm-surface);
-  box-shadow: var(--sm-shadow-2);
+  box-shadow: var(--sm-shadow-1);
 }
 
 .squad-hero__glow {
@@ -1015,7 +1015,7 @@ onMounted(async () => {
   width: 380px;
   height: 300px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(34, 211, 238, 0.2), transparent 70%);
+  background: radial-gradient(circle, rgba(49, 95, 206, 0.12), transparent 70%);
   filter: blur(4px);
   pointer-events: none;
 }
@@ -1024,8 +1024,8 @@ onMounted(async () => {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(122, 162, 220, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(122, 162, 220, 0.07) 1px, transparent 1px);
+    linear-gradient(rgba(23, 32, 51, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(23, 32, 51, 0.05) 1px, transparent 1px);
   background-size: 44px 44px;
   mask-image: radial-gradient(520px 220px at 82% 10%, #000 0%, transparent 76%);
   -webkit-mask-image: radial-gradient(520px 220px at 82% 10%, #000 0%, transparent 76%);
@@ -1068,7 +1068,7 @@ onMounted(async () => {
   padding: 3px var(--sm-space-2);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-pill);
-  background: rgba(8, 17, 30, 0.72);
+  background: var(--sm-surface-2);
   color: var(--sm-text-3);
   font-size: var(--sm-fs-2xs);
   white-space: nowrap;
@@ -1121,10 +1121,10 @@ onMounted(async () => {
   border-radius: 50%;
   background: conic-gradient(
     from -90deg,
-    #22d3ee 0deg,
-    #4d8dff calc(var(--score) * 1.8deg),
-    #a78bfa calc(var(--score) * 3.6deg),
-    rgba(122, 162, 220, 0.14) calc(var(--score) * 3.6deg) 360deg
+    #315fce 0deg,
+    #5b84e0 calc(var(--score) * 1.8deg),
+    #8aa5e6 calc(var(--score) * 3.6deg),
+    rgba(100, 116, 139, 0.12) calc(var(--score) * 3.6deg) 360deg
   );
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 12px), #000 calc(100% - 11px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 12px), #000 calc(100% - 11px));
@@ -1216,7 +1216,7 @@ onMounted(async () => {
   height: 4px;
   overflow: hidden;
   border-radius: 2px;
-  background: rgba(22, 37, 59, 0.9);
+  background: var(--sm-surface-3);
 }
 
 .hero-dim__track i {
@@ -1250,7 +1250,7 @@ onMounted(async () => {
   border: 1px solid var(--sm-border);
   border-left: 2px solid var(--sm-accent-blue);
   border-radius: var(--sm-radius-md);
-  background: rgba(12, 23, 39, 0.6);
+  background: var(--sm-surface-2);
 }
 
 .diagnosis__item--good {
@@ -1424,7 +1424,7 @@ onMounted(async () => {
   height: 5px;
   overflow: hidden;
   border-radius: 3px;
-  background: rgba(22, 37, 59, 0.9);
+  background: var(--sm-surface-3);
 }
 
 .dim-card__track i {
@@ -1616,7 +1616,7 @@ onMounted(async () => {
 .age-row__bar {
   height: 100%;
   border-radius: 4px;
-  background: linear-gradient(90deg, rgba(34, 211, 238, 0.85), rgba(77, 141, 255, 0.85));
+  background: var(--sm-gradient-accent);
 }
 
 .age-row__ideal {

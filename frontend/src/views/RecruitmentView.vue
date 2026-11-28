@@ -805,9 +805,7 @@ onMounted(() => {
   padding: var(--sm-space-3) var(--sm-space-4);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-lg);
-  background:
-    linear-gradient(170deg, rgba(20, 35, 56, 0.5), rgba(9, 18, 32, 0.92)),
-    var(--sm-surface);
+  background: var(--sm-surface);
   box-shadow: var(--sm-shadow-1);
 }
 
@@ -893,8 +891,8 @@ onMounted(() => {
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
   background:
-    radial-gradient(520px 220px at 50% 0%, rgba(34, 211, 238, 0.06), transparent 70%),
-    rgba(8, 17, 30, 0.5);
+    radial-gradient(520px 220px at 50% 0%, rgba(49, 95, 206, 0.05), transparent 70%),
+    var(--sm-surface-2);
 }
 
 .recruit__gaps {
@@ -930,7 +928,7 @@ onMounted(() => {
   padding: var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
-  background: rgba(12, 23, 39, 0.55);
+  background: var(--sm-surface-2);
 }
 
 .recruit__name {

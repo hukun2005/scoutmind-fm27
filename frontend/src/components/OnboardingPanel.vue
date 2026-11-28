@@ -224,7 +224,7 @@ async function startScan(): Promise<void> {
   padding: var(--sm-space-2) var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-sm);
-  background: rgba(8, 18, 32, 0.6);
+  background: var(--sm-surface-2);
 }
 
 .summary dt {

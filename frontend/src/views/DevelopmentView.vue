@@ -50,22 +50,22 @@ const growthOption = computed<EChartsOption | null>(() => {
       icon: 'roundRect',
       itemWidth: 10,
       itemHeight: 10,
-      textStyle: { color: '#9db0c9', fontSize: 11 },
+      textStyle: { color: '#475569', fontSize: 11 },
     },
     tooltip: { trigger: 'axis', confine: true },
     xAxis: {
       type: 'category',
       data: labels,
-      axisLabel: { color: '#7689a3', fontSize: 11 },
-      axisLine: { lineStyle: { color: 'rgba(122, 162, 220, 0.18)' } },
+      axisLabel: { color: '#64748b', fontSize: 11 },
+      axisLine: { lineStyle: { color: '#e5eaf1' } },
       axisTick: { show: false },
     },
     yAxis: {
       type: 'value',
       name: 'CA / PA',
-      nameTextStyle: { color: '#7689a3', fontSize: 11 },
-      axisLabel: { color: '#7689a3', fontSize: 11 },
-      splitLine: { lineStyle: { color: 'rgba(122, 162, 220, 0.1)' } },
+      nameTextStyle: { color: '#64748b', fontSize: 11 },
+      axisLabel: { color: '#64748b', fontSize: 11 },
+      splitLine: { lineStyle: { color: '#eef2f7' } },
     },
     series: [
       {
@@ -301,10 +301,10 @@ onMounted(() => void loadBoard())
 .dev__advice li {
   padding: var(--sm-space-2) var(--sm-space-3);
   border: 1px solid var(--sm-border);
-  border-left: 2px solid rgba(34, 211, 238, 0.35);
+  border-left: 2px solid rgba(49, 95, 206, 0.3);
   border-radius: var(--sm-radius-md);
   background:
-    linear-gradient(140deg, rgba(34, 211, 238, 0.05), transparent 60%),
+    linear-gradient(140deg, rgba(49, 95, 206, 0.05), transparent 60%),
     var(--sm-surface-2);
 }
 

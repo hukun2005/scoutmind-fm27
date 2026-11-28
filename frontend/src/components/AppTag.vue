@@ -21,14 +21,14 @@ const props = withDefaults(
     tone?: TagTone
     /** 显示尺寸。 */
     size?: 'sm' | 'md'
-    /** 所在表面：深色页面或浅色页面（球员探索为浅色）。 */
-    surface?: 'dark' | 'light'
+    /** 所在表面：全应用统一浅色主题。 */
+    surface?: 'light'
     /** 是否显示状态圆点。 */
     dot?: boolean
     /** 仅在开发者诊断区域开启：允许渲染内部技术标签。 */
     allowInternal?: boolean
   }>(),
-  { tag: null, label: undefined, tone: undefined, size: 'sm', surface: 'dark', dot: true, allowInternal: false },
+  { tag: null, label: undefined, tone: undefined, size: 'sm', surface: 'light', dot: true, allowInternal: false },
 )
 
 const definition = computed(() => resolveTag(props.tag))
@@ -89,77 +89,40 @@ const category = computed(() => definition.value?.category ?? 'business')
   text-overflow: ellipsis;
 }
 
-/* 深色界面：低饱和底色 + 高对比前景色 */
-.app-tag--on-dark.app-tag--success {
-  background: rgba(52, 211, 153, 0.14);
-  border-color: rgba(52, 211, 153, 0.28);
-  color: #6ee7b7;
-}
-
-.app-tag--on-dark.app-tag--info {
-  background: rgba(96, 165, 250, 0.14);
-  border-color: rgba(96, 165, 250, 0.28);
-  color: #93c5fd;
-}
-
-.app-tag--on-dark.app-tag--warning {
-  background: rgba(245, 181, 68, 0.14);
-  border-color: rgba(245, 181, 68, 0.3);
-  color: #fcd34d;
-}
-
-.app-tag--on-dark.app-tag--danger {
-  background: rgba(251, 113, 133, 0.14);
-  border-color: rgba(251, 113, 133, 0.3);
-  color: #fda4af;
-}
-
-.app-tag--on-dark.app-tag--neutral {
-  background: rgba(148, 163, 184, 0.14);
-  border-color: rgba(148, 163, 184, 0.26);
-  color: #cbd5e1;
-}
-
-.app-tag--on-dark.app-tag--brand {
-  background: rgba(77, 141, 255, 0.16);
-  border-color: rgba(77, 141, 255, 0.32);
-  color: #a8c4ff;
-}
-
-/* Premium Light 表面：低饱和底色 + 深色文字 */
+/* Premium Light 表面：低饱和底色 + 深色文字（V4.1 令牌） */
 .app-tag--on-light.app-tag--success {
-  background: #ecfdf3;
-  border-color: #bbf7d0;
-  color: #15803d;
+  background: var(--sm-success-weak);
+  border-color: rgba(22, 134, 91, 0.24);
+  color: var(--sm-status-success);
 }
 
 .app-tag--on-light.app-tag--info {
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  color: #1d4ed8;
+  background: var(--sm-accent-weak);
+  border-color: rgba(49, 95, 206, 0.22);
+  color: var(--sm-accent-blue);
 }
 
 .app-tag--on-light.app-tag--warning {
-  background: #fffbeb;
-  border-color: #fde68a;
-  color: #b45309;
+  background: var(--sm-warn-weak);
+  border-color: rgba(183, 121, 31, 0.24);
+  color: var(--sm-status-warning);
 }
 
 .app-tag--on-light.app-tag--danger {
-  background: #fef2f2;
-  border-color: #fecaca;
-  color: #b91c1c;
+  background: var(--sm-danger-weak);
+  border-color: rgba(194, 65, 75, 0.24);
+  color: var(--sm-status-danger);
 }
 
 .app-tag--on-light.app-tag--neutral {
-  background: #f1f5f9;
-  border-color: #e2e8f0;
-  color: #475569;
+  background: var(--sm-surface-2);
+  border-color: var(--sm-border-subtle);
+  color: var(--sm-text-2);
 }
 
 .app-tag--on-light.app-tag--brand {
-  background: #eef2ff;
-  border-color: #c7d2fe;
-  color: #3730a3;
+  background: #eaf1ff;
+  border-color: rgba(49, 95, 206, 0.22);
+  color: #2a52b4;
 }
 </style>

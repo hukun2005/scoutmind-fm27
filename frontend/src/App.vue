@@ -46,7 +46,8 @@ interface NavGroup {
 
 /**
  * 导航分组：按用户任务组织，而不是按后端模块组织。
- * 总览 → 球探工作台 → 转会中心 → 智能总监 → 游戏管理；每条提示说明该页面回答的问题。
+ * 总览 → 球探工作台 → 转会中心 → 智能总监 → 游戏管理；
+ * 转会总监归入「转会中心」，身份与治理类页面收进默认折叠的「高级诊断」。
  */
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -72,6 +73,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { key: 'recruitment', label: '引援机会', to: '/recruitment', icon: 'scouting', hint: '推荐目标、理由与优先级' },
       { key: 'transfers', label: '转会情报', to: '/transfers', icon: 'transfers', hint: '成交样本与俱乐部画像' },
+      { key: 'transfer-director', label: 'AI 转会总监', to: '/transfer-director', icon: 'transfers', hint: '合同、报价与谈判记录' },
     ],
   },
   {
@@ -79,7 +81,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: '智能总监',
     items: [
       { key: 'director', label: 'AI 足球总监', to: '/director', icon: 'agent', hint: '阵容、引援与培养的一体化建议' },
-      { key: 'transfer-director', label: 'AI 转会总监', to: '/transfer-director', icon: 'transfers', hint: '合同、报价与谈判记录' },
       { key: 'agent', label: 'AI 球探助手', to: '/agent', icon: 'agent', hint: '自然语言提问与证据回答' },
     ],
   },
@@ -93,12 +94,13 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
-/** 高级工具：面向排查与人工确认，默认折叠，不占用普通用户视线。 */
+/** 高级诊断：面向排查与人工确认，默认折叠，不占用普通用户视线。 */
 const ADVANCED_ITEMS: NavItem[] = [
   { key: 'scouting', label: '角色球探', to: '/scouting', icon: 'scouting', hint: '按战术角色筛选球员' },
+  { key: 'identity', label: '身份复核', to: '/identity', icon: 'players', hint: '球员身份冲突确认' },
+  { key: 'identity-center', label: '身份中心', to: '/identity-center', icon: 'players', hint: '身份证据与闸门' },
   { key: 'unresolved', label: '待确认球员', to: '/unresolved', icon: 'alert', hint: '需要人工确认的身份' },
   { key: 'governance', label: '数据治理', to: '/governance', icon: 'data', hint: '冲突队列与审核记录' },
-  { key: 'identity', label: '身份复核', to: '/identity', icon: 'players', hint: '球员身份冲突确认' },
 ]
 
 const COLLAPSE_KEY = 'scoutmind.navCollapsed'
@@ -127,14 +129,12 @@ const activeKey = computed(() => {
   return name
 })
 
-/** 收纳在「高级工具」里的页面。 */
-const isAdvancedRoute = computed(
-  () => ADVANCED_ITEMS.some((item) => item.key === activeKey.value) || activeKey.value === 'identity-center',
-)
+/** 收纳在「高级诊断」里的页面。 */
+const isAdvancedRoute = computed(() => ADVANCED_ITEMS.some((item) => item.key === activeKey.value))
 
 /** 顶栏所属模块名：设置等不在导航内的页面显示「系统」。 */
 const activeGroupLabel = computed(() => {
-  if (isAdvancedRoute.value) return '高级工具'
+  if (isAdvancedRoute.value) return '高级诊断'
   const group = NAV_GROUPS.find((entry) => entry.items.some((item) => item.key === activeKey.value))
   return group?.label ?? '系统'
 })
@@ -270,7 +270,7 @@ onBeforeUnmount(() => {
             @click="advancedOpen = !advancedOpen"
           >
             <span class="nav__icon"><AppIcon name="alert" :size="17" /></span>
-            <span class="nav__label">高级工具</span>
+            <span class="nav__label">高级诊断</span>
             <AppIcon
               class="nav-advanced-toggle__chevron"
               name="chevron-down"
@@ -434,8 +434,8 @@ onBeforeUnmount(() => {
   z-index: 100;
   padding: var(--sm-space-2) var(--sm-space-3);
   border-radius: var(--sm-radius-sm);
-  background: var(--sm-accent-cyan);
-  color: #04121c;
+  background: var(--sm-accent-blue);
+  color: #ffffff;
   font-size: var(--sm-fs-xs);
   font-weight: var(--sm-fw-semibold);
   transition: top var(--sm-dur-1) var(--sm-ease-out);
@@ -454,20 +454,18 @@ onBeforeUnmount(() => {
   flex-direction: column;
   min-height: 0;
   padding: var(--sm-space-4) var(--sm-space-3);
-  background:
-    linear-gradient(180deg, rgba(34, 211, 238, 0.07) 0%, transparent 22%),
-    linear-gradient(180deg, #071020 0%, #050b15 62%, #04080f 100%);
+  background: var(--sm-surface);
   border-right: 1px solid var(--sm-border);
   color: var(--sm-sidebar-text);
 }
 
-/* 侧栏右缘的一道冷光，强化「控制台」边界。 */
+/* 侧栏右缘的浅色分隔线，与白色内容区自然衔接。 */
 .sidebar::after {
   content: '';
   position: absolute;
   inset: 0 0 0 auto;
   width: 1px;
-  background: linear-gradient(180deg, transparent, rgba(34, 211, 238, 0.45) 22%, rgba(167, 139, 250, 0.35) 64%, transparent);
+  background: var(--sm-border);
   pointer-events: none;
 }
 
@@ -547,16 +545,16 @@ onBeforeUnmount(() => {
 }
 
 .nav__item:hover {
-  background: rgba(34, 211, 238, 0.07);
+  background: var(--sm-accent-weak);
   color: var(--sm-text-primary);
   text-decoration: none;
 }
 
 .nav__item--active {
-  background: linear-gradient(90deg, rgba(34, 211, 238, 0.16), rgba(77, 141, 255, 0.12) 48%, rgba(167, 139, 250, 0.08));
-  color: var(--sm-text-primary);
+  background: var(--sm-accent-weak);
+  color: var(--sm-accent-blue);
   font-weight: var(--sm-fw-medium);
-  box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(49, 95, 206, 0.16);
 }
 
 .nav__item--active::before {
@@ -567,8 +565,7 @@ onBeforeUnmount(() => {
   left: 0;
   width: 2px;
   border-radius: 2px;
-  background: var(--sm-gradient-accent);
-  box-shadow: 0 0 10px rgba(34, 211, 238, 0.8);
+  background: var(--sm-accent-blue);
 }
 
 .nav__icon {
@@ -580,7 +577,7 @@ onBeforeUnmount(() => {
 }
 
 .nav__item--active .nav__icon {
-  color: var(--sm-accent-cyan);
+  color: var(--sm-accent-blue);
   opacity: 1;
 }
 
@@ -602,7 +599,7 @@ onBeforeUnmount(() => {
   padding: var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
-  background: rgba(10, 20, 34, 0.62);
+  background: var(--sm-surface-2);
   font-size: var(--sm-fs-2xs);
   color: var(--sm-text-3);
 }
@@ -669,7 +666,7 @@ onBeforeUnmount(() => {
 
 .nav-advanced-toggle:hover,
 .nav-advanced-toggle--active {
-  background: rgba(34, 211, 238, 0.06);
+  background: var(--sm-surface-2);
   color: var(--sm-text-2);
 }
 
@@ -768,9 +765,7 @@ onBeforeUnmount(() => {
   height: var(--sm-topbar-height);
   padding: 0 var(--sm-space-5);
   border-bottom: 1px solid var(--sm-border);
-  background: rgba(7, 14, 25, 0.72);
-  backdrop-filter: blur(var(--sm-blur-glass)) saturate(150%);
-  -webkit-backdrop-filter: blur(var(--sm-blur-glass)) saturate(150%);
+  background: var(--sm-surface);
 }
 
 .topbar__left {
@@ -828,7 +823,7 @@ onBeforeUnmount(() => {
   padding: 4px var(--sm-space-2);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-pill);
-  background: rgba(12, 23, 39, 0.7);
+  background: var(--sm-surface-2);
   color: var(--sm-text-2);
   font-size: var(--sm-fs-2xs);
   white-space: nowrap;
@@ -860,7 +855,7 @@ onBeforeUnmount(() => {
   padding: 0;
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-sm);
-  background: rgba(12, 23, 39, 0.66);
+  background: var(--sm-surface);
   color: var(--sm-text-2);
   cursor: pointer;
   transition:
@@ -871,8 +866,8 @@ onBeforeUnmount(() => {
 
 .icon-btn:hover {
   border-color: var(--sm-border-glow);
-  background: rgba(34, 211, 238, 0.1);
-  color: var(--sm-text-primary);
+  background: var(--sm-accent-weak);
+  color: var(--sm-accent-blue);
   text-decoration: none;
 }
 
@@ -892,10 +887,10 @@ onBeforeUnmount(() => {
   width: 30px;
   height: 30px;
   padding: 0;
-  border: 1px solid rgba(34, 211, 238, 0.35);
+  border: 1px solid rgba(49, 95, 206, 0.26);
   border-radius: 50%;
-  background: linear-gradient(135deg, rgba(34, 211, 238, 0.24), rgba(167, 139, 250, 0.28));
-  color: var(--sm-text-primary);
+  background: var(--sm-accent-weak);
+  color: var(--sm-accent-blue);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1096,7 +1091,7 @@ onBeforeUnmount(() => {
     position: fixed;
     inset: 0;
     z-index: 55;
-    background: rgba(3, 8, 16, 0.66);
+    background: rgba(23, 32, 51, 0.3);
     backdrop-filter: blur(2px);
   }
 

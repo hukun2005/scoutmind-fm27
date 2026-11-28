@@ -70,8 +70,8 @@ withDefaults(
   border-left: 3px solid var(--insight-accent);
   border-radius: var(--sm-radius-lg);
   background:
-    radial-gradient(520px 180px at 100% 0%, rgba(34, 211, 238, 0.06), transparent 72%),
-    linear-gradient(180deg, rgba(15, 27, 44, 0.86), rgba(9, 17, 29, 0.9));
+    radial-gradient(520px 180px at 100% 0%, rgba(49, 95, 206, 0.05), transparent 72%),
+    var(--sm-surface);
 }
 
 .insight--success {
