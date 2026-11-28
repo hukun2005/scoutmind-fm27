@@ -14,6 +14,7 @@ import {
 } from '../api/agent'
 import { addWatchlistItem } from '../api/watchlist'
 import ConfidenceTag from '../components/ConfidenceTag.vue'
+import AgentTaskPanel from '../components/AgentTaskPanel.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
 import PageHeader from '../components/PageHeader.vue'
@@ -325,6 +326,8 @@ onMounted(() => {
         </button>
       </div>
     </section>
+
+    <AgentTaskPanel />
 
     <div class="agent-layout">
       <aside class="conversations" aria-label="会话列表">
