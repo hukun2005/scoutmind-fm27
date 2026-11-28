@@ -20,17 +20,18 @@ import {
 import AttributeBar from '../components/AttributeBar.vue'
 import ChartCard from '../components/ChartCard.vue'
 import ConfidenceTag from '../components/ConfidenceTag.vue'
-import CoverageBar from '../components/CoverageBar.vue'
 import DataTable from '../components/DataTable.vue'
 import EChart from '../components/EChart.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
+import InsightPanel from '../components/InsightPanel.vue'
 import LoadingBlock from '../components/LoadingBlock.vue'
 import NumberCell from '../components/NumberCell.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import SectionCard from '../components/SectionCard.vue'
 import StatHeader from '../components/StatHeader.vue'
+import StatStrip from '../components/StatStrip.vue'
 import type {
   DevelopmentPeriod,
   PlayerAttribute,
@@ -44,6 +45,7 @@ import type { SimilarTransferItem, SimilarTransfersResponse } from '../types/tra
 import type { WatchlistItem } from '../types/watchlist'
 import type { PlayerStatus } from '../types/status'
 import type { TableColumn } from '../types/table'
+import type { InsightItem, InsightTone, StatItem } from '../types/ui'
 import { useCompareStore } from '../stores/compare'
 import { useSessionStore } from '../stores/session'
 import { buildAppearanceChart, buildGrowthChart, buildRadarChart } from '../utils/chart'
@@ -56,7 +58,6 @@ import {
   formatDecimal,
   formatInt,
   formatMoney,
-  formatMoneyExact,
   formatPercent,
   formatSignedInt,
   formatSignedMoney,
@@ -304,6 +305,143 @@ const valuationWarnings = computed(() => valuation.value?.warnings ?? [])
 
 /** True when the backend refuses a precise range because the sample is too small. */
 const valuationInsufficient = computed(() => valuation.value?.insufficient_sample === true)
+
+/** 合同剩余月数折算口径：30.44 天/月，仅用于摘要中的到期提醒。 */
+const CONTRACT_MONTH_MS = 1000 * 60 * 60 * 24 * 30.44
+
+/** 合同剩余月数（向下取整，不足一个月按 0 个月计）；无到期日或日期不可解析时为 null。 */
+const contractMonthsLeft = computed<number | null>(() => {
+  const end = summary.value?.contract_end
+  if (!end) return null
+  const endAt = new Date(end).getTime()
+  if (Number.isNaN(endAt)) return null
+  return Math.floor((endAt - Date.now()) / CONTRACT_MONTH_MS)
+})
+
+/** 合同摘要文案：缺失、已到期、12 个月内与窗口外分开说明。 */
+const contractText = computed(() => {
+  const months = contractMonthsLeft.value
+  if (!summary.value?.contract_end || months === null) return '合同数据缺失'
+  const date = formatDate(summary.value.contract_end)
+  if (months < 0) return `合同已于 ${date} 到期`
+  if (months < 12) return `合同 ${date} 到期（约 ${months} 个月），不足 12 个月`
+  return `合同 ${date} 到期（约 ${months} 个月），未进入 12 个月窗口`
+})
+
+/** 估值偏离口径：可比成交中位与当前身价相差 ±10% 以内视为接近。 */
+const VALUATION_BAND = 0.1
+
+/**
+ * 决策摘要：只使用已加载的合同、状态、估值、成长与角色评分字段，最多 4 条。
+ * 合同与状态合并为一条，避免挤掉其余维度；缺失字段明确写出，不当作否或 0。
+ */
+const decisionSummary = computed<{ tone: InsightTone; items: InsightItem[] }>(() => {
+  const items: InsightItem[] = []
+  const months = contractMonthsLeft.value
+  const snapshot = status.value?.current ?? null
+
+  const statusRisk =
+    snapshot !== null &&
+    (snapshot.flags.listed === true || snapshot.flags.loan_listed === true || snapshot.injury.injured === true)
+  const statusText = snapshot
+    ? `挂牌出售 ${triState(snapshot.flags.listed)} · 挂牌出租 ${triState(snapshot.flags.loan_listed)} · 伤病 ${triState(snapshot.injury.injured)}`
+    : statusLoading.value && !status.value
+      ? '状态数据加载中'
+      : '状态数据未返回，挂牌与伤病未知'
+  items.push({
+    label: '合同与状态',
+    text: `${contractText.value}；${statusText}。`,
+    tone: statusRisk || (months !== null && months < 12) ? 'warning' : 'neutral',
+  })
+
+  const val = valuation.value
+  const marketValue = toFiniteNumber(summary.value?.market_value)
+  const mid = val ? toFiniteNumber(val.mid) : null
+  if (!val && valuationLoading.value) {
+    items.push({ label: '估值', text: '估值加载中。', tone: 'neutral' })
+  } else if (!val) {
+    items.push({ label: '估值', text: '无估值数据，样本不足，未估值。', tone: 'neutral' })
+  } else if (val.insufficient_sample) {
+    items.push({ label: '估值', text: '样本不足，未估值。', tone: 'neutral' })
+  } else if (mid === null) {
+    items.push({ label: '估值', text: '估值中位缺失，无法与身价比较。', tone: 'neutral' })
+  } else if (marketValue === null || marketValue <= 0) {
+    items.push({
+      label: '估值',
+      text: `相似成交中位 ${formatMoney(mid)} ${currency.value}，当前身价缺失，无法比较。`,
+      tone: 'neutral',
+    })
+  } else {
+    const deviation = (mid - marketValue) / marketValue
+    const percent = formatPercent(Math.abs(deviation), 0)
+    if (Math.abs(deviation) <= VALUATION_BAND) {
+      items.push({
+        label: '估值',
+        text: `相似成交中位 ${formatMoney(mid)} ${currency.value}，与身价 ${formatMoney(marketValue)} 接近（偏差 ${percent}，阈值 ±10%）。`,
+        tone: 'neutral',
+      })
+    } else if (deviation > 0) {
+      items.push({
+        label: '估值',
+        text: `相似成交中位 ${formatMoney(mid)} ${currency.value}，高于身价 ${formatMoney(marketValue)} ${percent}（阈值 ±10%），身价偏低。`,
+        tone: 'success',
+      })
+    } else {
+      items.push({
+        label: '估值',
+        text: `相似成交中位 ${formatMoney(mid)} ${currency.value}，低于身价 ${formatMoney(marketValue)} ${percent}（阈值 ±10%），身价偏高。`,
+        tone: 'warning',
+      })
+    }
+  }
+
+  const dev = development.value
+  const caDelta = dev ? toFiniteNumber(dev.summary.ca_delta) : null
+  const valueDelta = dev ? toFiniteNumber(dev.summary.market_value_delta) : null
+  if (!dev && developmentLoading.value) {
+    items.push({ label: '成长', text: '成长数据加载中。', tone: 'neutral' })
+  } else if (!dev || (caDelta === null && valueDelta === null)) {
+    items.push({ label: '成长', text: '快照不足，无法计算 CA 与身价变化。', tone: 'neutral' })
+  } else {
+    const growthTone: InsightTone = caDelta === null ? 'neutral' : caDelta > 0 ? 'success' : caDelta < 0 ? 'warning' : 'neutral'
+    items.push({
+      label: '成长',
+      text: `CA 变化 ${formatSignedInt(caDelta)}；身价变化 ${formatSignedMoney(valueDelta)}（窗口 ${formatDate(dev.summary.window_start)} → ${formatDate(dev.summary.window_end)}）。`,
+      tone: growthTone,
+    })
+  }
+
+  const score = evaluation.value?.score ?? null
+  const evaluationCoverage = evaluation.value?.coverage ?? null
+  if (score !== null) {
+    const coverageTone: InsightTone =
+      evaluationCoverage !== null && evaluationCoverage < 0.6 ? 'warning' : 'neutral'
+    items.push({
+      label: '角色评分',
+      text: `${displayText(evaluation.value?.role_name)} ${formatDecimal(score, 1)} 分，属性覆盖 ${formatPercent(evaluationCoverage)}。`,
+      tone: coverageTone,
+    })
+  }
+
+  const tone: InsightTone = items.some((item) => item.tone === 'warning' || item.tone === 'danger') ? 'warning' : 'info'
+  return { tone, items: items.slice(0, 4) }
+})
+
+/** 顶部关键事实：替代原事实卡片网格，缺失值保持 —。 */
+const keyStats = computed<StatItem[]>(() => {
+  const months = contractMonthsLeft.value
+  const contractTone: StatItem['tone'] = months !== null && months < 12 ? 'warning' : 'default'
+  const contractHint =
+    months === null ? '无合同日期' : months < 0 ? '已到期' : `剩余约 ${months} 个月`
+  return [
+    { label: 'CA', value: formatInt(summary.value?.ca), hint: '当前能力' },
+    { label: 'PA', value: formatInt(summary.value?.pa), hint: '潜力上限' },
+    { label: '身价', value: formatMoney(summary.value?.market_value), hint: '币种默认 EUR' },
+    { label: '周薪', value: formatMoney(summary.value?.wage), hint: '每周 · EUR' },
+    { label: '合同到期', value: formatDate(summary.value?.contract_end), hint: contractHint, tone: contractTone },
+    { label: '数据完整度', value: formatPercent(summary.value?.data_completeness), hint: '非空字段比例' },
+  ]
+})
 
 /** Load the profile, history and development panels. */
 async function loadCore(id: number, token: number = activeToken): Promise<void> {
@@ -718,272 +856,375 @@ void loadRoles()
               </div>
             </div>
           </div>
+        </section>
 
-          <div class="player-hero__tiles">
-            <div class="fact-tile">
-              <span class="fact-tile__label">CA</span>
-              <span class="fact-tile__value sm-num">{{ formatInt(summary.ca) }}</span>
-            </div>
-            <div class="fact-tile">
-              <span class="fact-tile__label">PA</span>
-              <span class="fact-tile__value sm-num">{{ formatInt(summary.pa) }}</span>
-            </div>
-            <div class="fact-tile">
-              <span class="fact-tile__label">身价（€）</span>
-              <span class="fact-tile__value sm-num" :title="formatMoneyExact(summary.market_value, 'EUR')">
-                {{ formatMoney(summary.market_value) }}
-              </span>
-              <span class="fact-tile__hint">币种默认 EUR</span>
-            </div>
-            <div class="fact-tile">
-              <span class="fact-tile__label">周薪（€）</span>
-              <span class="fact-tile__value sm-num" :title="formatMoneyExact(summary.wage, 'EUR')">
-                {{ formatMoney(summary.wage) }}
-              </span>
-            </div>
-            <div class="fact-tile fact-tile--wide">
-              <span class="fact-tile__label">数据完整度</span>
-              <span class="fact-tile__value sm-num">{{ formatPercent(summary.data_completeness) }}</span>
-              <CoverageBar label="非空字段比例" :value="summary.data_completeness" dense />
-            </div>
+        <InsightPanel
+          title="决策摘要"
+          badge="规则生成"
+          :tone="decisionSummary.tone"
+          :items="decisionSummary.items"
+          footnote="以上为规则生成摘要，不替代球探判断；缺失字段不参与计算"
+        />
+
+        <StatStrip :items="keyStats" />
+
+        <nav class="player-sections" aria-label="球员详情区块">
+          <a class="player-sections__link" href="#player-ability">能力</a>
+          <a class="player-sections__link" href="#player-growth">表现与成长</a>
+          <a class="player-sections__link" href="#player-transfer">转会与估值</a>
+          <a class="player-sections__link" href="#player-status">状态与合同</a>
+        </nav>
+
+        <section id="player-ability" class="player-group" aria-labelledby="player-ability-title">
+          <header class="player-group__head">
+            <h2 id="player-ability-title" class="player-group__title">能力</h2>
+            <p class="player-group__hint">属性与结构只描述当前快照，不代表潜力上限。</p>
+          </header>
+
+          <div class="sm-grid sm-grid--wide-left">
+            <SectionCard title="球员属性" :subtitle="`按类别分组的 1–20 属性值（共 ${formatInt(detail.attributes.length)} 项）`">
+              <EmptyState
+                v-if="attributeGroups.length === 0"
+                title="没有属性数据"
+                description="当前快照没有记录任何属性键，常见于扫描器未启用 attributes 覆盖。"
+                compact
+              />
+              <div v-else class="attribute-groups">
+                <section v-for="group in attributeGroups" :key="group.category" class="attribute-card">
+                  <header class="attribute-card__head">
+                    <h3 class="attribute-card__title">{{ group.label }}</h3>
+                    <span class="attribute-card__count">{{ group.items.length }} 项</span>
+                  </header>
+                  <div class="attribute-card__grid">
+                    <AttributeBar
+                      v-for="attribute in group.items"
+                      :key="attribute.key"
+                      :label="attribute.name"
+                      :value="attribute.value"
+                      :code="attribute.key"
+                    />
+                  </div>
+                </section>
+              </div>
+              <template #footer>
+                属性为 1–20 整数刻度；null 表示该属性未被扫描到，不按 0 处理。
+              </template>
+            </SectionCard>
+
+            <ChartCard
+              v-if="attributeRadarOption"
+              title="能力结构雷达"
+              subtitle="按属性类别汇总的 1–20 均值，用于观察结构差异"
+              footnote="类别均值为该类属性的算术平均，仅用于查看能力结构，不代表 CA/PA，也不是综合评分。"
+            >
+              <EChart :option="attributeRadarOption" height="280px" aria-label="球员能力结构雷达" />
+            </ChartCard>
           </div>
         </section>
 
-        <SectionCard title="档案" subtitle="字段全部来自后端，缺失显示为 —">
-          <StatHeader :items="profileFacts" />
-          <template #footer>
-            <span v-if="watchItem?.note">备注：{{ watchItem.note }}</span>
-            <span v-else>备注：暂无，可在「编辑备注」中添加。</span>
-          </template>
-        </SectionCard>
+        <section id="player-growth" class="player-group" aria-labelledby="player-growth-title">
+          <header class="player-group__head">
+            <h2 id="player-growth-title" class="player-group__title">表现与成长</h2>
+            <p class="player-group__hint">走势、出场与发展归因均来自历史快照；缺失点不做插值。</p>
+          </header>
 
-        <div class="sm-grid sm-grid--wide-left">
-          <ChartCard
-            title="能力与身价走势"
-            subtitle="CA/PA（左轴）与身价（右轴，万 €）"
-            :loading="historyLoading && !history"
-            :empty="!historyLoading && historyPoints.length === 0"
-            empty-title="暂无历史快照"
-            empty-description="该球员只有一次观测，或历史接口没有返回数据，因此无法绘制成长曲线。导入后续扫描后会补齐。"
-            :footnote="historyFootnote"
-          >
-            <EChart :option="growthOption" height="268px" aria-label="CA、PA 与身价的时间序列" />
-          </ChartCard>
+          <div class="sm-grid sm-grid--2">
+            <ChartCard
+              title="能力与身价走势"
+              subtitle="CA/PA（左轴）与身价（右轴，万 €）"
+              :loading="historyLoading && !history"
+              :empty="!historyLoading && historyPoints.length === 0"
+              empty-title="暂无历史快照"
+              empty-description="该球员只有一次观测，或历史接口没有返回数据，因此无法绘制成长曲线。导入后续扫描后会补齐。"
+              :footnote="historyFootnote"
+            >
+              <EChart :option="growthOption" height="268px" aria-label="CA、PA 与身价的时间序列" />
+            </ChartCard>
+
+            <ChartCard
+              title="出场时间与出场次数"
+              subtitle="出场分钟（左轴，柱）与出场次数（右轴，线）"
+              :loading="historyLoading && !history"
+              :empty="!historyLoading && historyPoints.length === 0"
+              empty-title="暂无出场数据"
+              empty-description="历史快照中没有 minutes_played / appearances 字段，或还没有第二次扫描。"
+            >
+              <EChart :option="appearanceOption" height="236px" aria-label="出场分钟与出场次数的时间序列" />
+            </ChartCard>
+          </div>
 
           <SectionCard
-          title="状态与租借"
-          subtitle="挂牌、伤病、所有权与待生效转会；来源没有的字段标为未知，不做推断"
-        >
-          <ErrorState v-if="statusError" :error="statusError" compact title="状态加载失败" @retry="instanceId !== null && loadStatus(instanceId)" />
-          <LoadingBlock v-else-if="statusLoading && !status" :rows="3" label="正在加载状态" />
-          <EmptyState
-            v-else-if="!status || !status.current"
-            title="没有状态记录"
-            description="数据源未提供挂牌/伤病字段，或该球员还没有状态快照"
-          />
-          <template v-else>
-            <div class="status-grid">
-              <div class="status-block">
-                <p class="sm-label">挂牌</p>
-                <ul class="status-list">
-                  <li>
-                    <span>挂牌出售</span>
-                    <strong>{{ triState(status.current.flags.listed) }}</strong>
-                  </li>
-                  <li>
-                    <span>挂牌出租</span>
-                    <strong>{{ triState(status.current.flags.loan_listed) }}</strong>
-                  </li>
-                  <li>
-                    <span>非卖品</span>
-                    <strong>{{ triState(status.current.flags.not_for_sale) }}</strong>
-                  </li>
-                  <li>
-                    <span>已设置解约</span>
-                    <strong>{{ triState(status.current.flags.set_for_release) }}</strong>
-                  </li>
-                </ul>
-              </div>
-              <div class="status-block">
-                <p class="sm-label">伤病</p>
-                <ul class="status-list">
-                  <li>
-                    <span>当前受伤</span>
-                    <strong>{{ triState(status.current.injury.injured) }}</strong>
-                  </li>
-                  <li>
-                    <span>伤病倾向</span>
-                    <strong>{{ status.current.injury.proneness === null ? EMPTY : `${status.current.injury.proneness}/20` }}</strong>
-                  </li>
-                  <li>
-                    <span>开始日期</span>
-                    <strong>{{ formatDate(status.current.injury.start_date) }}</strong>
-                  </li>
-                  <li>
-                    <span>预计复出</span>
-                    <strong>{{ formatDate(status.current.injury.expected_return) }}</strong>
-                  </li>
-                </ul>
-              </div>
-              <div class="status-block">
-                <p class="sm-label">注册与所有权</p>
-                <ul class="status-list">
-                  <li>
-                    <span>原属俱乐部</span>
-                    <strong>{{ displayText(status.current.registration.parent_club) }}</strong>
-                  </li>
-                  <li>
-                    <span>当前效力</span>
-                    <strong>{{ displayText(status.current.registration.loan_club ?? summary.club) }}</strong>
-                  </li>
-                  <li>
-                    <span>梯队</span>
-                    <strong>{{ displayText(status.current.registration.team_type) }}</strong>
-                  </li>
-                  <li>
-                    <span>已达成转会</span>
-                    <strong>
-                      {{ status.current.agreed_transfer
-                        ? `${displayText(status.current.agreed_transfer.to_club)} · ${formatDate(status.current.agreed_transfer.date)}`
-                        : EMPTY }}
-                    </strong>
-                  </li>
-                </ul>
-              </div>
-            </div>
-
-            <div v-if="status.loans.length > 0" class="status-loans">
-              <p class="sm-label">租借关系</p>
-              <ul class="status-list">
-                <li v-for="loan in status.loans" :key="loan.id">
-                  <span>{{ displayText(loan.parent_club) }} → {{ displayText(loan.loan_club) }}</span>
-                  <strong>
-                    买断条款 {{ triState(loan.has_option) }}
-                    · 强制买断 {{ triState(loan.has_obligation) }}
-                    · 结束 {{ formatDate(loan.end_date) }}
-                  </strong>
-                </li>
-              </ul>
-            </div>
-
-            <div v-if="status.changes.length > 0" class="status-changes">
-              <p class="sm-label">状态变化</p>
-              <ul class="status-list">
-                <li v-for="change in status.changes" :key="`${change.field}-${change.observed_at}`">
-                  <span>{{ change.label }}</span>
-                  <strong>{{ changeValue(change.from) }} → {{ changeValue(change.to) }} · {{ formatDate(change.observed_at) }}</strong>
-                </li>
-              </ul>
-            </div>
-
-            <div v-if="status.data_gaps.length > 0" class="status-gaps">
-              <p class="sm-label">数据缺口</p>
-              <ul class="status-list">
-                <li v-for="gap in status.data_gaps" :key="gap">
-                  <span>{{ gap }}</span>
-                </li>
-              </ul>
-            </div>
-          </template>
-        </SectionCard>
-
-        <SectionCard title="估值（相似成交）" subtitle="区间来自可比成交的分位数，样本不足时不给区间">
-            <header class="sm-row sm-row--between valuation__head">
-              <span class="sm-label">相似成交区间</span>
-              <span class="sm-text-2xs sm-text-faint">
-                样本 {{ valuation ? formatInt(valuation.sample_size) : EMPTY }} · 币种 {{ currency }} · 算法
-                {{ displayText(valuation?.algorithm_version) }}
-              </span>
-            </header>
-
-            <LoadingBlock v-if="valuationLoading && !valuation" :rows="4" compact label="正在加载估值" />
+            title="发展归因"
+            subtitle="事实、相关性与推测分开展示；无法验证的指标不会被写成因果"
+          >
+            <LoadingBlock v-if="developmentLoading && !development" :rows="4" compact label="正在加载归因" />
             <ErrorState
-              v-else-if="valuationError && !valuation"
-              :error="valuationError"
+              v-else-if="developmentError && !development"
+              :error="developmentError"
               compact
-              @retry="instanceId !== null && loadValuation(instanceId)"
+              @retry="instanceId !== null && loadCore(instanceId)"
             />
-            <template v-else-if="valuation">
+            <template v-else-if="development">
+              <div class="development__summary">
+                <div class="development__stat">
+                  <span class="sm-label">快照</span>
+                  <span class="sm-num">{{ formatInt(development.summary.snapshots) }}</span>
+                </div>
+                <div class="development__stat">
+                  <span class="sm-label">CA 变化</span>
+                  <span class="sm-num">{{ formatSignedInt(development.summary.ca_delta) }}</span>
+                </div>
+                <div class="development__stat">
+                  <span class="sm-label">身价变化</span>
+                  <span class="sm-num">{{ formatSignedMoney(development.summary.market_value_delta) }}</span>
+                </div>
+                <div class="development__stat">
+                  <span class="sm-label">分钟变化</span>
+                  <span class="sm-num">{{ formatSignedInt(development.summary.minutes_delta) }}</span>
+                </div>
+                <div class="development__stat development__stat--wide">
+                  <span class="sm-label">窗口</span>
+                  <span class="sm-num">
+                    {{ formatDate(development.summary.window_start) }} → {{ formatDate(development.summary.window_end) }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="attribution-grid">
+                <div
+                  v-for="group in attributionGroups"
+                  :key="group.kind"
+                  class="attribution"
+                  :class="`attribution--${group.kind}`"
+                >
+                  <div class="attribution__head">
+                    <span class="attribution__title">{{ group.title }}</span>
+                    <span class="attribution__hint">{{ group.hint }}</span>
+                  </div>
+                  <ul v-if="group.items.length > 0" class="attribution__list">
+                    <li v-for="item in group.items" :key="`${item.factor}-${item.evidence}`">
+                      <span class="attribution__factor">{{ item.factor }}</span>
+                      <span class="attribution__evidence">{{ item.evidence }}</span>
+                    </li>
+                  </ul>
+                  <p v-else class="sm-text-faint sm-text-2xs">后端未返回该类归因。</p>
+                </div>
+              </div>
+
+              <div v-if="development.data_gaps.length > 0" class="data-gaps">
+                <span class="sm-label">数据缺口</span>
+                <ul>
+                  <li v-for="gap in development.data_gaps" :key="gap">{{ gap }}</li>
+                </ul>
+              </div>
+
+              <DataTable
+                :columns="developmentColumns"
+                :rows="development.records"
+                dense
+                row-key="period_start"
+                :empty-title="development.records.length === 0 ? '没有区间记录' : '暂无数据'"
+                empty-description="至少需要两次快照才能计算区间变化。"
+              >
+                <template #cell="{ row, column }">
+                  <template v-if="column.prop === 'ca_delta'">
+                    <NumberCell :value="row.ca_delta" />
+                  </template>
+                  <template v-else-if="column.prop === 'market_value_delta'">
+                    <span class="sm-num">{{ formatSignedMoney(row.market_value_delta) }}</span>
+                  </template>
+                  <template v-else-if="column.prop === 'minutes'">
+                    <NumberCell :value="row.minutes" />
+                  </template>
+                  <template v-else-if="column.prop === 'appearances'">
+                    <NumberCell :value="row.appearances" />
+                  </template>
+                  <template v-else-if="column.prop === 'goals'">
+                    <NumberCell :value="row.goals" />
+                  </template>
+                  <template v-else-if="column.prop === 'assists'">
+                    <NumberCell :value="row.assists" />
+                  </template>
+                  <template v-else>
+                    {{ column.formatter ? column.formatter(row) : EMPTY }}
+                  </template>
+                </template>
+              </DataTable>
+            </template>
+          </SectionCard>
+        </section>
+
+        <section id="player-transfer" class="player-group" aria-labelledby="player-transfer-title">
+          <header class="player-group__head">
+            <h2 id="player-transfer-title" class="player-group__title">转会与估值</h2>
+            <p class="player-group__hint">估值与相似成交来自可比交易；角色评分按模板权重计算。</p>
+          </header>
+
+          <SectionCard title="估值（相似成交）" subtitle="区间来自可比成交的分位数，样本不足时不给区间">
+              <header class="sm-row sm-row--between valuation__head">
+                <span class="sm-label">相似成交区间</span>
+                <span class="sm-text-2xs sm-text-faint">
+                  样本 {{ valuation ? formatInt(valuation.sample_size) : EMPTY }} · 币种 {{ currency }} · 算法
+                  {{ displayText(valuation?.algorithm_version) }}
+                </span>
+              </header>
+
+              <LoadingBlock v-if="valuationLoading && !valuation" :rows="4" compact label="正在加载估值" />
+              <ErrorState
+                v-else-if="valuationError && !valuation"
+                :error="valuationError"
+                compact
+                @retry="instanceId !== null && loadValuation(instanceId)"
+              />
+              <template v-else-if="valuation">
+                <EmptyState
+                  v-if="valuationInsufficient"
+                  variant="insufficient"
+                  title="样本不足，拒绝精确估值"
+                  :description="valuationWarnings.length > 0 ? valuationWarnings.join(' ') : '样本量低于方法要求，后端返回 insufficient_sample=true，区间字段为 null。'"
+                  compact
+                />
+                <div v-else class="valuation__range">
+                  <div class="valuation__cell">
+                    <span class="sm-label">下限</span>
+                    <span class="valuation__amount sm-num">{{ formatMoney(valuation.low) }}</span>
+                  </div>
+                  <div class="valuation__cell valuation__cell--mid">
+                    <span class="sm-label">中位</span>
+                    <span class="valuation__amount sm-num">{{ formatMoney(valuation.mid) }}</span>
+                  </div>
+                  <div class="valuation__cell">
+                    <span class="sm-label">上限</span>
+                    <span class="valuation__amount sm-num">{{ formatMoney(valuation.high) }}</span>
+                  </div>
+                </div>
+
+                <dl class="facts">
+                  <div class="facts__row">
+                    <dt>方法</dt>
+                    <dd>{{ valuationMethodLabel(valuation.method) }}</dd>
+                  </div>
+                  <div class="facts__row">
+                    <dt>样本量</dt>
+                    <dd class="sm-num">{{ formatInt(valuation.sample_size) }}</dd>
+                  </div>
+                  <div class="facts__row">
+                    <dt>费用覆盖</dt>
+                    <dd class="sm-num">{{ formatPercent(valuation.coverage?.fee) }}</dd>
+                  </div>
+                  <div v-if="valuation.basis" class="facts__row">
+                    <dt>基准分位</dt>
+                    <dd class="sm-num">
+                      P25 {{ formatMoney(valuation.basis.p25) }} · 中位
+                      {{ formatMoney(valuation.basis.median) }} · P75
+                      {{ formatMoney(valuation.basis.p75) }}
+                    </dd>
+                  </div>
+                  <div v-for="item in valuationAdjustmentFactors" :key="item.key" class="facts__row">
+                    <dt>{{ item.label }}</dt>
+                    <dd class="sm-num">×{{ formatDecimal(item.numeric, 2) }}</dd>
+                  </div>
+                </dl>
+
+                <ul v-if="valuationAdjustmentNotes.length > 0" class="valuation-notes">
+                  <li v-for="note in valuationAdjustmentNotes" :key="note.key">
+                    <span class="sm-label">{{ note.label }}</span>
+                    <span>{{ note.text }}</span>
+                  </li>
+                </ul>
+
+                <ul v-if="valuationWarnings.length > 0" class="warnings">
+                  <li v-for="warning in valuationWarnings" :key="warning">{{ warning }}</li>
+                </ul>
+              </template>
               <EmptyState
-                v-if="valuationInsufficient"
-                variant="insufficient"
-                title="样本不足，拒绝精确估值"
-                :description="valuationWarnings.length > 0 ? valuationWarnings.join(' ') : '样本量低于方法要求，后端返回 insufficient_sample=true，区间字段为 null。'"
+                v-else
+                title="估值不可用"
+                description="后端未返回估值字段；通常是因为相似成交样本不足或当前存档没有成交记录。"
                 compact
               />
-              <div v-else class="valuation__range">
-                <div class="valuation__cell">
-                  <span class="sm-label">下限</span>
-                  <span class="valuation__amount sm-num">{{ formatMoney(valuation.low) }}</span>
+          </SectionCard>
+
+          <SectionCard
+            title="相似成交"
+            subtitle="按年龄、CA、PA、位置与合同的加权相似度排序"
+          >
+            <LoadingBlock v-if="similarLoading && !similar" :rows="4" compact label="正在加载相似成交" />
+            <ErrorState
+              v-else-if="similarError && !similar"
+              :error="similarError"
+              compact
+              @retry="instanceId !== null && loadSimilar(instanceId)"
+            />
+            <template v-else-if="similar">
+              <div class="similar__head">
+                <div class="sm-text-xs sm-text-muted">
+                  目标：{{ displayText(similar.target.name) }} · 年龄 {{ formatInt(similar.target.age) }} ·
+                  {{ positionGroupLabel(similar.target.position_group) }} · CA {{ formatInt(similar.target.ca) }} / PA
+                  {{ formatInt(similar.target.pa) }}
                 </div>
-                <div class="valuation__cell valuation__cell--mid">
-                  <span class="sm-label">中位</span>
-                  <span class="valuation__amount sm-num">{{ formatMoney(valuation.mid) }}</span>
-                </div>
-                <div class="valuation__cell">
-                  <span class="sm-label">上限</span>
-                  <span class="valuation__amount sm-num">{{ formatMoney(valuation.high) }}</span>
+                <div class="chips">
+                  <span v-for="weight in effectiveWeights" :key="weight.key" class="chip">
+                    {{ weight.label }} {{ formatDecimal(weight.value, 2) }}
+                  </span>
                 </div>
               </div>
-
-              <dl class="facts">
-                <div class="facts__row">
-                  <dt>方法</dt>
-                  <dd>{{ valuationMethodLabel(valuation.method) }}</dd>
-                </div>
-                <div class="facts__row">
-                  <dt>样本量</dt>
-                  <dd class="sm-num">{{ formatInt(valuation.sample_size) }}</dd>
-                </div>
-                <div class="facts__row">
-                  <dt>费用覆盖</dt>
-                  <dd class="sm-num">{{ formatPercent(valuation.coverage?.fee) }}</dd>
-                </div>
-                <div v-if="valuation.basis" class="facts__row">
-                  <dt>基准分位</dt>
-                  <dd class="sm-num">
-                    P25 {{ formatMoney(valuation.basis.p25) }} · 中位
-                    {{ formatMoney(valuation.basis.median) }} · P75
-                    {{ formatMoney(valuation.basis.p75) }}
-                  </dd>
-                </div>
-                <div v-for="item in valuationAdjustmentFactors" :key="item.key" class="facts__row">
-                  <dt>{{ item.label }}</dt>
-                  <dd class="sm-num">×{{ formatDecimal(item.numeric, 2) }}</dd>
-                </div>
-              </dl>
-
-              <ul v-if="valuationAdjustmentNotes.length > 0" class="valuation-notes">
-                <li v-for="note in valuationAdjustmentNotes" :key="note.key">
-                  <span class="sm-label">{{ note.label }}</span>
-                  <span>{{ note.text }}</span>
-                </li>
+              <ul v-if="similar.data_gaps.length > 0" class="warnings">
+                <li v-for="gap in similar.data_gaps" :key="gap">{{ gap }}</li>
               </ul>
-
-              <ul v-if="valuationWarnings.length > 0" class="warnings">
-                <li v-for="warning in valuationWarnings" :key="warning">{{ warning }}</li>
-              </ul>
+              <p v-if="similar.missing_fields.length > 0" class="sm-text-2xs sm-text-faint">
+                目标缺失字段：{{ similar.missing_fields.map((field) => similarityFactorLabel(field)).join('、') }}
+                （权重已按后端策略重新分配）
+              </p>
+              <DataTable
+                :columns="similarColumns"
+                :rows="similar.items"
+                row-key="transfer_id"
+                expandable
+                dense
+                :empty-title="similar.items.length === 0 ? '没有相似成交样本' : '暂无数据'"
+                empty-description="相似成交需要同一存档内、条件相近的已完成交易。样本不足时不做估值，也不会用身价顶替成交价。"
+              >
+                <template #expand="{ row }">
+                  <div class="factor-table">
+                    <div class="factor-table__head">
+                      <span>因子</span>
+                      <span>目标值</span>
+                      <span>该笔成交</span>
+                      <span>距离</span>
+                      <span>权重</span>
+                    </div>
+                    <div v-for="factor in row.factors" :key="factor.key" class="factor-table__row">
+                      <span>{{ similarityFactorLabel(factor.key) }}</span>
+                      <span class="sm-num">{{ displayText(factor.target) }}</span>
+                      <span class="sm-num">{{ displayText(factor.value) }}</span>
+                      <span class="sm-num">{{ formatDecimal(factor.distance, 3) }}</span>
+                      <span class="sm-num">{{ formatDecimal(factor.weight, 3) }}</span>
+                    </div>
+                    <p v-if="row.factors.length === 0" class="sm-text-faint sm-text-2xs">该样本没有因子明细。</p>
+                  </div>
+                </template>
+                <template #cell="{ row, column }">
+                  <template v-if="column.prop === 'similarity'">
+                    <NumberCell :value="row.similarity" kind="decimal" :digits="3" />
+                  </template>
+                  <template v-else-if="column.prop === 'fee'">
+                    <NumberCell :value="row.transfer.effective_fee" kind="money" :currency="row.transfer.currency" />
+                  </template>
+                  <template v-else-if="column.prop === 'ca'">
+                    <NumberCell :value="row.transfer.player_ca_at_transfer" />
+                  </template>
+                  <template v-else>
+                    {{ column.formatter ? column.formatter(row) : EMPTY }}
+                  </template>
+                </template>
+              </DataTable>
             </template>
-            <EmptyState
-              v-else
-              title="估值不可用"
-              description="后端未返回估值字段；通常是因为相似成交样本不足或当前存档没有成交记录。"
-              compact
-            />
+            <template #footer>
+              <span v-if="similar">样本 {{ formatInt(similar.sample_size) }} 笔 · 相似度与权重均由后端计算，前端不做重排。</span>
+              <span v-else>相似成交样本不可用。</span>
+            </template>
           </SectionCard>
-        </div>
-
-        <div class="sm-grid sm-grid--wide-left">
-          <ChartCard
-            title="出场时间与出场次数"
-            subtitle="出场分钟（左轴，柱）与出场次数（右轴，线）"
-            :loading="historyLoading && !history"
-            :empty="!historyLoading && historyPoints.length === 0"
-            empty-title="暂无出场数据"
-            empty-description="历史快照中没有 minutes_played / appearances 字段，或还没有第二次扫描。"
-          >
-            <EChart :option="appearanceOption" height="236px" aria-label="出场分钟与出场次数的时间序列" />
-          </ChartCard>
 
           <SectionCard title="角色评分" subtitle="按角色模板加权计算，覆盖率不足时结果会标注">
             <div class="role-select">
@@ -1061,247 +1302,165 @@ void loadRoles()
             </template>
             <EmptyState v-else title="尚未评分" description="选择一个角色模板后会自动评分。" compact />
           </SectionCard>
-        </div>
+        </section>
 
-        <SectionCard
-          title="发展归因"
-          subtitle="事实、相关性与推测分开展示；无法验证的指标不会被写成因果"
-        >
-          <LoadingBlock v-if="developmentLoading && !development" :rows="4" compact label="正在加载归因" />
-          <ErrorState
-            v-else-if="developmentError && !development"
-            :error="developmentError"
-            compact
-            @retry="instanceId !== null && loadCore(instanceId)"
-          />
-          <template v-else-if="development">
-            <div class="development__summary">
-              <div class="development__stat">
-                <span class="sm-label">快照</span>
-                <span class="sm-num">{{ formatInt(development.summary.snapshots) }}</span>
-              </div>
-              <div class="development__stat">
-                <span class="sm-label">CA 变化</span>
-                <span class="sm-num">{{ formatSignedInt(development.summary.ca_delta) }}</span>
-              </div>
-              <div class="development__stat">
-                <span class="sm-label">身价变化</span>
-                <span class="sm-num">{{ formatSignedMoney(development.summary.market_value_delta) }}</span>
-              </div>
-              <div class="development__stat">
-                <span class="sm-label">分钟变化</span>
-                <span class="sm-num">{{ formatSignedInt(development.summary.minutes_delta) }}</span>
-              </div>
-              <div class="development__stat development__stat--wide">
-                <span class="sm-label">窗口</span>
-                <span class="sm-num">
-                  {{ formatDate(development.summary.window_start) }} → {{ formatDate(development.summary.window_end) }}
-                </span>
-              </div>
-            </div>
+        <section id="player-status" class="player-group" aria-labelledby="player-status-title">
+          <header class="player-group__head">
+            <h2 id="player-status-title" class="player-group__title">状态与合同</h2>
+            <p class="player-group__hint">挂牌、伤病、租借与合同均以数据源为准，缺失标注未知。</p>
+          </header>
 
-            <div class="attribution-grid">
-              <div
-                v-for="group in attributionGroups"
-                :key="group.kind"
-                class="attribution"
-                :class="`attribution--${group.kind}`"
-              >
-                <div class="attribution__head">
-                  <span class="attribution__title">{{ group.title }}</span>
-                  <span class="attribution__hint">{{ group.hint }}</span>
+          <div class="sm-grid sm-grid--wide-left">
+            <SectionCard
+              title="状态与租借"
+              subtitle="挂牌、伤病、所有权与待生效转会；来源没有的字段标为未知，不做推断"
+            >
+            <ErrorState v-if="statusError" :error="statusError" compact title="状态加载失败" @retry="instanceId !== null && loadStatus(instanceId)" />
+            <LoadingBlock v-else-if="statusLoading && !status" :rows="3" label="正在加载状态" />
+            <EmptyState
+              v-else-if="!status || !status.current"
+              title="没有状态记录"
+              description="数据源未提供挂牌/伤病字段，或该球员还没有状态快照"
+            />
+            <template v-else>
+              <div class="status-grid">
+                <div class="status-block">
+                  <p class="sm-label">挂牌</p>
+                  <ul class="status-list">
+                    <li>
+                      <span>挂牌出售</span>
+                      <strong>{{ triState(status.current.flags.listed) }}</strong>
+                    </li>
+                    <li>
+                      <span>挂牌出租</span>
+                      <strong>{{ triState(status.current.flags.loan_listed) }}</strong>
+                    </li>
+                    <li>
+                      <span>非卖品</span>
+                      <strong>{{ triState(status.current.flags.not_for_sale) }}</strong>
+                    </li>
+                    <li>
+                      <span>已设置解约</span>
+                      <strong>{{ triState(status.current.flags.set_for_release) }}</strong>
+                    </li>
+                  </ul>
                 </div>
-                <ul v-if="group.items.length > 0" class="attribution__list">
-                  <li v-for="item in group.items" :key="`${item.factor}-${item.evidence}`">
-                    <span class="attribution__factor">{{ item.factor }}</span>
-                    <span class="attribution__evidence">{{ item.evidence }}</span>
+                <div class="status-block">
+                  <p class="sm-label">伤病</p>
+                  <ul class="status-list">
+                    <li>
+                      <span>当前受伤</span>
+                      <strong>{{ triState(status.current.injury.injured) }}</strong>
+                    </li>
+                    <li>
+                      <span>伤病倾向</span>
+                      <strong>{{ status.current.injury.proneness === null ? EMPTY : `${status.current.injury.proneness}/20` }}</strong>
+                    </li>
+                    <li>
+                      <span>开始日期</span>
+                      <strong>{{ formatDate(status.current.injury.start_date) }}</strong>
+                    </li>
+                    <li>
+                      <span>预计复出</span>
+                      <strong>{{ formatDate(status.current.injury.expected_return) }}</strong>
+                    </li>
+                  </ul>
+                </div>
+                <div class="status-block">
+                  <p class="sm-label">注册与所有权</p>
+                  <ul class="status-list">
+                    <li>
+                      <span>原属俱乐部</span>
+                      <strong>{{ displayText(status.current.registration.parent_club) }}</strong>
+                    </li>
+                    <li>
+                      <span>当前效力</span>
+                      <strong>{{ displayText(status.current.registration.loan_club ?? summary.club) }}</strong>
+                    </li>
+                    <li>
+                      <span>梯队</span>
+                      <strong>{{ displayText(status.current.registration.team_type) }}</strong>
+                    </li>
+                    <li>
+                      <span>已达成转会</span>
+                      <strong>
+                        {{ status.current.agreed_transfer
+                          ? `${displayText(status.current.agreed_transfer.to_club)} · ${formatDate(status.current.agreed_transfer.date)}`
+                          : EMPTY }}
+                      </strong>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <div v-if="status.loans.length > 0" class="status-loans">
+                <p class="sm-label">租借关系</p>
+                <ul class="status-list">
+                  <li v-for="loan in status.loans" :key="loan.id">
+                    <span>{{ displayText(loan.parent_club) }} → {{ displayText(loan.loan_club) }}</span>
+                    <strong>
+                      买断条款 {{ triState(loan.has_option) }}
+                      · 强制买断 {{ triState(loan.has_obligation) }}
+                      · 结束 {{ formatDate(loan.end_date) }}
+                    </strong>
                   </li>
                 </ul>
-                <p v-else class="sm-text-faint sm-text-2xs">后端未返回该类归因。</p>
               </div>
-            </div>
 
-            <div v-if="development.data_gaps.length > 0" class="data-gaps">
-              <span class="sm-label">数据缺口</span>
-              <ul>
-                <li v-for="gap in development.data_gaps" :key="gap">{{ gap }}</li>
-              </ul>
-            </div>
-
-            <DataTable
-              :columns="developmentColumns"
-              :rows="development.records"
-              dense
-              row-key="period_start"
-              :empty-title="development.records.length === 0 ? '没有区间记录' : '暂无数据'"
-              empty-description="至少需要两次快照才能计算区间变化。"
-            >
-              <template #cell="{ row, column }">
-                <template v-if="column.prop === 'ca_delta'">
-                  <NumberCell :value="row.ca_delta" />
-                </template>
-                <template v-else-if="column.prop === 'market_value_delta'">
-                  <span class="sm-num">{{ formatSignedMoney(row.market_value_delta) }}</span>
-                </template>
-                <template v-else-if="column.prop === 'minutes'">
-                  <NumberCell :value="row.minutes" />
-                </template>
-                <template v-else-if="column.prop === 'appearances'">
-                  <NumberCell :value="row.appearances" />
-                </template>
-                <template v-else-if="column.prop === 'goals'">
-                  <NumberCell :value="row.goals" />
-                </template>
-                <template v-else-if="column.prop === 'assists'">
-                  <NumberCell :value="row.assists" />
-                </template>
-                <template v-else>
-                  {{ column.formatter ? column.formatter(row) : EMPTY }}
-                </template>
-              </template>
-            </DataTable>
-          </template>
-        </SectionCard>
-
-        <ChartCard
-          v-if="attributeRadarOption"
-          title="能力结构雷达"
-          subtitle="按属性类别汇总的 1–20 均值，用于观察结构差异"
-          footnote="类别均值为该类属性的算术平均，仅用于查看能力结构，不代表 CA/PA，也不是综合评分。"
-        >
-          <EChart :option="attributeRadarOption" height="280px" aria-label="球员能力结构雷达" />
-        </ChartCard>
-
-        <SectionCard title="球员属性" :subtitle="`按类别分组的 1–20 属性值（共 ${formatInt(detail.attributes.length)} 项）`">
-          <EmptyState
-            v-if="attributeGroups.length === 0"
-            title="没有属性数据"
-            description="当前快照没有记录任何属性键，常见于扫描器未启用 attributes 覆盖。"
-            compact
-          />
-          <div v-else class="attribute-groups">
-            <section v-for="group in attributeGroups" :key="group.category" class="attribute-card">
-              <header class="attribute-card__head">
-                <h3 class="attribute-card__title">{{ group.label }}</h3>
-                <span class="attribute-card__count">{{ group.items.length }} 项</span>
-              </header>
-              <div class="attribute-card__grid">
-                <AttributeBar
-                  v-for="attribute in group.items"
-                  :key="attribute.key"
-                  :label="attribute.name"
-                  :value="attribute.value"
-                  :code="attribute.key"
-                />
+              <div v-if="status.changes.length > 0" class="status-changes">
+                <p class="sm-label">状态变化</p>
+                <ul class="status-list">
+                  <li v-for="change in status.changes" :key="`${change.field}-${change.observed_at}`">
+                    <span>{{ change.label }}</span>
+                    <strong>{{ changeValue(change.from) }} → {{ changeValue(change.to) }} · {{ formatDate(change.observed_at) }}</strong>
+                  </li>
+                </ul>
               </div>
-            </section>
+
+              <div v-if="status.data_gaps.length > 0" class="status-gaps">
+                <p class="sm-label">数据缺口</p>
+                <ul class="status-list">
+                  <li v-for="gap in status.data_gaps" :key="gap">
+                    <span>{{ gap }}</span>
+                  </li>
+                </ul>
+              </div>
+            </template>
+            </SectionCard>
+
+            <div class="sm-stack">
+              <SectionCard
+                v-if="summary.contract_end"
+                title="合同与身份"
+                dense
+              >
+                <dl class="facts">
+                  <div class="facts__row">
+                    <dt>合同到期</dt>
+                    <dd>{{ formatDate(summary.contract_end) }}</dd>
+                  </div>
+                  <div class="facts__row">
+                    <dt>周薪</dt>
+                    <dd class="sm-num">{{ formatMoney(summary.wage) }}</dd>
+                  </div>
+                  <div class="facts__row">
+                    <dt>最近一次快照</dt>
+                    <dd>{{ formatDateTime(summary.observed_at) }} · snapshot #{{ displayText(detail.latest_snapshot_id) }}</dd>
+                  </div>
+                </dl>
+              </SectionCard>
+
+              <SectionCard title="档案" subtitle="字段全部来自后端，缺失显示为 —">
+                <StatHeader :items="profileFacts" />
+                <template #footer>
+                  <span v-if="watchItem?.note">备注：{{ watchItem.note }}</span>
+                  <span v-else>备注：暂无，可在「编辑备注」中添加。</span>
+                </template>
+              </SectionCard>
+            </div>
           </div>
-          <template #footer>
-            属性为 1–20 整数刻度；null 表示该属性未被扫描到，不按 0 处理。
-          </template>
-        </SectionCard>
+        </section>
 
-        <SectionCard
-          title="相似成交"
-          subtitle="按年龄、CA、PA、位置与合同的加权相似度排序"
-        >
-          <LoadingBlock v-if="similarLoading && !similar" :rows="4" compact label="正在加载相似成交" />
-          <ErrorState
-            v-else-if="similarError && !similar"
-            :error="similarError"
-            compact
-            @retry="instanceId !== null && loadSimilar(instanceId)"
-          />
-          <template v-else-if="similar">
-            <div class="similar__head">
-              <div class="sm-text-xs sm-text-muted">
-                目标：{{ displayText(similar.target.name) }} · 年龄 {{ formatInt(similar.target.age) }} ·
-                {{ positionGroupLabel(similar.target.position_group) }} · CA {{ formatInt(similar.target.ca) }} / PA
-                {{ formatInt(similar.target.pa) }}
-              </div>
-              <div class="chips">
-                <span v-for="weight in effectiveWeights" :key="weight.key" class="chip">
-                  {{ weight.label }} {{ formatDecimal(weight.value, 2) }}
-                </span>
-              </div>
-            </div>
-            <ul v-if="similar.data_gaps.length > 0" class="warnings">
-              <li v-for="gap in similar.data_gaps" :key="gap">{{ gap }}</li>
-            </ul>
-            <p v-if="similar.missing_fields.length > 0" class="sm-text-2xs sm-text-faint">
-              目标缺失字段：{{ similar.missing_fields.map((field) => similarityFactorLabel(field)).join('、') }}
-              （权重已按后端策略重新分配）
-            </p>
-            <DataTable
-              :columns="similarColumns"
-              :rows="similar.items"
-              row-key="transfer_id"
-              expandable
-              dense
-              :empty-title="similar.items.length === 0 ? '没有相似成交样本' : '暂无数据'"
-              empty-description="相似成交需要同一存档内、条件相近的已完成交易。样本不足时不做估值，也不会用身价顶替成交价。"
-            >
-              <template #expand="{ row }">
-                <div class="factor-table">
-                  <div class="factor-table__head">
-                    <span>因子</span>
-                    <span>目标值</span>
-                    <span>该笔成交</span>
-                    <span>距离</span>
-                    <span>权重</span>
-                  </div>
-                  <div v-for="factor in row.factors" :key="factor.key" class="factor-table__row">
-                    <span>{{ similarityFactorLabel(factor.key) }}</span>
-                    <span class="sm-num">{{ displayText(factor.target) }}</span>
-                    <span class="sm-num">{{ displayText(factor.value) }}</span>
-                    <span class="sm-num">{{ formatDecimal(factor.distance, 3) }}</span>
-                    <span class="sm-num">{{ formatDecimal(factor.weight, 3) }}</span>
-                  </div>
-                  <p v-if="row.factors.length === 0" class="sm-text-faint sm-text-2xs">该样本没有因子明细。</p>
-                </div>
-              </template>
-              <template #cell="{ row, column }">
-                <template v-if="column.prop === 'similarity'">
-                  <NumberCell :value="row.similarity" kind="decimal" :digits="3" />
-                </template>
-                <template v-else-if="column.prop === 'fee'">
-                  <NumberCell :value="row.transfer.effective_fee" kind="money" :currency="row.transfer.currency" />
-                </template>
-                <template v-else-if="column.prop === 'ca'">
-                  <NumberCell :value="row.transfer.player_ca_at_transfer" />
-                </template>
-                <template v-else>
-                  {{ column.formatter ? column.formatter(row) : EMPTY }}
-                </template>
-              </template>
-            </DataTable>
-          </template>
-          <template #footer>
-            <span v-if="similar">样本 {{ formatInt(similar.sample_size) }} 笔 · 相似度与权重均由后端计算，前端不做重排。</span>
-            <span v-else>相似成交样本不可用。</span>
-          </template>
-        </SectionCard>
-
-        <SectionCard
-          v-if="summary.contract_end"
-          title="合同与身份"
-          dense
-        >
-          <dl class="facts">
-            <div class="facts__row">
-              <dt>合同到期</dt>
-              <dd>{{ formatDate(summary.contract_end) }}</dd>
-            </div>
-            <div class="facts__row">
-              <dt>周薪</dt>
-              <dd class="sm-num">{{ formatMoney(summary.wage) }}</dd>
-            </div>
-            <div class="facts__row">
-              <dt>最近一次快照</dt>
-              <dd>{{ formatDateTime(summary.observed_at) }} · snapshot #{{ displayText(detail.latest_snapshot_id) }}</dd>
-            </div>
-          </dl>
-        </SectionCard>
       </template>
 
       <div v-if="watchError" class="sm-text-2xs sm-text-faint">
@@ -1361,7 +1520,7 @@ void loadRoles()
 .player-hero {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: var(--sm-space-5);
   padding: var(--sm-space-5);
@@ -1489,47 +1648,64 @@ void loadRoles()
   margin-top: var(--sm-space-1);
 }
 
-.player-hero__tiles {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--sm-space-2);
-  margin: 0;
+/* ---------- 决策导航与分组 ---------- */
+
+.player-sections {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm-space-1);
+  padding: var(--sm-space-2) 0;
+  border-bottom: 1px solid var(--sm-border);
+  background: var(--sm-bg-primary);
 }
 
-.fact-tile {
+.player-sections__link {
+  padding: 3px var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-pill);
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-xs);
+  text-decoration: none;
+  transition:
+    border-color var(--sm-dur-2) var(--sm-ease-out),
+    color var(--sm-dur-2) var(--sm-ease-out);
+}
+
+.player-sections__link:hover,
+.player-sections__link:focus-visible {
+  border-color: var(--sm-accent-cyan);
+  color: var(--sm-accent-cyan);
+}
+
+.player-group {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  padding: var(--sm-space-2) var(--sm-space-3);
-  border: 1px solid var(--sm-border);
-  border-radius: var(--sm-radius-md);
-  background: rgba(10, 21, 36, 0.7);
+  gap: var(--sm-space-4);
+  scroll-margin-top: 64px;
 }
 
-.fact-tile--wide {
-  grid-column: 1 / -1;
+.player-group__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sm-space-1) var(--sm-space-3);
+  padding-bottom: var(--sm-space-2);
+  border-bottom: 1px solid var(--sm-border);
 }
 
-.fact-tile__label {
-  color: var(--sm-text-3);
-  font-size: var(--sm-fs-2xs);
-  letter-spacing: var(--sm-tracking-label);
-}
-
-.fact-tile__value {
+.player-group__title {
   color: var(--sm-text-primary);
-  font-size: var(--sm-fs-lg);
+  font-size: var(--sm-fs-md);
   font-weight: var(--sm-fw-semibold);
-  line-height: var(--sm-lh-tight);
-  text-align: right;
+  letter-spacing: 0.02em;
 }
 
-.fact-tile__hint {
+.player-group__hint {
   color: var(--sm-text-3);
   font-size: var(--sm-fs-2xs);
-  text-align: right;
 }
 
 .valuation__head {
@@ -1857,7 +2033,6 @@ void loadRoles()
 }
 
 @media (max-width: 1180px) {
-  .player-hero,
   .attribution-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1872,24 +2047,12 @@ void loadRoles()
   .player-hero__identity {
     align-items: flex-start;
   }
-
-  .player-hero__tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 420px) {
   .player-hero__identity {
     flex-direction: column;
     gap: var(--sm-space-3);
-  }
-
-  .player-hero__tiles {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .fact-tile--wide {
-    grid-column: auto;
   }
 }
 </style>

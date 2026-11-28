@@ -20,8 +20,10 @@ import CoverageBar from '../components/CoverageBar.vue'
 import DataTable from '../components/DataTable.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
+import InsightPanel from '../components/InsightPanel.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
+import StatStrip from '../components/StatStrip.vue'
 import type { CompatibilityItem, CompatibilityResponse, OverviewResponse } from '../types/analytics'
 import type { ImportJob, ScanImportResponse } from '../types/imports'
 import type {
@@ -34,6 +36,7 @@ import type { ValidationResponse } from '../types/status'
 import type { DataHubImportResponse, DataHubStatus } from '../types/datahub'
 import type { SaveSummary } from '../types/bootstrap'
 import type { TableColumn } from '../types/table'
+import type { InsightItem, StatItem } from '../types/ui'
 import { useSessionStore } from '../stores/session'
 import {
   EMPTY,
@@ -221,6 +224,72 @@ const healthIsEmpty = computed(() => {
     value.transfers.count === 0 &&
     value.opportunities.active === 0
   )
+})
+
+/** 同步状态结论：只复述数据健康与游戏连接接口的真实字段。 */
+const syncItems = computed<InsightItem[]>(() => {
+  const status = hub.value
+  const view = health.value
+  if (!status && !view) return []
+  const items: InsightItem[] = []
+  if (status) {
+    items.push({
+      label: '游戏连接',
+      text: status.game.running
+        ? `FM27 正在运行${status.game.version ? `（版本 ${status.game.version}）` : ''}`
+        : 'FM27 未运行；可以直接导入扫描文件。',
+      tone: status.game.running ? 'success' : 'neutral',
+    })
+    items.push({
+      label: '当前存档',
+      text: `${status.save.name}${status.save.recognized ? '（已识别）' : '（待确认）'}`,
+      tone: status.save.recognized ? 'neutral' : 'warning',
+    })
+    items.push({
+      label: '最近同步',
+      text: status.last_sync?.finished_at ? formatDateTime(status.last_sync.finished_at) : '暂无同步记录',
+    })
+    items.push({
+      label: '待确认问题',
+      text: `${formatInt(status.needs_confirmation.total)} 项`,
+      tone: status.needs_confirmation.total > 0 ? 'warning' : 'neutral',
+    })
+  } else if (view) {
+    items.push({ label: '数据状态', text: view.status.label })
+    items.push({ label: '最后更新', text: formatDateTime(view.last_updated_at) })
+  }
+  items.push({
+    label: '下一步',
+    text: '优先点击「一键导入」或「同步游戏数据」；异常会先自动修复，只有无法安全修复时才需要你确认。',
+  })
+  return items
+})
+
+/** 同步状态关键指标：缺失一律显示 —。 */
+const syncStats = computed<StatItem[]>(() => {
+  const status = hub.value
+  const view = health.value
+  if (!status && !view) return []
+  return [
+    {
+      label: '已导入球员',
+      value: status ? formatInt(status.records.players) : view ? formatInt(view.players.count) : EMPTY,
+    },
+    {
+      label: '俱乐部',
+      value: status ? formatInt(status.records.clubs) : view ? formatInt(view.clubs.count) : EMPTY,
+    },
+    {
+      label: '转会记录',
+      value: status ? formatInt(status.records.transfers) : view ? formatInt(view.transfers.count) : EMPTY,
+    },
+    { label: '最近同步', value: status?.last_sync?.finished_at ? formatDateTime(status.last_sync.finished_at) : EMPTY },
+    {
+      label: '待确认',
+      value: status ? formatInt(status.needs_confirmation.total) : EMPTY,
+      tone: status && status.needs_confirmation.total > 0 ? 'warning' : 'default',
+    },
+  ]
 })
 
 /** Load the unified data-health view (read-only). */
@@ -721,6 +790,16 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
         </span>
       </template>
     </el-alert>
+
+    <InsightPanel
+      title="同步状态"
+      badge="数据事实"
+      :tone="hub?.needs_confirmation.total ? 'warning' : hub?.health.status === 'ok' ? 'success' : 'info'"
+      :items="syncItems"
+      footnote="结论只使用数据健康与游戏连接接口的返回值；异常会先自动修复，无法修复时才需要确认。"
+    />
+
+    <StatStrip :items="syncStats" />
 
     <SectionCard
       title="数据健康"

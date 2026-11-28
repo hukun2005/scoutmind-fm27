@@ -3,7 +3,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { asApiError, type ApiError } from '../api/client'
 import { getClubTransferProfile, listClubs } from '../api/clubs'
 import { getSimilarTransfers } from '../api/transfers'
@@ -17,14 +17,16 @@ import DataTable from '../components/DataTable.vue'
 import EChart from '../components/EChart.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
-import KpiCard from '../components/KpiCard.vue'
+import InsightPanel from '../components/InsightPanel.vue'
 import NumberCell from '../components/NumberCell.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
 import StatHeader from '../components/StatHeader.vue'
+import StatStrip from '../components/StatStrip.vue'
 import TransferFlowCard from '../components/TransferFlowCard.vue'
 import type { Club, ClubTransferProfile } from '../types/clubs'
 import type { TableColumn } from '../types/table'
+import type { InsightItem, InsightTone, StatItem } from '../types/ui'
 import type {
   FeeComponent,
   SimilarTransferItem,
@@ -58,15 +60,16 @@ import {
   transferTypeLabel,
 } from '../utils/labels'
 
-type TransferTab = 'list' | 'similar' | 'clubs' | 'deals'
+type TransferTab = 'list' | 'clubs' | 'cost' | 'similar' | 'deals'
 
 const session = useSessionStore()
 const transfers = useTransfersStore()
 
 const route = useRoute()
+const router = useRouter()
 
 /** Tabs are deep-linkable (/transfers?tab=deals) so a report can be shared as a URL. */
-const TAB_KEYS: TransferTab[] = ['list', 'similar', 'clubs', 'deals']
+const TAB_KEYS: TransferTab[] = ['list', 'clubs', 'cost', 'similar', 'deals']
 const initialTab = typeof route.query.tab === 'string' && TAB_KEYS.includes(route.query.tab as TransferTab) ? (route.query.tab as TransferTab) : 'list'
 const activeTab = ref<TransferTab>(initialTab)
 
@@ -108,6 +111,8 @@ const reviewLoading = ref(false)
 const reviewError = ref<ApiError | null>(null)
 
 const candidates = ref<CandidateRow[]>([])
+/** Observability counters for the summary; `null` means the interface has not answered yet. */
+const candidateCount = ref<number | null>(null)
 const candidateBusy = ref(false)
 const candidateError = ref<ApiError | null>(null)
 
@@ -117,44 +122,74 @@ const currency = computed(() => transfers.stats?.currency ?? 'EUR')
 /** Fee histogram for the current filter window. */
 const histogramOption = computed(() => buildFeeHistogram(transfers.stats?.distribution ?? []))
 
-const statsItems = computed(() => {
+/** Field coverage text shared by the conclusion panel and the cost tab footnote. */
+const coverageText = computed(() => {
   const stats = transfers.stats
-  const money = (value: number | null | undefined): string => formatMoney(value)
+  if (!stats) return ''
+  return Object.entries(stats.coverage)
+    .map(([key, value]) => `${coverageLabel(key)} ${formatPercent(value)}`)
+    .join(' · ')
+})
+
+/** Compact metrics for the page top, replacing the former KPI card stack. */
+const statStripItems = computed<StatItem[]>(() => {
+  const stats = transfers.stats
   return [
     { label: '样本数', value: stats ? formatInt(stats.sample_size) : EMPTY, hint: '已完成且含金额来源' },
-    { label: `中位数（${currency.value}）`, value: money(stats?.median), hint: 'P50' },
-    { label: `P25（${currency.value}）`, value: money(stats?.p25), hint: '下四分位' },
-    { label: `P75（${currency.value}）`, value: money(stats?.p75), hint: '上四分位' },
-    { label: `均值（${currency.value}）`, value: money(stats?.mean), hint: '易受极端值影响' },
-    { label: `最小（${currency.value}）`, value: money(stats?.min), hint: '可能为 0（自由转会）' },
-    { label: `最大（${currency.value}）`, value: money(stats?.max), hint: '' },
+    { label: `中位数（${currency.value}）`, value: formatMoney(stats?.median), hint: 'P50' },
+    {
+      label: `区间（${currency.value}）`,
+      value: stats && (stats.p25 !== null || stats.p75 !== null) ? `${formatMoney(stats.p25)} – ${formatMoney(stats.p75)}` : EMPTY,
+      hint: 'P25 – P75，样本不足显示 —',
+    },
+    { label: `均值（${currency.value}）`, value: formatMoney(stats?.mean), hint: '易受极端值影响' },
+    {
+      label: '可观测交易',
+      value: transfers.error ? EMPTY : formatInt(transfers.total),
+      hint: '当前筛选下已返回的成交总数',
+    },
+    {
+      label: '待确认候选',
+      value: candidateCount.value === null ? EMPTY : formatInt(candidateCount.value),
+      hint: '两次快照发现的俱乐部变化',
+      tone: candidateCount.value !== null && candidateCount.value > 0 ? 'warning' : 'default',
+    },
+  ]
+})
+
+/** Full quantile detail kept in the cost-structure tab. */
+const costStatItems = computed<StatItem[]>(() => {
+  const stats = transfers.stats
+  return [
+    { label: '样本数', value: stats ? formatInt(stats.sample_size) : EMPTY, hint: '已完成且含金额来源' },
+    { label: `最小（${currency.value}）`, value: formatMoney(stats?.min), hint: '可能为 0（自由转会）' },
+    { label: `P25（${currency.value}）`, value: formatMoney(stats?.p25), hint: '下四分位' },
+    { label: `中位数（${currency.value}）`, value: formatMoney(stats?.median), hint: 'P50' },
+    { label: `P75（${currency.value}）`, value: formatMoney(stats?.p75), hint: '上四分位' },
+    { label: `最大（${currency.value}）`, value: formatMoney(stats?.max), hint: '' },
   ]
 })
 
 const statsFootnote = computed(() => {
   const stats = transfers.stats
   if (!stats) return ''
-  const coverageText = Object.entries(stats.coverage)
-    .map(([key, value]) => `${coverageLabel(key)} ${formatPercent(value)}`)
-    .join(' · ')
   const excluded = `排除：不完整 ${formatInt(stats.excluded.incomplete)} 笔 / 非完成 ${formatInt(stats.excluded.non_completed)} 笔`
-  return `算法 ${displayText(stats.algorithm_version)} · 币种 ${currency.value} · ${coverageText} · ${excluded}`
+  return `算法 ${displayText(stats.algorithm_version)} · 币种 ${currency.value} · ${coverageText.value} · ${excluded}`
 })
 
 const statsEmpty = computed(() => transfers.stats !== null && transfers.stats.sample_size === 0)
 
-/** Current-page rows that carry a date, newest first; presentation-only rail, the table stays authoritative. */
-const timelineItems = computed(() =>
+/** Current-page trades, newest first; presentation-only rail, the table stays authoritative. */
+const recentTrades = computed(() =>
   transfers.items
-    .filter((row) => row.transfer_date !== null)
     .slice()
-    .sort((a, b) => String(b.transfer_date).localeCompare(String(a.transfer_date)))
+    .sort((a, b) => String(b.transfer_date ?? '').localeCompare(String(a.transfer_date ?? '')))
     .slice(0, 8),
 )
 
 /** Largest effective fee on the current page, used only for the rail bar width. */
 const timelineMaxFee = computed(() =>
-  Math.max(0, ...timelineItems.value.map((row) => row.effective_fee ?? 0)),
+  Math.max(0, ...recentTrades.value.map((row) => row.effective_fee ?? 0)),
 )
 
 const statsEmptyDescription = computed(() => {
@@ -164,6 +199,146 @@ const statsEmptyDescription = computed(() => {
     ? stats.warnings.join(' ')
     : '当前筛选窗口内没有可统计的已完成交易。放宽日期、费用或年龄筛选后重试。'
 })
+
+/** One club aggregated from the current page of observable trades. */
+interface ClubSignal {
+  name: string
+  clubId: number | null
+  league: string | null
+  deals: number
+  knownFees: number
+  netSpend: number
+  loans: number
+  frees: number
+  latest: string | null
+}
+
+/** Club lookup used to attach ids and leagues to the observable club cards. */
+const clubDirectory = computed(() => {
+  const map = new Map<string, Club>()
+  for (const club of clubs.value) map.set(club.name, club)
+  return map
+})
+
+/** Club cards built only from the current page of transfers plus the club directory. */
+const clubSignals = computed<ClubSignal[]>(() => {
+  const byName = new Map<string, ClubSignal>()
+  const touch = (name: string | null): ClubSignal | null => {
+    if (!name) return null
+    let entry = byName.get(name)
+    if (!entry) {
+      const club = clubDirectory.value.get(name)
+      entry = {
+        name,
+        clubId: club?.club_id ?? null,
+        league: club?.league ?? null,
+        deals: 0,
+        knownFees: 0,
+        netSpend: 0,
+        loans: 0,
+        frees: 0,
+        latest: null,
+      }
+      byName.set(name, entry)
+    }
+    return entry
+  }
+  for (const row of transfers.items) {
+    const incoming = touch(row.to_club)
+    const outgoing = touch(row.from_club)
+    for (const [entry, direction] of [
+      [incoming, 1],
+      [outgoing, -1],
+    ] as const) {
+      if (!entry) continue
+      entry.deals += 1
+      if (row.transfer_date && (!entry.latest || row.transfer_date > entry.latest)) entry.latest = row.transfer_date
+      if (row.transfer_type === 'loan') entry.loans += 1
+      if (row.transfer_type === 'free') entry.frees += 1
+      if (row.effective_fee !== null && row.currency === currency.value) {
+        entry.knownFees += 1
+        entry.netSpend += row.effective_fee * direction
+      }
+    }
+  }
+  return [...byName.values()].sort((a, b) => b.deals - a.deals || a.name.localeCompare(b.name))
+})
+
+/** Transfer-type preference of one club card. */
+function clubPreference(signal: ClubSignal): string {
+  const parts: string[] = []
+  if (signal.loans > 0) parts.push(`租借 ${signal.loans} 笔`)
+  if (signal.frees > 0) parts.push(`自由转会 ${signal.frees} 笔`)
+  return parts.length > 0 ? parts.join(' · ') : '类型信息不足'
+}
+
+/** Highest-activity club on the current page, used by the summary only. */
+const focusText = computed(() => {
+  if (candidateCount.value !== null && candidateCount.value > 0) {
+    return `有待确认的俱乐部变化 ${formatInt(candidateCount.value)} 条，进入「交易决策与复盘」确认或标记误报。`
+  }
+  const top = clubSignals.value[0]
+  if (top) return `当前页交易最活跃：${top.name}（${formatInt(top.deals)} 笔）。`
+  return '暂无可关注的俱乐部或候选（当前没有可观测成交）。'
+})
+
+const insightTone = computed<InsightTone>(() => {
+  if (transfers.statsError && !transfers.stats) return 'warning'
+  if (transfers.stats && (transfers.stats.sample_size === 0 || transfers.stats.median === null)) return 'warning'
+  return 'info'
+})
+
+/** Summary items; every sentence maps to a returned field or the current page. */
+const insightItems = computed<InsightItem[]>(() => {
+  const stats = transfers.stats
+  const items: InsightItem[] = []
+  if (!stats) {
+    items.push({
+      label: '样本',
+      text: transfers.statsError ? '统计数据加载失败，暂无法给出价格区间。' : '统计数据尚未返回。',
+      tone: transfers.statsError ? 'warning' : 'neutral',
+    })
+  } else if (stats.sample_size === 0 || stats.median === null) {
+    items.push({
+      label: '样本',
+      text: '当前筛选窗口内没有可统计的已完成交易，样本不足，不给出价格区间。',
+      tone: 'warning',
+    })
+  } else {
+    items.push({
+      label: '样本',
+      text: `${formatInt(stats.sample_size)} 笔已完成交易；中位 ${formatMoney(stats.median)}，区间 ${formatMoney(stats.p25)} – ${formatMoney(stats.p75)}（${currency.value}）。`,
+    })
+  }
+  items.push({ label: '覆盖字段', text: coverageText.value || '数据源未提供字段覆盖信息' })
+  items.push({
+    label: '可观测',
+    text: `当前筛选下可观测 ${formatInt(transfers.total)} 笔成交${
+      candidateCount.value === null ? '；候选数量暂未返回' : `；待确认俱乐部变化 ${formatInt(candidateCount.value)} 条`
+    }。`,
+  })
+  items.push({ label: '关注对象', text: focusText.value })
+  if (stats && (stats.sample_size === 0 || stats.median === null)) {
+    items.push({
+      label: '下一步',
+      text: '到「游戏数据」同步游戏数据，或导入转会记录后刷新本页。',
+      tone: 'warning',
+    })
+  }
+  return items
+})
+
+/** Open one club's profile from its observable card and filter the list by the same club. */
+function filterByClub(signal: ClubSignal): void {
+  if (signal.clubId === null) {
+    ElMessage.info('该俱乐部未在俱乐部列表中找到，无法按俱乐部筛选')
+    return
+  }
+  transfers.setFilter('club_id', signal.clubId)
+  clubProfileId.value = signal.clubId
+  activeTab.value = 'list'
+  void loadClubProfile()
+}
 
 const transferColumns: TableColumn<Transfer>[] = [
   { prop: 'transfer_date', label: '日期', width: 104, formatter: (row) => formatDate(row.transfer_date) },
@@ -401,6 +576,7 @@ async function confirmCandidate(row: CandidateRow): Promise<void> {
     const result = await confirmTransferCandidate(row.id, {})
     ElMessage.success(`已确认：${row.player.name ?? '球员'} → ${displayText(row.to_club)}`)
     candidates.value = candidates.value.filter((item) => item.id !== row.id)
+    if (candidateCount.value !== null) candidateCount.value = Math.max(0, candidateCount.value - 1)
     await loadDealsOverview()
     void result
   } catch (caught) {
@@ -418,12 +594,23 @@ async function dismissCandidate(row: CandidateRow): Promise<void> {
   try {
     await dismissTransferCandidate(row.id, '人工确认为误报')
     candidates.value = candidates.value.filter((item) => item.id !== row.id)
+    if (candidateCount.value !== null) candidateCount.value = Math.max(0, candidateCount.value - 1)
     ElMessage.success('已标记为误报')
   } catch (caught) {
     candidateError.value = asApiError(caught)
     ElMessage.error(`标记失败：${candidateError.value.message}`)
   } finally {
     candidateBusy.value = false
+  }
+}
+
+/** Load only the candidate count for the summary; failures leave the value unknown. */
+async function loadCandidateCount(): Promise<void> {
+  try {
+    const result = await listTransferCandidates({ save_id: session.activeSaveId ?? undefined, status: 'candidate' })
+    candidateCount.value = typeof result.total === 'number' ? result.total : (result.items?.length ?? null)
+  } catch {
+    candidateCount.value = null
   }
 }
 
@@ -441,7 +628,8 @@ async function loadDealsOverview(): Promise<void> {
     ])
     taxonomy.value = summary
     review.value = reviewed
-    candidates.value = candidateList.items
+    candidates.value = candidateList.items ?? []
+    candidateCount.value = typeof candidateList.total === 'number' ? candidateList.total : candidates.value.length
   } catch (caught) {
     const apiError = asApiError(caught)
     reviewError.value = apiError
@@ -494,6 +682,7 @@ onBeforeUnmount(() => {
 })
 
 void loadClubs()
+void loadCandidateCount()
 // A deep link straight into the deals tab still needs its own data; the tab watcher only fires on change.
 if (activeTab.value === 'deals') void loadDealsOverview()
 </script>
@@ -515,11 +704,64 @@ if (activeTab.value === 'deals') void loadDealsOverview()
       </template>
     </PageHeader>
 
-    <TransferFlowCard :save-id="session.activeSaveId" />
+    <InsightPanel
+      title="转会情报摘要"
+      subtitle="只统计已完成交易；不包含传闻或谈判事件，缺失字段不填默认值。"
+      :tone="insightTone"
+      badge="数据事实"
+      :items="insightItems"
+      footnote="样本、分位与覆盖字段来自统计接口；可观测成交与候选数量来自当前存档。"
+    />
+
+    <StatStrip :items="statStripItems" dense />
 
     <el-tabs v-model="activeTab" class="tabs">
       <el-tab-pane label="成交列表" name="list">
         <div class="sm-stack">
+          <section class="timeline sm-glass" aria-label="最近可观测交易">
+            <header class="timeline__head">
+              <span class="sm-section-label">可观测事件</span>
+              <h2 class="timeline__title">最近可观测交易</h2>
+              <p class="timeline__hint">
+                当前页成交按日期倒序，最多 8 条；金额为记录自带币种，缺失显示 —，完整明细以下方表格为准。
+              </p>
+            </header>
+            <ol v-if="recentTrades.length > 0" class="timeline__rail">
+              <li v-for="row in recentTrades" :key="row.id" class="timeline__item">
+                <span class="timeline__date sm-num">{{ formatDate(row.transfer_date) }}</span>
+                <span class="timeline__dot" aria-hidden="true" />
+                <div class="timeline__body">
+                  <div class="timeline__row">
+                    <span class="timeline__player">{{ displayText(row.player_name) }}</span>
+                    <span class="timeline__meta">
+                      <el-tag size="small" type="info" disable-transitions>{{ transferStatusLabel(row.status) }}</el-tag>
+                      <span class="timeline__fee sm-num">{{ formatMoney(row.effective_fee) }}</span>
+                    </span>
+                  </div>
+                  <p class="timeline__clubs">
+                    {{ displayText(row.from_club) }} → {{ displayText(row.to_club) }} ·
+                    {{ transferTypeLabel(row.transfer_type) }}
+                  </p>
+                  <span v-if="row.effective_fee !== null" class="timeline__bar" aria-hidden="true">
+                    <i
+                      :style="{
+                        width: `${timelineMaxFee > 0 ? Math.max(4, (row.effective_fee / timelineMaxFee) * 100) : 0}%`,
+                      }"
+                    />
+                  </span>
+                </div>
+              </li>
+            </ol>
+            <EmptyState
+              v-else
+              title="暂无可观测交易"
+              description="当前筛选还没有成交记录。到「游戏数据」同步游戏数据或导入转会记录后再查看。"
+              compact
+            >
+              <el-button size="small" @click="router.push('/data')">去游戏数据</el-button>
+            </EmptyState>
+          </section>
+
           <section class="console sm-glass" aria-label="转会筛选控制台">
             <header class="console__head">
               <div class="console__titles">
@@ -660,85 +902,6 @@ if (activeTab.value === 'deals') void loadDealsOverview()
             </p>
           </section>
 
-          <div class="sm-grid sm-grid--wide-left">
-            <section class="market" aria-label="样本统计">
-              <header class="panel-head">
-                <span class="sm-section-label">市场概况</span>
-                <h2 class="panel-head__title">样本统计</h2>
-                <p class="panel-head__hint">分位数来自后端统计接口，样本不足时仍展示真实样本数。</p>
-              </header>
-              <div class="market__tiles">
-                <KpiCard
-                  v-for="item in statsItems"
-                  :key="item.label"
-                  :label="item.label"
-                  :value="item.value"
-                  :hint="item.hint"
-                  :loading="transfers.statsLoading && !transfers.stats"
-                />
-              </div>
-              <ErrorState
-                v-if="transfers.statsError && !transfers.stats"
-                :error="transfers.statsError"
-                compact
-                @retry="transfers.loadStats(session.activeSaveId)"
-              />
-              <div v-if="transfers.stats && transfers.stats.warnings.length > 0" class="warnings">
-                <el-alert type="warning" :closable="false" show-icon>
-                  <template #title>
-                    <span class="sm-text-xs">{{ transfers.stats.warnings.join(' ') }}</span>
-                  </template>
-                </el-alert>
-              </div>
-            </section>
-
-            <ChartCard
-              title="成交费用分布"
-              subtitle="按后端给定区间统计的已完成交易笔数"
-              :loading="transfers.statsLoading && !transfers.stats"
-              :empty="!transfers.statsLoading && (transfers.stats === null || statsEmpty || (transfers.stats?.distribution.length ?? 0) === 0)"
-              empty-title="暂无成交样本"
-              empty-variant="insufficient"
-              :empty-description="statsEmptyDescription"
-              :footnote="statsFootnote"
-            >
-              <EChart :option="histogramOption" height="236px" aria-label="成交费用直方图" />
-            </ChartCard>
-          </div>
-
-          <section
-            v-if="timelineItems.length > 0 && !transfers.error"
-            class="timeline sm-glass"
-            aria-label="本页成交时间轴"
-          >
-            <header class="timeline__head">
-              <span class="sm-section-label">交易时间线</span>
-              <p class="timeline__hint">仅当前页成交，按日期倒序；金额为记录自带币种，完整明细以下方表格为准。</p>
-            </header>
-            <ol class="timeline__rail">
-              <li v-for="row in timelineItems" :key="row.id" class="timeline__item">
-                <span class="timeline__date sm-num">{{ formatDate(row.transfer_date) }}</span>
-                <span class="timeline__dot" aria-hidden="true" />
-                <div class="timeline__body">
-                  <div class="timeline__row">
-                    <span class="timeline__player">{{ displayText(row.player_name) }}</span>
-                    <span class="timeline__fee sm-num">{{ formatMoney(row.effective_fee) }}</span>
-                  </div>
-                  <p class="timeline__clubs">
-                    {{ displayText(row.from_club) }} → {{ displayText(row.to_club) }}
-                  </p>
-                  <span v-if="row.effective_fee !== null" class="timeline__bar" aria-hidden="true">
-                    <i
-                      :style="{
-                        width: `${timelineMaxFee > 0 ? Math.max(4, (row.effective_fee / timelineMaxFee) * 100) : 0}%`,
-                      }"
-                    />
-                  </span>
-                </div>
-              </li>
-            </ol>
-          </section>
-
           <SectionCard title="成交明细" subtitle="展开行可查看费用构成（基础、分期、附加条款等）" flush>
             <DataTable
               :columns="transferColumns"
@@ -832,115 +995,73 @@ if (activeTab.value === 'deals') void loadDealsOverview()
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="相似成交" name="similar">
+      <el-tab-pane label="费用结构" name="cost">
         <div class="sm-stack">
-          <SectionCard title="查询相似成交" subtitle="输入球员实例 ID，后端按年龄、CA、PA、位置与合同加权匹配" dense>
-            <div class="similar-form">
-              <label class="filter-field">
-                <span class="sm-label">球员实例 ID</span>
-                <el-input-number v-model="similarForm.instanceId" size="small" :min="1" :controls="false" placeholder="例如 11" />
-              </label>
-              <label class="filter-field">
-                <span class="sm-label">返回数量</span>
-                <el-select v-model="similarForm.limit" size="small" aria-label="返回数量">
-                  <el-option :value="10" label="10" />
-                  <el-option :value="20" label="20" />
-                  <el-option :value="50" label="50" />
-                </el-select>
-              </label>
-              <el-button size="small" type="primary" :loading="similarLoading" @click="runSimilar">查询</el-button>
-            </div>
-          </SectionCard>
-
-          <ErrorState v-if="similarError" :error="similarError" @retry="runSimilar" />
-
-          <EmptyState
-            v-else-if="!similarSearched"
-            title="尚未查询"
-            description="相似成交依赖同存档内条件相近的已完成交易；样本不足时后端会返回空列表并给出原因，前端不会补造对比。"
+          <StatStrip :items="costStatItems" dense />
+          <ErrorState
+            v-if="transfers.statsError && !transfers.stats"
+            :error="transfers.statsError"
             compact
+            @retry="transfers.loadStats(session.activeSaveId)"
           />
-
-          <template v-else-if="similar">
-            <SectionCard title="目标与权重" subtitle="权重由后端在缺失字段上重新分配">
-              <div class="similar-target">
-                <div>
-                  <p class="similar-target__name">{{ displayText(similar.target.name) }}</p>
-                  <p class="sm-text-xs sm-text-muted">
-                    年龄 {{ formatInt(similar.target.age) }} · {{ displayText(similar.target.position_group) }} · CA
-                    {{ formatInt(similar.target.ca) }} / PA {{ formatInt(similar.target.pa) }} · 样本
-                    {{ formatInt(similar.sample_size) }} 笔
-                  </p>
-                </div>
-                <div class="chips">
-                  <span v-for="weight in similarWeights" :key="weight.key" class="chip">
-                    {{ weight.label }} {{ formatDecimal(weight.value, 2) }}
-                  </span>
-                </div>
-              </div>
-              <ul v-if="similar.data_gaps.length > 0" class="warnings-list">
-                <li v-for="gap in similar.data_gaps" :key="gap">{{ gap }}</li>
-              </ul>
-              <p v-if="similar.missing_fields.length > 0" class="sm-text-2xs sm-text-faint">
-                目标缺失字段：{{ similar.missing_fields.map((field) => similarityFactorLabel(field)).join('、') }}
-              </p>
-              <EmptyState
-                v-if="similar.items.length === 0"
-                title="没有相似成交样本"
-                description="条件相近的已完成交易不足。样本不足时不做估值，也不会用球员身价顶替成交价。"
-                variant="insufficient"
-                compact
-              />
-              <DataTable
-                v-else
-                :columns="similarColumns"
-                :rows="similar.items"
-                row-key="transfer_id"
-                expandable
-                dense
-                empty-title="暂无数据"
-              >
-                <template #expand="{ row }">
-                  <div class="components__table">
-                    <div class="components__head components__head--factors">
-                      <span>因子</span>
-                      <span>目标值</span>
-                      <span>该笔成交</span>
-                      <span>距离</span>
-                      <span>权重</span>
-                    </div>
-                    <div v-for="factor in row.factors" :key="factor.key" class="components__row components__row--factors">
-                      <span>{{ similarityFactorLabel(factor.key) }}</span>
-                      <span class="sm-num">{{ displayText(factor.target) }}</span>
-                      <span class="sm-num">{{ displayText(factor.value) }}</span>
-                      <span class="sm-num">{{ formatDecimal(factor.distance, 3) }}</span>
-                      <span class="sm-num">{{ formatDecimal(factor.weight, 3) }}</span>
-                    </div>
-                    <p v-if="row.factors.length === 0" class="sm-text-2xs sm-text-faint">该样本没有因子明细。</p>
-                  </div>
-                </template>
-                <template #cell="{ row, column }">
-                  <template v-if="column.prop === 'similarity'">
-                    <NumberCell :value="row.similarity" kind="decimal" :digits="3" />
-                  </template>
-                  <template v-else-if="column.prop === 'fee'">
-                    <NumberCell :value="row.transfer.effective_fee" kind="money" :currency="row.transfer.currency" />
-                  </template>
-                  <template v-else-if="column.prop === 'ca'">
-                    <NumberCell :value="row.transfer.player_ca_at_transfer" />
-                  </template>
-                  <template v-else>
-                    {{ column.formatter ? column.formatter(row) : EMPTY }}
-                  </template>
-                </template>
-              </DataTable>
-            </SectionCard>
-          </template>
+          <div v-if="transfers.stats && transfers.stats.warnings.length > 0" class="warnings">
+            <el-alert type="warning" :closable="false" show-icon>
+              <template #title>
+                <span class="sm-text-xs">{{ transfers.stats.warnings.join(' ') }}</span>
+              </template>
+            </el-alert>
+          </div>
+          <ChartCard
+            title="成交费用分布"
+            subtitle="按后端给定区间统计的已完成交易笔数"
+            :loading="transfers.statsLoading && !transfers.stats"
+            :empty="!transfers.statsLoading && (transfers.stats === null || statsEmpty || (transfers.stats?.distribution.length ?? 0) === 0)"
+            empty-title="暂无成交样本"
+            empty-variant="insufficient"
+            :empty-description="statsEmptyDescription"
+            :footnote="statsFootnote"
+          >
+            <EChart :option="histogramOption" height="236px" aria-label="成交费用直方图" />
+          </ChartCard>
         </div>
       </el-tab-pane>
 
       <el-tab-pane label="俱乐部画像" name="clubs">
         <div class="sm-stack">
+          <section class="club-cards" aria-label="重点俱乐部">
+            <header class="club-cards__head">
+              <span class="sm-section-label">重点俱乐部</span>
+              <h2 class="club-cards__title">当前页交易最活跃的俱乐部</h2>
+              <p class="club-cards__hint">由当前页成交聚合，点击卡片按该俱乐部筛选成交并加载完整画像。</p>
+            </header>
+            <div v-if="clubSignals.length > 0" class="club-cards__grid">
+              <button
+                v-for="signal in clubSignals.slice(0, 6)"
+                :key="signal.name"
+                type="button"
+                class="club-card"
+                @click="filterByClub(signal)"
+              >
+                <span class="club-card__name">{{ signal.name }}</span>
+                <span class="club-card__league">{{ displayText(signal.league) }}</span>
+                <span class="club-card__line">
+                  {{ formatInt(signal.deals) }} 笔交易 · 已知净支出（{{ currency }}）
+                  {{ signal.knownFees > 0 ? formatMoney(signal.netSpend) : EMPTY }}
+                </span>
+                <span class="club-card__line">偏好：{{ clubPreference(signal) }}</span>
+                <span class="club-card__hint">
+                  最近 {{ formatDate(signal.latest) }} · {{ signal.clubId === null ? '无法按俱乐部筛选' : '点击筛选' }}
+                </span>
+              </button>
+            </div>
+            <EmptyState
+              v-else
+              title="暂无可画像俱乐部"
+              description="当前筛选还没有成交记录；同步游戏数据或放宽筛选后重试。"
+              compact
+            />
+          </section>
+
           <SectionCard title="选择俱乐部" subtitle="画像基于该俱乐部的已完成交易" dense>
             <div class="similar-form">
               <label class="filter-field filter-field--wide">
@@ -1063,6 +1184,114 @@ if (activeTab.value === 'deals') void loadDealsOverview()
           </template>
         </div>
       </el-tab-pane>
+
+      <el-tab-pane label="相似成交" name="similar">
+        <div class="sm-stack">
+          <SectionCard title="查询相似成交" subtitle="输入球员实例 ID，后端按年龄、CA、PA、位置与合同加权匹配" dense>
+            <div class="similar-form">
+              <label class="filter-field">
+                <span class="sm-label">球员实例 ID</span>
+                <el-input-number v-model="similarForm.instanceId" size="small" :min="1" :controls="false" placeholder="例如 11" />
+              </label>
+              <label class="filter-field">
+                <span class="sm-label">返回数量</span>
+                <el-select v-model="similarForm.limit" size="small" aria-label="返回数量">
+                  <el-option :value="10" label="10" />
+                  <el-option :value="20" label="20" />
+                  <el-option :value="50" label="50" />
+                </el-select>
+              </label>
+              <el-button size="small" type="primary" :loading="similarLoading" @click="runSimilar">查询</el-button>
+            </div>
+          </SectionCard>
+
+          <ErrorState v-if="similarError" :error="similarError" @retry="runSimilar" />
+
+          <EmptyState
+            v-else-if="!similarSearched"
+            title="尚未查询"
+            description="相似成交依赖同存档内条件相近的已完成交易；样本不足时后端会返回空列表并给出原因，前端不会补造对比。"
+            compact
+          />
+
+          <template v-else-if="similar">
+            <SectionCard title="目标与权重" subtitle="权重由后端在缺失字段上重新分配">
+              <div class="similar-target">
+                <div>
+                  <p class="similar-target__name">{{ displayText(similar.target.name) }}</p>
+                  <p class="sm-text-xs sm-text-muted">
+                    年龄 {{ formatInt(similar.target.age) }} · {{ displayText(similar.target.position_group) }} · CA
+                    {{ formatInt(similar.target.ca) }} / PA {{ formatInt(similar.target.pa) }} · 样本
+                    {{ formatInt(similar.sample_size) }} 笔
+                  </p>
+                </div>
+                <div class="chips">
+                  <span v-for="weight in similarWeights" :key="weight.key" class="chip">
+                    {{ weight.label }} {{ formatDecimal(weight.value, 2) }}
+                  </span>
+                </div>
+              </div>
+              <ul v-if="similar.data_gaps.length > 0" class="warnings-list">
+                <li v-for="gap in similar.data_gaps" :key="gap">{{ gap }}</li>
+              </ul>
+              <p v-if="similar.missing_fields.length > 0" class="sm-text-2xs sm-text-faint">
+                目标缺失字段：{{ similar.missing_fields.map((field) => similarityFactorLabel(field)).join('、') }}
+              </p>
+              <EmptyState
+                v-if="similar.items.length === 0"
+                title="没有相似成交样本"
+                description="条件相近的已完成交易不足。样本不足时不做估值，也不会用球员身价顶替成交价。"
+                variant="insufficient"
+                compact
+              />
+              <DataTable
+                v-else
+                :columns="similarColumns"
+                :rows="similar.items"
+                row-key="transfer_id"
+                expandable
+                dense
+                empty-title="暂无数据"
+              >
+                <template #expand="{ row }">
+                  <div class="components__table">
+                    <div class="components__head components__head--factors">
+                      <span>因子</span>
+                      <span>目标值</span>
+                      <span>该笔成交</span>
+                      <span>距离</span>
+                      <span>权重</span>
+                    </div>
+                    <div v-for="factor in row.factors" :key="factor.key" class="components__row components__row--factors">
+                      <span>{{ similarityFactorLabel(factor.key) }}</span>
+                      <span class="sm-num">{{ displayText(factor.target) }}</span>
+                      <span class="sm-num">{{ displayText(factor.value) }}</span>
+                      <span class="sm-num">{{ formatDecimal(factor.distance, 3) }}</span>
+                      <span class="sm-num">{{ formatDecimal(factor.weight, 3) }}</span>
+                    </div>
+                    <p v-if="row.factors.length === 0" class="sm-text-2xs sm-text-faint">该样本没有因子明细。</p>
+                  </div>
+                </template>
+                <template #cell="{ row, column }">
+                  <template v-if="column.prop === 'similarity'">
+                    <NumberCell :value="row.similarity" kind="decimal" :digits="3" />
+                  </template>
+                  <template v-else-if="column.prop === 'fee'">
+                    <NumberCell :value="row.transfer.effective_fee" kind="money" :currency="row.transfer.currency" />
+                  </template>
+                  <template v-else-if="column.prop === 'ca'">
+                    <NumberCell :value="row.transfer.player_ca_at_transfer" />
+                  </template>
+                  <template v-else>
+                    {{ column.formatter ? column.formatter(row) : EMPTY }}
+                  </template>
+                </template>
+              </DataTable>
+            </SectionCard>
+          </template>
+        </div>
+      </el-tab-pane>
+
       <el-tab-pane label="交易决策与复盘" name="deals">
         <div class="sm-stack">
           <SectionCard
@@ -1235,6 +1464,8 @@ if (activeTab.value === 'deals') void loadDealsOverview()
         </div>
       </el-tab-pane>
     </el-tabs>
+
+    <TransferFlowCard :save-id="session.activeSaveId" />
   </div>
 </template>
 
@@ -1291,40 +1522,6 @@ if (activeTab.value === 'deals') void loadDealsOverview()
   line-height: 1.5;
 }
 
-/* ---------- 样本统计 ---------- */
-
-.market {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sm-space-3);
-  min-width: 0;
-}
-
-.panel-head {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sm-space-1);
-}
-
-.panel-head__title {
-  color: var(--sm-text-primary);
-  font-size: var(--sm-fs-lg);
-  font-weight: var(--sm-fw-semibold);
-  letter-spacing: 0.01em;
-}
-
-.panel-head__hint {
-  color: var(--sm-text-3);
-  font-size: var(--sm-fs-xs);
-  line-height: 1.6;
-}
-
-.market__tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: var(--sm-space-3);
-}
-
 /* ---------- 本页成交时间轴 ---------- */
 
 .timeline {
@@ -1342,9 +1539,16 @@ if (activeTab.value === 'deals') void loadDealsOverview()
   gap: var(--sm-space-1);
 }
 
+.timeline__title {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-md);
+  font-weight: var(--sm-fw-semibold);
+}
+
 .timeline__hint {
   color: var(--sm-text-3);
   font-size: var(--sm-fs-xs);
+  line-height: 1.55;
 }
 
 .timeline__rail {
@@ -1406,6 +1610,13 @@ if (activeTab.value === 'deals') void loadDealsOverview()
   align-items: baseline;
   justify-content: space-between;
   gap: var(--sm-space-2);
+}
+
+.timeline__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sm-space-2);
+  flex: 0 0 auto;
 }
 
 .timeline__player {
@@ -1704,6 +1915,88 @@ if (activeTab.value === 'deals') void loadDealsOverview()
   margin: 0 0 var(--sm-space-2);
   padding-left: var(--sm-space-4);
   color: var(--sm-warn);
+  font-size: var(--sm-fs-2xs);
+}
+
+/* ---------- 重点俱乐部卡片 ---------- */
+
+.club-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-3);
+}
+
+.club-cards__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.club-cards__title {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-md);
+  font-weight: var(--sm-fw-semibold);
+}
+
+.club-cards__hint {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-xs);
+  line-height: 1.55;
+}
+
+.club-cards__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sm-space-3);
+}
+
+.club-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: var(--sm-surface-2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.club-card:hover {
+  border-color: var(--sm-border-strong);
+  transform: translateY(-1px);
+}
+
+.club-card:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--sm-accent-cyan) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.club-card__name {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-sm);
+  font-weight: var(--sm-fw-semibold);
+}
+
+.club-card__league {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+.club-card__line {
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-xs);
+  line-height: 1.5;
+}
+
+.club-card__hint {
+  margin-top: var(--sm-space-1);
+  color: var(--sm-text-3);
   font-size: var(--sm-fs-2xs);
 }
 

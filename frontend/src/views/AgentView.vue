@@ -309,6 +309,23 @@ onMounted(() => {
       </template>
     </el-alert>
 
+    <section class="agent-tasks" aria-label="常用任务">
+      <span class="sm-label">常用任务</span>
+      <div class="agent-tasks__list">
+        <button
+          v-for="suggestion in SUGGESTIONS"
+          :key="`task-${suggestion}`"
+          type="button"
+          class="agent-task"
+          :disabled="sending"
+          :title="suggestion"
+          @click="ask(suggestion)"
+        >
+          {{ suggestion }}
+        </button>
+      </div>
+    </section>
+
     <div class="agent-layout">
       <aside class="conversations" aria-label="会话列表">
         <div class="conversations__head">
@@ -416,6 +433,7 @@ onMounted(() => {
 
               <div v-else class="answer">
                 <template v-if="message.answer">
+                  <span class="sm-label">结论</span>
                   <p class="answer__conclusion">{{ message.answer.conclusion }}</p>
 
                   <el-alert
@@ -430,6 +448,7 @@ onMounted(() => {
                     </template>
                   </el-alert>
 
+                  <span v-if="answerSections(message.answer).length > 0" class="sm-label">依据分析</span>
                   <section v-for="section in answerSections(message.answer)" :key="section.key" class="answer__section">
                     <h3 class="answer__section-title">
                       {{ section.title }}
@@ -509,7 +528,10 @@ onMounted(() => {
                   </div>
 
                   <div v-if="(message.answer.player_cards ?? []).length > 0" class="answer__block">
-                    <span class="sm-label">相关球员</span>
+                    <span class="sm-label">相关球员 · 下一步</span>
+                    <p class="sm-text-2xs sm-text-faint">
+                      可打开球员详情核实能力与合同，或直接加入关注名单持续跟踪。
+                    </p>
                     <div class="agent-cards">
                       <article
                         v-for="card in message.answer.player_cards ?? []"
@@ -665,6 +687,33 @@ onMounted(() => {
 .agent-notice {
   margin-bottom: 0;
   border-radius: var(--sm-radius-md);
+}
+
+.agent-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+}
+
+.agent-tasks__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm-space-2);
+}
+
+.agent-task {
+  padding: 6px 12px;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-pill);
+  background: var(--sm-surface-2);
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-xs);
+  cursor: pointer;
+}
+
+.agent-task:hover:not(:disabled) {
+  border-color: var(--sm-border-glow);
+  color: var(--sm-text-primary);
 }
 
 .agent-layout {

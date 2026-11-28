@@ -19,11 +19,12 @@ import DataTable from '../components/DataTable.vue'
 import EChart from '../components/EChart.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
-import KpiCard from '../components/KpiCard.vue'
+import InsightPanel from '../components/InsightPanel.vue'
 import LoadingBlock from '../components/LoadingBlock.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import SectionCard from '../components/SectionCard.vue'
+import StatStrip from '../components/StatStrip.vue'
 import { useSessionStore } from '../stores/session'
 import type {
   HiddenValueHit,
@@ -33,6 +34,7 @@ import type {
   ShortlistSummary,
 } from '../types/recruitment'
 import type { TableColumn } from '../types/table'
+import type { InsightItem, InsightTone, StatItem } from '../types/ui'
 import { buildRadarChart, type RadarSeries } from '../utils/chart'
 import { EMPTY, displayText, formatDecimal, formatInt, formatMoney, formatPercent } from '../utils/format'
 import { positionLabel } from '../utils/labels'
@@ -101,6 +103,122 @@ const averageScore = computed(() => {
   if (values.length === 0) return null
   return values.reduce((sum, value) => sum + value, 0) / values.length
 })
+
+/** Candidates ordered by the returned score; presentation order only. */
+const rankedCandidates = computed(() => candidates.value.slice().sort((a, b) => (b.score ?? -1) - (a.score ?? -1)))
+
+/** Highest-scoring candidate, or `null` when the search returned nothing. */
+const topCandidate = computed<PlayerScore | null>(() => rankedCandidates.value[0] ?? null)
+
+/** Why the current filters produced no candidate; used by the conclusion panel. */
+const emptyReason = computed(() => {
+  if (!searched.value) return '尚未执行搜索。'
+  const filters: string[] = []
+  if (form.minScore !== undefined) filters.push(`最低评分 ${form.minScore}`)
+  if (typeof form.budgetWan === 'number' && form.budgetWan > 0) filters.push(`预算 ${formatMoney(form.budgetWan * 10_000)}`)
+  if (form.minAge !== undefined || form.maxAge !== undefined) filters.push('年龄区间')
+  return filters.length > 0
+    ? `当前条件（${filters.join('、')}）没有命中候选。`
+    : '当前位置与数据源没有命中候选。'
+})
+
+/** Budget check between the form budget and the top candidate's market value. */
+const budgetFit = computed<{ text: string; tone: InsightTone }>(() => {
+  const target = topCandidate.value
+  const budget = typeof form.budgetWan === 'number' ? form.budgetWan * 10_000 : null
+  if (budget === null) {
+    return { text: '未设置预算（预算上限留空），结果未按身价过滤。', tone: 'neutral' }
+  }
+  if (!target) {
+    return { text: `预算上限 ${formatMoney(budget)}，但没有候选可比较身价。`, tone: 'neutral' }
+  }
+  const value = target.cost_estimate.market_value
+  if (value === null) {
+    return { text: `预算上限 ${formatMoney(budget)}；${target.player.name} 身价缺失，无法判断适配。`, tone: 'warning' }
+  }
+  if (value <= budget) {
+    return {
+      text: `预算上限 ${formatMoney(budget)}，${target.player.name} 身价 ${formatMoney(value)}，在预算内。`,
+      tone: 'success',
+    }
+  }
+  return {
+    text: `预算上限 ${formatMoney(budget)}，${target.player.name} 身价 ${formatMoney(value)}，超出 ${formatMoney(value - budget)}。`,
+    tone: 'warning',
+  }
+})
+
+/** Overall tone of the conclusion panel, derived from the returned grades only. */
+const insightTone = computed<InsightTone>(() => {
+  if (!searched.value) return 'neutral'
+  if (candidates.value.length === 0) return 'warning'
+  const grade = topCandidate.value?.grade
+  return grade === 'S' || grade === 'A' ? 'success' : 'info'
+})
+
+/** Conclusion items; every sentence maps to a returned field or the current form. */
+const insightItems = computed<InsightItem[]>(() => {
+  const target = topCandidate.value
+  const items: InsightItem[] = [
+    {
+      label: '命中',
+      text: `本次命中 ${formatInt(total.value)} 名，当前返回 ${formatInt(candidates.value.length)} 名候选。`,
+    },
+  ]
+  if (target) {
+    items.push({
+      label: '最高评分',
+      text: `${target.player.name} · ${formatDecimal(target.score, 1)} 分 · ${target.grade_label ?? '等级数据不足'}`,
+    })
+    items.push({ label: '最强项', text: target.strengths[0] ?? '属性数据不足，无法判断强项' })
+    items.push({
+      label: '主要风险',
+      text: target.risks[0] ?? '暂无显著风险',
+      tone: target.risks.length > 0 ? 'warning' : 'neutral',
+    })
+  } else {
+    items.push({ label: '最高评分', text: '返回结果中没有可评估的候选（评分字段缺失）。' })
+  }
+  items.push({ label: '预算适配', text: budgetFit.value.text, tone: budgetFit.value.tone })
+  if (searched.value && candidates.value.length === 0) {
+    items.push({
+      label: '下一步',
+      text: `${emptyReason.value}放宽位置、年龄或预算，或降低最低评分后重新搜索。`,
+      tone: 'warning',
+    })
+  }
+  return items
+})
+
+/** Compact metrics replacing the former KPI card stack. */
+const statItems = computed<StatItem[]>(() => [
+  { label: '命中候选', value: formatInt(total.value), hint: '后端匹配总数' },
+  { label: '本次返回', value: formatInt(candidates.value.length), hint: '当前结果条数' },
+  {
+    label: '最高评分',
+    value: topScore.value === null ? EMPTY : formatDecimal(topScore.value, 1),
+    hint: '返回结果中的最高分',
+    tone: 'accent',
+  },
+  {
+    label: '平均评分',
+    value: averageScore.value === null ? EMPTY : formatDecimal(averageScore.value, 1),
+    hint: `参与均值 ${formatInt(scoreValues.value.length)} 名`,
+  },
+  {
+    label: '已评估规则',
+    value: hidden.value ? formatInt(hidden.value.rules.evaluated.length) : EMPTY,
+    hint: '隐藏价值规则',
+  },
+  {
+    label: '无法评估规则',
+    value: hidden.value ? formatInt(hidden.value.rules.unavailable.length) : EMPTY,
+    hint: '缺少字段，悬停查看原因',
+  },
+])
+
+/** Empty-state copy for the priority section. */
+const emptyOppsDescription = computed(() => `${emptyReason.value}放宽筛选条件，或先运行隐藏价值扫描。`)
 
 /** Radar axes: the six score dimensions, shared by every compared player. */
 const radarOption = computed(() => {
@@ -291,6 +409,69 @@ onMounted(() => {
       description="寻找最适合当前阵容、预算与发展计划的球员，而不是能力最高的人。推荐理由、适配位置与主要风险会一起给出。"
     />
 
+    <InsightPanel
+      title="引援结论"
+      subtitle="只使用本次搜索结果与隐藏价值规则字段，不新增评分或预测。"
+      :tone="insightTone"
+      badge="规则生成"
+      :items="insightItems"
+      footnote="评分覆盖率低于 60% 时推荐等级记为「数据不足」；未设置预算时不做预算过滤。"
+    />
+
+    <StatStrip :items="statItems" dense />
+
+    <section class="opps" aria-label="优先机会">
+      <header class="opps__head">
+        <span class="sm-section-label">优先机会</span>
+        <h2 class="opps__title">优先机会</h2>
+        <p class="opps__hint">按后端评分排序的前 3 名候选，仅重排现有字段；完整能力维度见下方候选球员表。</p>
+      </header>
+      <div v-if="rankedCandidates.length > 0" class="opps__grid">
+        <article v-for="(item, index) in rankedCandidates.slice(0, 3)" :key="item.player.instance_id" class="opp-card">
+          <header class="opp-card__head">
+            <div class="opp-card__titles">
+              <p class="opp-card__name">{{ displayText(item.player.name) }} <span class="opp-card__rank">#{{ index + 1 }}</span></p>
+              <p class="opp-card__meta">
+                {{ item.player.age === null ? EMPTY : `${item.player.age} 岁` }} ·
+                {{ positionLabel(item.player.position) }} · {{ displayText(item.player.club) }}
+              </p>
+            </div>
+            <ScoreBadge :score="item.score" size="sm" />
+          </header>
+          <div class="opp-card__tags">
+            <el-tag size="small" :type="gradeTagType(item.grade)" disable-transitions>
+              {{ item.grade_label ?? '数据不足' }}
+            </el-tag>
+            <span class="opp-card__coverage">评分覆盖率 {{ formatPercent(item.score_coverage, 0) }}</span>
+          </div>
+          <dl class="opp-card__facts">
+            <div>
+              <dt>强项</dt>
+              <dd>{{ item.strengths.slice(0, 2).join('；') || '属性数据不足，无法判断强项' }}</dd>
+            </div>
+            <div>
+              <dt>风险</dt>
+              <dd>{{ item.risks[0] ?? '暂无显著风险' }}</dd>
+            </div>
+            <div>
+              <dt>成本</dt>
+              <dd>
+                身价 {{ formatMoney(item.cost_estimate?.market_value) }} · 工资
+                {{ formatMoney(item.cost_estimate?.wage) }} · 合同 {{ item.cost_estimate?.contract_end ?? EMPTY }}
+              </dd>
+            </div>
+          </dl>
+          <footer class="opp-card__actions">
+            <el-button link size="small" @click="openCandidate(item)">详情</el-button>
+            <el-button link size="small" type="primary" @click="followCandidate(item)">关注</el-button>
+          </footer>
+        </article>
+      </div>
+      <LoadingBlock v-else-if="loading" :rows="2" />
+      <EmptyState v-else-if="searched" title="暂无可推荐机会" :description="emptyOppsDescription" compact />
+      <EmptyState v-else title="尚未搜索" description="设置位置、预算后点击开始搜索" compact />
+    </section>
+
     <section class="console sm-glass" aria-label="球探筛选控制台">
       <header class="console__head">
         <div class="console__titles">
@@ -369,33 +550,6 @@ onMounted(() => {
 
     <ErrorState v-if="error" :error="error" title="候选搜索失败" @retry="search" />
     <SectionCard v-else title="候选球员" :subtitle="`命中 ${formatInt(total)} 名，勾选最多 3 人做雷达对比`">
-      <div v-if="searched" class="candidate-tiles">
-        <KpiCard
-          label="命中候选"
-          :value="formatInt(total)"
-          hint="后端返回的匹配总数"
-          :loading="loading && candidates.length === 0"
-        />
-        <KpiCard
-          label="本次返回"
-          :value="formatInt(candidates.length)"
-          hint="当前结果条数"
-          :loading="loading && candidates.length === 0"
-        />
-        <KpiCard
-          label="最高评分"
-          :value="topScore === null ? EMPTY : formatDecimal(topScore, 1)"
-          hint="返回结果中的最高分"
-          tone="accent"
-          :loading="loading && candidates.length === 0"
-        />
-        <KpiCard
-          label="平均评分"
-          :value="averageScore === null ? EMPTY : formatDecimal(averageScore, 1)"
-          :hint="`参与均值 ${formatInt(scoreValues.length)} 名，缺失不计入`"
-          :loading="loading && candidates.length === 0"
-        />
-      </div>
       <LoadingBlock v-if="loading && candidates.length === 0" :rows="3" />
       <DataTable
         v-else
@@ -429,6 +583,7 @@ onMounted(() => {
                 <li>身价 {{ formatMoney(row.cost_estimate.market_value) }}</li>
                 <li>工资 {{ formatMoney(row.cost_estimate.wage) }}</li>
                 <li>合同到期 {{ row.cost_estimate.contract_end ?? EMPTY }}</li>
+                <li>来源：{{ row.cost_estimate.basis ? row.cost_estimate.basis : '数据源未标注' }}</li>
               </ul>
             </div>
             <div>
@@ -610,11 +765,128 @@ onMounted(() => {
   width: 100%;
 }
 
-.candidate-tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+/* ---------- 优先机会 ---------- */
+
+.opps {
+  display: flex;
+  flex-direction: column;
   gap: var(--sm-space-3);
-  margin-bottom: var(--sm-space-3);
+}
+
+.opps__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.opps__title {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-md);
+  font-weight: var(--sm-fw-semibold);
+}
+
+.opps__hint {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-xs);
+  line-height: 1.55;
+}
+
+.opps__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--sm-space-3);
+}
+
+.opp-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+  min-width: 0;
+  padding: var(--sm-space-3) var(--sm-space-4);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-lg);
+  background:
+    linear-gradient(170deg, rgba(20, 35, 56, 0.5), rgba(9, 18, 32, 0.92)),
+    var(--sm-surface);
+  box-shadow: var(--sm-shadow-1);
+}
+
+.opp-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sm-space-2);
+}
+
+.opp-card__titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.opp-card__name {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-md);
+  font-weight: var(--sm-fw-semibold);
+}
+
+.opp-card__rank {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  font-weight: var(--sm-fw-medium);
+}
+
+.opp-card__meta {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.5;
+}
+
+.opp-card__tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sm-space-2);
+}
+
+.opp-card__coverage {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+.opp-card__facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-1);
+  margin: 0;
+}
+
+.opp-card__facts div {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: var(--sm-space-2);
+}
+
+.opp-card__facts dt {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+.opp-card__facts dd {
+  margin: 0;
+  color: var(--sm-text-2);
+  font-size: var(--sm-fs-xs);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.opp-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sm-space-1);
+  padding-top: var(--sm-space-1);
+  border-top: 1px solid var(--sm-border);
 }
 
 .recruit__radar {
