@@ -262,7 +262,7 @@
 - 分支：`feature/v4.0-03-player-explorer`
 - 基线：`origin/main` @ `5edc1ba`
 - Worktree：`C:\Users\hukun\Desktop\FM27-v4-03`
-- 提交 SHA：见本分支最新提交
-- PR：由 `gh pr create` 创建后回填
+- 提交 SHA：`d623d0e`（feat(v4.0-03)，后续文档追加提交见 `git log`）
+- PR：https://github.com/hukun2005/scoutmind-fm27/pull/35
 
 完成后停止：不合并 main、不发布、不修改安装包。
