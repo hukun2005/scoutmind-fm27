@@ -5,7 +5,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AppIcon from './components/AppIcon.vue'
 import DemoBanner from './components/DemoBanner.vue'
@@ -26,6 +26,7 @@ type IconName =
   | 'transfers'
   | 'agent'
   | 'data'
+  | 'alert'
 
 interface NavItem {
   key: string
@@ -42,58 +43,80 @@ interface NavGroup {
 }
 
 /**
- * 导航分组：分析模块优先，身份与数据治理随后，工具页最后。
- * 每条提示说明该页面回答的问题，而不是接口名称。
+ * 导航分组：按用户任务组织，而不是按后端模块组织。
+ * 总览 → 球探工作台 → 转会中心 → 智能总监 → 游戏管理；每条提示说明该页面回答的问题。
  */
 const NAV_GROUPS: NavGroup[] = [
   {
-    key: 'command',
+    key: 'overview',
     label: '总览',
-    items: [{ key: 'overview', label: '首页', to: '/', icon: 'overview', hint: '球队现状与下一步' }],
+    items: [{ key: 'overview', label: '首页', to: '/', icon: 'overview', hint: '球队现状、风险与下一步' }],
   },
   {
-    key: 'intelligence',
-    label: '球探分析',
+    key: 'scout',
+    label: '球探工作台',
     items: [
-      { key: 'squad', label: '阵容分析', to: '/squad', icon: 'squad', hint: '强项、短板与合同风险' },
-      { key: 'players', label: '球员中心', to: '/players', icon: 'players', hint: '搜索球员与查看档案' },
+      { key: 'players', label: '球员探索', to: '/players', icon: 'players', hint: '搜索、筛选并查看球员档案' },
+      { key: 'watchlist', label: '关注名单', to: '/watchlist', icon: 'watchlist', hint: '跟踪目标与规则提醒' },
       { key: 'compare', label: '球员对比', to: '/compare', icon: 'players', hint: '2–4 名球员横向比较' },
-      { key: 'recruitment', label: '引援中心', to: '/recruitment', icon: 'scouting', hint: '推荐目标与理由' },
-      { key: 'transfers', label: '转会情报', to: '/transfers', icon: 'transfers', hint: '交易状态与费用' },
-      { key: 'development', label: '球员发展', to: '/development', icon: 'development', hint: '成长变化与建议' },
-      { key: 'performance', label: '表现分析', to: '/performance', icon: 'performance', hint: '分位置产出与能力对比' },
-      { key: 'director', label: 'AI 足球总监', to: '/director', icon: 'agent', hint: '阵容、引援、培养与出售的一体化建议' },
+      { key: 'squad', label: '阵容分析', to: '/squad', icon: 'squad', hint: '强项、短板与补强优先级' },
+      { key: 'development', label: '球员发展', to: '/development', icon: 'development', hint: '成长曲线与潜力区间' },
+      { key: 'performance', label: '表现分析', to: '/performance', icon: 'performance', hint: '分位置产出与效率' },
+    ],
+  },
+  {
+    key: 'transfer',
+    label: '转会中心',
+    items: [
+      { key: 'recruitment', label: '引援机会', to: '/recruitment', icon: 'scouting', hint: '推荐目标、理由与优先级' },
+      { key: 'transfers', label: '转会情报', to: '/transfers', icon: 'transfers', hint: '成交样本与俱乐部画像' },
+    ],
+  },
+  {
+    key: 'director',
+    label: '智能总监',
+    items: [
+      { key: 'director', label: 'AI 足球总监', to: '/director', icon: 'agent', hint: '阵容、引援与培养的一体化建议' },
       { key: 'transfer-director', label: 'AI 转会总监', to: '/transfer-director', icon: 'transfers', hint: '合同、报价与谈判记录' },
-      { key: 'agent', label: 'AI 球探助手', to: '/agent', icon: 'agent', hint: '用自然语言提问，获得带证据的回答' },
+      { key: 'agent', label: 'AI 球探助手', to: '/agent', icon: 'agent', hint: '自然语言提问与证据回答' },
     ],
   },
   {
-    key: 'operations',
-    label: '数据管理',
+    key: 'game',
+    label: '游戏管理',
     items: [
-      { key: 'data', label: '数据中心', to: '/data', icon: 'data', hint: '同步、导入与数据状态' },
-      { key: 'governance', label: '数据治理', to: '/governance', icon: 'data', hint: '冲突处理与审核记录' },
-      { key: 'identity', label: '身份复核', to: '/identity', icon: 'players', hint: '球员身份冲突确认' },
-      { key: 'identity-center', label: '身份中心', to: '/identity-center', icon: 'players', hint: '审核队列与跨存档候选' },
-      { key: 'save-identity', label: '存档身份', to: '/save-identity', icon: 'data', hint: '存档识别与采集状态' },
-      { key: 'unresolved', label: '待确认球员', to: '/unresolved', icon: 'players', hint: '缺少身份信息的球员' },
-    ],
-  },
-  {
-    key: 'tools',
-    label: '工具',
-    items: [
-      { key: 'scouting', label: '角色球探', to: '/scouting', icon: 'scouting', hint: '按战术角色筛选' },
-      { key: 'watchlist', label: '关注名单', to: '/watchlist', icon: 'watchlist', hint: '关注球员与提醒' },
+      { key: 'data', label: '游戏数据', to: '/data', icon: 'data', hint: '同步状态、覆盖范围与修复' },
+      { key: 'save-identity', label: '存档管理', to: '/save-identity', icon: 'data', hint: '存档识别、切换与采集状态' },
     ],
   },
 ]
 
+/** 高级工具：面向排查与人工确认，默认折叠，不占用普通用户视线。 */
+const ADVANCED_ITEMS: NavItem[] = [
+  { key: 'scouting', label: '角色球探', to: '/scouting', icon: 'scouting', hint: '按战术角色筛选球员' },
+  { key: 'unresolved', label: '待确认球员', to: '/unresolved', icon: 'alert', hint: '需要人工确认的身份' },
+  { key: 'governance', label: '数据治理', to: '/governance', icon: 'data', hint: '冲突队列与审核记录' },
+  { key: 'identity', label: '身份复核', to: '/identity', icon: 'players', hint: '球员身份冲突确认' },
+]
+
+const COLLAPSE_KEY = 'scoutmind.navCollapsed'
+
+function readCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(COLLAPSE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 const session = useSessionStore()
 const onboarding = useOnboardingStore()
 const route = useRoute()
+const router = useRouter()
 
 const navOpen = ref(false)
+const collapsed = ref(readCollapsed())
+const advancedOpen = ref(false)
 
 /** 当前路由对应的高亮项；详情页保持父级高亮。 */
 const activeKey = computed(() => {
@@ -102,11 +125,27 @@ const activeKey = computed(() => {
   return name
 })
 
+/** 收纳在「高级工具」里的页面。 */
+const isAdvancedRoute = computed(
+  () => ADVANCED_ITEMS.some((item) => item.key === activeKey.value) || activeKey.value === 'identity-center',
+)
+
 /** 顶栏所属模块名：设置等不在导航内的页面显示「系统」。 */
 const activeGroupLabel = computed(() => {
+  if (isAdvancedRoute.value) return '高级工具'
   const group = NAV_GROUPS.find((entry) => entry.items.some((item) => item.key === activeKey.value))
   return group?.label ?? '系统'
 })
+
+/** 侧栏收起时进入图标轨，仅保留图标与提示。 */
+function toggleCollapsed(): void {
+  collapsed.value = !collapsed.value
+  try {
+    window.localStorage.setItem(COLLAPSE_KEY, collapsed.value ? '1' : '0')
+  } catch {
+    // 持久化失败时仅影响下次打开。
+  }
+}
 
 /** 顶栏面包屑标题，与页面 H1 保持一致。 */
 const pageTitle = computed(() => (typeof route.meta.title === 'string' ? route.meta.title : '工作台'))
@@ -156,6 +195,11 @@ function toggleNav(): void {
   navOpen.value = !navOpen.value
 }
 
+/** 用户菜单里的设置入口。 */
+function goSettings(): void {
+  void router.push('/settings')
+}
+
 /** Escape 关闭抽屉（键盘用户不必依赖遮罩）。 */
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape' && navOpen.value) navOpen.value = false
@@ -181,7 +225,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="shell">
+  <div class="shell" :class="{ 'shell--rail': collapsed }">
     <a class="skip-link" href="#main-content">跳到主内容</a>
 
     <div v-if="navOpen" class="scrim" aria-hidden="true" @click="navOpen = false" />
@@ -214,6 +258,34 @@ onBeforeUnmount(() => {
             <span class="nav__glow" aria-hidden="true" />
           </router-link>
         </div>
+
+        <div class="nav-group nav-group--advanced">
+          <button
+            type="button"
+            class="nav-advanced-toggle"
+            :class="{ 'nav-advanced-toggle--active': isAdvancedRoute }"
+            :aria-expanded="advancedOpen"
+            @click="advancedOpen = !advancedOpen"
+          >
+            <span class="nav__icon"><AppIcon name="alert" :size="17" /></span>
+            <span class="nav__label">高级工具</span>
+            <span class="nav-advanced-toggle__chevron" aria-hidden="true">{{ advancedOpen ? '−' : '+' }}</span>
+          </button>
+          <template v-if="advancedOpen">
+            <router-link
+              v-for="item in ADVANCED_ITEMS"
+              :key="item.key"
+              :to="item.to"
+              class="nav__item nav__item--advanced"
+              :class="{ 'nav__item--active': activeKey === item.key }"
+              :aria-current="activeKey === item.key ? 'page' : undefined"
+              :title="item.hint"
+            >
+              <span class="nav__icon"><AppIcon :name="item.icon" :size="16" /></span>
+              <span class="nav__label">{{ item.label }}</span>
+            </router-link>
+          </template>
+        </div>
       </nav>
 
       <div class="sidebar__foot">
@@ -225,8 +297,23 @@ onBeforeUnmount(() => {
           />
           <span class="sidebar__status-text">{{ dataStatus }}</span>
         </div>
-        <div class="sidebar__meta">记录 {{ formatInt(totalRecords) }}</div>
+        <div class="sidebar__meta">{{ session.activeSave?.name ?? '无存档' }} · 记录 {{ formatInt(totalRecords) }}</div>
         <div class="sidebar__meta">v{{ session.version }} · AI {{ session.agentLlm ? '已连接' : '本地规则' }}</div>
+      </div>
+
+      <div class="sidebar__actions">
+        <router-link class="icon-btn sidebar__action" to="/settings" aria-label="系统设置" title="系统设置">
+          <AppIcon name="settings" :size="16" />
+        </router-link>
+        <button
+          type="button"
+          class="icon-btn sidebar__action"
+          :aria-label="collapsed ? '展开侧栏' : '收起侧栏'"
+          :title="collapsed ? '展开侧栏' : '收起侧栏'"
+          @click="toggleCollapsed"
+        >
+          <AppIcon :name="collapsed ? 'back' : 'back'" :size="16" :style="{ transform: collapsed ? 'none' : 'rotate(180deg)' }" />
+        </button>
       </div>
     </aside>
 
@@ -268,28 +355,21 @@ onBeforeUnmount(() => {
             <el-option v-for="save in session.saves" :key="save.id" :label="save.name" :value="save.id" />
           </el-select>
 
-          <button
-            type="button"
-            class="icon-btn"
-            :class="{ 'icon-btn--spin': session.loading }"
-            aria-label="刷新元信息"
-            title="刷新元信息"
-            @click="refreshSession"
-          >
-            <AppIcon name="refresh" :size="16" />
-          </button>
-
-          <router-link class="icon-btn" to="/watchlist" aria-label="关注与提醒" title="关注与提醒">
+          <router-link class="icon-btn" to="/watchlist" aria-label="通知与关注" title="通知与关注">
             <AppIcon name="watchlist" :size="16" />
           </router-link>
 
-          <router-link class="icon-btn" to="/settings" aria-label="系统设置" title="系统设置">
-            <AppIcon name="settings" :size="16" />
-          </router-link>
-
-          <button type="button" class="avatar" aria-label="本机分析员" title="本机分析员">
-            {{ analystInitials }}
-          </button>
+          <el-dropdown trigger="click" placement="bottom-end">
+            <button type="button" class="avatar" aria-label="用户菜单" title="用户菜单">
+              {{ analystInitials }}
+            </button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="refreshSession">刷新元信息</el-dropdown-item>
+                <el-dropdown-item @click="goSettings">系统设置</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </header>
 
@@ -571,6 +651,112 @@ onBeforeUnmount(() => {
 
 .sidebar__meta {
   line-height: 1.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 高级工具折叠区 ---------- */
+
+.nav-group--advanced {
+  margin-top: var(--sm-space-2);
+  padding-top: var(--sm-space-2);
+  border-top: 1px solid var(--sm-border);
+}
+
+.nav-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sm-space-3);
+  width: 100%;
+  padding: 7px var(--sm-space-3);
+  border: 0;
+  border-radius: var(--sm-radius-sm);
+  background: none;
+  color: var(--sm-text-3);
+  font: inherit;
+  font-size: var(--sm-fs-xs);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color var(--sm-dur-1) var(--sm-ease-out),
+    background-color var(--sm-dur-1) var(--sm-ease-out);
+}
+
+.nav-advanced-toggle:hover,
+.nav-advanced-toggle--active {
+  background: rgba(34, 211, 238, 0.06);
+  color: var(--sm-text-2);
+}
+
+.nav-advanced-toggle__chevron {
+  margin-left: auto;
+  font-family: var(--sm-font-mono);
+  font-size: var(--sm-fs-xs);
+}
+
+.nav__item--advanced {
+  padding-left: calc(var(--sm-space-3) + 2px);
+  font-size: var(--sm-fs-xs);
+}
+
+/* ---------- 侧栏底部操作 ---------- */
+
+.sidebar__actions {
+  display: flex;
+  gap: var(--sm-space-2);
+  margin-top: var(--sm-space-2);
+}
+
+.sidebar__action {
+  flex: 1 1 0;
+}
+
+/* ---------- 手动收起：图标轨 ---------- */
+
+.shell--rail {
+  grid-template-columns: var(--sm-sidebar-width-rail) minmax(0, 1fr);
+}
+
+.shell--rail .sidebar {
+  padding: var(--sm-space-4) var(--sm-space-2);
+}
+
+.shell--rail .brand {
+  justify-content: center;
+  padding: 0 0 var(--sm-space-4);
+}
+
+.shell--rail .brand__text,
+.shell--rail .nav-group__label,
+.shell--rail .nav__label,
+.shell--rail .nav__glow,
+.shell--rail .sidebar__foot,
+.shell--rail .nav-group--advanced,
+.shell--rail .nav-advanced-toggle__chevron {
+  display: none;
+}
+
+.shell--rail .nav__item {
+  justify-content: center;
+  padding: 9px;
+}
+
+.shell--rail .nav {
+  gap: var(--sm-space-2);
+}
+
+.shell--rail .nav-group {
+  gap: var(--sm-space-1);
+}
+
+.shell--rail .sidebar__actions {
+  flex-direction: column;
+}
+
+.shell--rail .sidebar__action {
+  width: 100%;
+  height: 30px;
 }
 
 /* ---------- 主列 ---------- */
@@ -973,7 +1159,7 @@ onBeforeUnmount(() => {
     width: 112px;
   }
 
-  .topbar__right .icon-btn[title='关注与提醒'] {
+  .topbar__right .icon-btn[title='通知与关注'] {
     display: none;
   }
 }

@@ -690,7 +690,7 @@ const squadCsvColumns: TableColumn<SquadCsvRow>[] = [
 <template>
   <div class="sm-page">
     <PageHeader
-      title="数据中心"
+      title="游戏数据"
       description="连接游戏或导入数据文件，系统会自动识别、校验、修复、去重并验证。"
     >
       <template #meta>

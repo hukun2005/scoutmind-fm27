@@ -287,7 +287,7 @@ onMounted(() => {
 <template>
   <div class="sm-page">
     <PageHeader
-      title="引援中心"
+      title="引援机会"
       description="寻找最适合当前阵容、预算与发展计划的球员，而不是能力最高的人。推荐理由、适配位置与主要风险会一起给出。"
     />
 

@@ -325,8 +325,8 @@ watch(
 <template>
   <div class="save-identity">
     <PageHeader
-      title="存档身份"
-      description="服务端判定的存档身份、证据与会话状态。只有 verified 身份 + 心跳有效的 verified 会话才允许采集写入；诊断页不会提升任何状态。"
+      title="存档管理"
+      description="查看当前存档的识别状态、最近同步与采集闸门；只有 verified 身份 + 心跳有效的会话才允许采集写入，本页不会提升任何状态。"
     >
       <template #meta>
         <span class="save-identity__meta">协议 {{ displayText(protocolVersion) }}</span>

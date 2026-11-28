@@ -73,7 +73,7 @@ test.beforeEach(async ({ page }) => {
 
 test('球员中心在没有数据时引导同步，而不是只显示空表', async ({ page }) => {
   await page.goto('/players')
-  await expect(page.getByRole('heading', { name: '球员中心', level: 1 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '球员探索', level: 1 })).toBeVisible()
   await expect(page.getByText('还没有球员数据')).toBeVisible()
   await expect(page.getByRole('button', { name: '同步游戏数据' })).toBeVisible()
   await expect(page.getByPlaceholder('输入球员姓名')).toBeVisible()

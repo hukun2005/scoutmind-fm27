@@ -234,7 +234,7 @@ void loadClubs()
 
 <template>
   <div class="sm-page">
-    <PageHeader title="球员中心" description="寻找优秀球员，发现潜力新星。">
+    <PageHeader title="球员探索" description="搜索、筛选并查看球员档案；适配度与主要风险会与能力数据一起展示。">
       <template #actions>
         <el-button size="small" @click="router.push('/compare')">
           球员对比（{{ compare.count }}/{{ MAX_COMPARE }}）
