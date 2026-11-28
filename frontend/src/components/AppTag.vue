@@ -21,14 +21,14 @@ const props = withDefaults(
     tone?: TagTone
     /** 显示尺寸。 */
     size?: 'sm' | 'md'
-    /** 所在表面：深色页面或浅色页面（球员探索为浅色）。 */
-    surface?: 'dark' | 'light'
+    /** 所在表面：全应用统一浅色主题。 */
+    surface?: 'light'
     /** 是否显示状态圆点。 */
     dot?: boolean
     /** 仅在开发者诊断区域开启：允许渲染内部技术标签。 */
     allowInternal?: boolean
   }>(),
-  { tag: null, label: undefined, tone: undefined, size: 'sm', surface: 'dark', dot: true, allowInternal: false },
+  { tag: null, label: undefined, tone: undefined, size: 'sm', surface: 'light', dot: true, allowInternal: false },
 )
 
 const definition = computed(() => resolveTag(props.tag))
@@ -87,43 +87,6 @@ const category = computed(() => definition.value?.category ?? 'business')
 .app-tag__text {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* 深色界面：低饱和底色 + 高对比前景色 */
-.app-tag--on-dark.app-tag--success {
-  background: rgba(52, 211, 153, 0.14);
-  border-color: rgba(52, 211, 153, 0.28);
-  color: #6ee7b7;
-}
-
-.app-tag--on-dark.app-tag--info {
-  background: rgba(96, 165, 250, 0.14);
-  border-color: rgba(96, 165, 250, 0.28);
-  color: #93c5fd;
-}
-
-.app-tag--on-dark.app-tag--warning {
-  background: rgba(245, 181, 68, 0.14);
-  border-color: rgba(245, 181, 68, 0.3);
-  color: #fcd34d;
-}
-
-.app-tag--on-dark.app-tag--danger {
-  background: rgba(251, 113, 133, 0.14);
-  border-color: rgba(251, 113, 133, 0.3);
-  color: #fda4af;
-}
-
-.app-tag--on-dark.app-tag--neutral {
-  background: rgba(148, 163, 184, 0.14);
-  border-color: rgba(148, 163, 184, 0.26);
-  color: #cbd5e1;
-}
-
-.app-tag--on-dark.app-tag--brand {
-  background: rgba(77, 141, 255, 0.16);
-  border-color: rgba(77, 141, 255, 0.32);
-  color: #a8c4ff;
 }
 
 /* Premium Light 表面：低饱和底色 + 深色文字 */

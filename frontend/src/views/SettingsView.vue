@@ -201,9 +201,9 @@ onMounted(() => {
         <p v-if="desktop" class="sm-text-2xs sm-text-faint">日志目录：{{ desktop.logsDir }}</p>
       </SectionCard>
 
-      <SectionCard title="外观" subtitle="深色专业界面">
+      <SectionCard title="外观" subtitle="浅色专业界面">
         <dl class="kv">
-          <div><dt>主题</dt><dd>深色（固定）</dd></div>
+          <div><dt>主题</dt><dd>Premium Light（固定）</dd></div>
           <div>
             <dt>界面动效</dt>
             <dd>
@@ -377,7 +377,7 @@ onMounted(() => {
   padding: var(--sm-space-2) var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-sm);
-  background: rgba(6, 16, 29, 0.8);
+  background: var(--sm-surface-2);
   color: var(--sm-text);
   font-family: var(--sm-font-mono);
   font-size: var(--sm-fs-xs);

@@ -1091,19 +1091,19 @@ void loadClubs()
 
 <style scoped>
 .player-workspace {
-  /* Premium Light：浅灰画布 + 白色内容 + 低饱和蓝色强调。 */
-  --pl-bg: #f5f7fa;
-  --pl-surface: #ffffff;
-  --pl-surface-2: #f0f3f7;
-  --pl-text: #172334;
-  --pl-text-2: #68778a;
-  --pl-text-3: #94a1b1;
-  --pl-primary: #2563eb;
-  --pl-primary-weak: #eff4ff;
-  --pl-success: #15803d;
-  --pl-warn: #b45309;
-  --pl-danger: #b91c1c;
-  --pl-border: #e4eaf1;
+  /* Premium Light：与全局浅色 Token 对齐，避免页面自成一套配色。 */
+  --pl-bg: var(--sm-bg-primary);
+  --pl-surface: var(--sm-surface);
+  --pl-surface-2: var(--sm-surface-2);
+  --pl-text: var(--sm-text-primary);
+  --pl-text-2: var(--sm-text-secondary);
+  --pl-text-3: var(--sm-text-tertiary);
+  --pl-primary: var(--sm-accent-blue);
+  --pl-primary-weak: var(--sm-accent-weak);
+  --pl-success: var(--sm-success);
+  --pl-warn: var(--sm-warn);
+  --pl-danger: var(--sm-danger);
+  --pl-border: var(--sm-border);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -2026,13 +2026,13 @@ button.pw-th:hover {
 /* ---------- 高级筛选抽屉 ---------- */
 
 .pw-adv {
-  --pl-surface: #ffffff;
-  --pl-surface-2: #f0f3f7;
-  --pl-text: #172334;
-  --pl-text-2: #68778a;
-  --pl-text-3: #94a1b1;
-  --pl-primary: #2563eb;
-  --pl-border: #e4eaf1;
+  --pl-surface: var(--sm-surface);
+  --pl-surface-2: var(--sm-surface-2);
+  --pl-text: var(--sm-text-primary);
+  --pl-text-2: var(--sm-text-secondary);
+  --pl-text-3: var(--sm-text-tertiary);
+  --pl-primary: var(--sm-accent-blue);
+  --pl-border: var(--sm-border);
   position: fixed;
   inset: 0;
   z-index: 1150;

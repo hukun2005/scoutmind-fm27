@@ -328,7 +328,7 @@ watch(
 .sm-table__grid th,
 .sm-table__grid td {
   padding: 7px var(--sm-space-3);
-  border-bottom: 1px solid rgba(122, 162, 220, 0.09);
+  border-bottom: 1px solid var(--sm-border);
   vertical-align: middle;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -344,7 +344,7 @@ watch(
   position: sticky;
   top: 0;
   z-index: 1;
-  background: rgba(16, 29, 48, 0.96);
+  background: var(--sm-surface-2);
   color: var(--sm-text-2);
   font-size: var(--sm-fs-2xs);
   font-weight: var(--sm-fw-semibold);
@@ -363,7 +363,7 @@ watch(
 }
 
 .sm-table__row:hover td {
-  background: rgba(34, 211, 238, 0.06);
+  background: #f5f8ff;
 }
 
 .sm-table__row--clickable {
@@ -416,7 +416,7 @@ watch(
   padding: 0;
   border: 1px solid var(--sm-border-strong);
   border-radius: var(--sm-radius-xs);
-  background: rgba(16, 29, 48, 0.9);
+  background: var(--sm-surface);
   color: var(--sm-text-2);
   font-size: 10px;
   line-height: 1;
@@ -430,7 +430,7 @@ watch(
 
 .sm-table__expansion > td {
   padding: var(--sm-space-3) var(--sm-space-4);
-  background: rgba(9, 18, 32, 0.72);
+  background: var(--sm-surface-2);
   white-space: normal;
 }
 

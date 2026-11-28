@@ -730,9 +730,7 @@ onMounted(() => {
   overflow-y: auto;
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-lg);
-  background:
-    linear-gradient(168deg, rgba(20, 35, 56, 0.55) 0%, rgba(9, 18, 32, 0.94) 62%),
-    var(--sm-surface);
+  background: var(--sm-surface);
   box-shadow: var(--sm-shadow-1);
 }
 
@@ -781,8 +779,8 @@ onMounted(() => {
 
 .conversation--active {
   border-color: var(--sm-border);
-  border-left-color: var(--sm-accent-cyan);
-  background: linear-gradient(90deg, rgba(34, 211, 238, 0.12), rgba(77, 141, 255, 0.04));
+  border-left-color: var(--sm-accent-blue);
+  background: var(--sm-accent-weak);
 }
 
 .conversation__title {
@@ -806,12 +804,10 @@ onMounted(() => {
   min-width: 0;
   height: clamp(520px, calc(100vh - 300px), 900px);
   overflow: hidden;
-  border: 1px solid var(--sm-border-strong);
+  border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-lg);
-  background:
-    linear-gradient(168deg, rgba(18, 33, 54, 0.55) 0%, rgba(8, 16, 29, 0.96) 60%),
-    var(--sm-surface);
-  box-shadow: var(--sm-shadow-2);
+  background: var(--sm-surface);
+  box-shadow: var(--sm-shadow-1);
 }
 
 .chat__head {
@@ -847,7 +843,7 @@ onMounted(() => {
   min-height: 0;
   padding: var(--sm-space-4);
   overflow-y: auto;
-  background: radial-gradient(720px 260px at 12% 0%, rgba(34, 211, 238, 0.05), transparent 72%);
+  background: radial-gradient(720px 260px at 12% 0%, rgba(53, 106, 230, 0.04), transparent 72%);
 }
 
 /* ---------- 消息 ---------- */
@@ -889,8 +885,8 @@ onMounted(() => {
 }
 
 .message--assistant .message__role::before {
-  background: var(--sm-accent-cyan);
-  box-shadow: 0 0 6px rgba(34, 211, 238, 0.85);
+  background: var(--sm-accent-blue);
+  box-shadow: 0 0 0 3px rgba(53, 106, 230, 0.14);
 }
 
 .message__time {
@@ -967,10 +963,10 @@ onMounted(() => {
   max-width: 96ch;
   padding: var(--sm-space-3) var(--sm-space-4) var(--sm-space-4);
   border: 1px solid var(--sm-border);
-  border-left: 2px solid rgba(34, 211, 238, 0.4);
+  border-left: 2px solid rgba(53, 106, 230, 0.4);
   border-radius: var(--sm-radius-lg);
   background:
-    linear-gradient(150deg, rgba(34, 211, 238, 0.06) 0%, rgba(167, 139, 250, 0.04) 42%, transparent 72%),
+    linear-gradient(150deg, rgba(53, 106, 230, 0.05) 0%, rgba(124, 107, 214, 0.03) 42%, transparent 72%),
     var(--sm-surface-2);
 }
 
@@ -1134,7 +1130,7 @@ onMounted(() => {
   gap: var(--sm-space-2);
   padding: var(--sm-space-3) var(--sm-space-4) var(--sm-space-4);
   border-top: 1px solid var(--sm-border);
-  background: linear-gradient(180deg, rgba(16, 29, 48, 0.55), var(--sm-surface-2));
+  background: var(--sm-surface-2);
 }
 
 .composer__notice {

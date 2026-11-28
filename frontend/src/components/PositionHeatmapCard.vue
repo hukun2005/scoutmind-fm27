@@ -172,7 +172,7 @@ watch(() => props.saveId, load, { immediate: true })
   padding: var(--sm-space-2) var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
-  background: rgba(12, 23, 39, 0.55);
+  background: var(--sm-surface-2);
   color: var(--sm-text-primary);
   text-align: left;
   cursor: pointer;
@@ -186,18 +186,18 @@ watch(() => props.saveId, load, { immediate: true })
 }
 
 .slot--ok {
-  border-color: rgba(52, 211, 153, 0.32);
-  background: linear-gradient(160deg, rgba(52, 211, 153, 0.14), rgba(12, 23, 39, 0.6));
+  border-color: rgba(22, 163, 106, 0.3);
+  background: linear-gradient(160deg, rgba(22, 163, 106, 0.1), var(--sm-surface-2));
 }
 
 .slot--thin {
-  border-color: rgba(245, 181, 68, 0.34);
-  background: linear-gradient(160deg, rgba(245, 181, 68, 0.12), rgba(12, 23, 39, 0.6));
+  border-color: rgba(217, 145, 36, 0.32);
+  background: linear-gradient(160deg, rgba(217, 145, 36, 0.1), var(--sm-surface-2));
 }
 
 .slot--empty {
-  border-color: rgba(251, 113, 133, 0.38);
-  background: linear-gradient(160deg, rgba(251, 113, 133, 0.14), rgba(12, 23, 39, 0.6));
+  border-color: rgba(220, 91, 91, 0.34);
+  background: linear-gradient(160deg, rgba(220, 91, 91, 0.1), var(--sm-surface-2));
 }
 
 .slot__head {

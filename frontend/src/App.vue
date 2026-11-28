@@ -434,8 +434,8 @@ onBeforeUnmount(() => {
   z-index: 100;
   padding: var(--sm-space-2) var(--sm-space-3);
   border-radius: var(--sm-radius-sm);
-  background: var(--sm-accent-cyan);
-  color: #04121c;
+  background: var(--sm-accent-blue);
+  color: #ffffff;
   font-size: var(--sm-fs-xs);
   font-weight: var(--sm-fw-semibold);
   transition: top var(--sm-dur-1) var(--sm-ease-out);
@@ -454,20 +454,18 @@ onBeforeUnmount(() => {
   flex-direction: column;
   min-height: 0;
   padding: var(--sm-space-4) var(--sm-space-3);
-  background:
-    linear-gradient(180deg, rgba(34, 211, 238, 0.07) 0%, transparent 22%),
-    linear-gradient(180deg, #071020 0%, #050b15 62%, #04080f 100%);
+  background: var(--sm-surface);
   border-right: 1px solid var(--sm-border);
   color: var(--sm-sidebar-text);
 }
 
-/* 侧栏右缘的一道冷光，强化「控制台」边界。 */
+/* 侧栏右缘的浅色分隔线，与白色内容区自然衔接。 */
 .sidebar::after {
   content: '';
   position: absolute;
   inset: 0 0 0 auto;
   width: 1px;
-  background: linear-gradient(180deg, transparent, rgba(34, 211, 238, 0.45) 22%, rgba(167, 139, 250, 0.35) 64%, transparent);
+  background: var(--sm-border);
   pointer-events: none;
 }
 
@@ -547,16 +545,16 @@ onBeforeUnmount(() => {
 }
 
 .nav__item:hover {
-  background: rgba(34, 211, 238, 0.07);
+  background: var(--sm-accent-weak);
   color: var(--sm-text-primary);
   text-decoration: none;
 }
 
 .nav__item--active {
-  background: linear-gradient(90deg, rgba(34, 211, 238, 0.16), rgba(77, 141, 255, 0.12) 48%, rgba(167, 139, 250, 0.08));
-  color: var(--sm-text-primary);
+  background: var(--sm-accent-weak);
+  color: var(--sm-accent-blue);
   font-weight: var(--sm-fw-medium);
-  box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(53, 106, 230, 0.18);
 }
 
 .nav__item--active::before {
@@ -567,8 +565,7 @@ onBeforeUnmount(() => {
   left: 0;
   width: 2px;
   border-radius: 2px;
-  background: var(--sm-gradient-accent);
-  box-shadow: 0 0 10px rgba(34, 211, 238, 0.8);
+  background: var(--sm-accent-blue);
 }
 
 .nav__icon {
@@ -580,7 +577,7 @@ onBeforeUnmount(() => {
 }
 
 .nav__item--active .nav__icon {
-  color: var(--sm-accent-cyan);
+  color: var(--sm-accent-blue);
   opacity: 1;
 }
 
@@ -602,7 +599,7 @@ onBeforeUnmount(() => {
   padding: var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
-  background: rgba(10, 20, 34, 0.62);
+  background: var(--sm-surface-2);
   font-size: var(--sm-fs-2xs);
   color: var(--sm-text-3);
 }
@@ -669,7 +666,7 @@ onBeforeUnmount(() => {
 
 .nav-advanced-toggle:hover,
 .nav-advanced-toggle--active {
-  background: rgba(34, 211, 238, 0.06);
+  background: var(--sm-surface-2);
   color: var(--sm-text-2);
 }
 
@@ -768,9 +765,9 @@ onBeforeUnmount(() => {
   height: var(--sm-topbar-height);
   padding: 0 var(--sm-space-5);
   border-bottom: 1px solid var(--sm-border);
-  background: rgba(7, 14, 25, 0.72);
-  backdrop-filter: blur(var(--sm-blur-glass)) saturate(150%);
-  -webkit-backdrop-filter: blur(var(--sm-blur-glass)) saturate(150%);
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(var(--sm-blur-glass)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--sm-blur-glass)) saturate(140%);
 }
 
 .topbar__left {
@@ -828,7 +825,7 @@ onBeforeUnmount(() => {
   padding: 4px var(--sm-space-2);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-pill);
-  background: rgba(12, 23, 39, 0.7);
+  background: var(--sm-surface-2);
   color: var(--sm-text-2);
   font-size: var(--sm-fs-2xs);
   white-space: nowrap;
@@ -860,7 +857,7 @@ onBeforeUnmount(() => {
   padding: 0;
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-sm);
-  background: rgba(12, 23, 39, 0.66);
+  background: var(--sm-surface);
   color: var(--sm-text-2);
   cursor: pointer;
   transition:
@@ -871,8 +868,8 @@ onBeforeUnmount(() => {
 
 .icon-btn:hover {
   border-color: var(--sm-border-glow);
-  background: rgba(34, 211, 238, 0.1);
-  color: var(--sm-text-primary);
+  background: var(--sm-accent-weak);
+  color: var(--sm-accent-blue);
   text-decoration: none;
 }
 
@@ -892,10 +889,10 @@ onBeforeUnmount(() => {
   width: 30px;
   height: 30px;
   padding: 0;
-  border: 1px solid rgba(34, 211, 238, 0.35);
+  border: 1px solid rgba(53, 106, 230, 0.28);
   border-radius: 50%;
-  background: linear-gradient(135deg, rgba(34, 211, 238, 0.24), rgba(167, 139, 250, 0.28));
-  color: var(--sm-text-primary);
+  background: var(--sm-accent-weak);
+  color: var(--sm-accent-blue);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1096,7 +1093,7 @@ onBeforeUnmount(() => {
     position: fixed;
     inset: 0;
     z-index: 55;
-    background: rgba(3, 8, 16, 0.66);
+    background: rgba(23, 32, 51, 0.32);
     backdrop-filter: blur(2px);
   }
 

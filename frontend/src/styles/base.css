@@ -15,11 +15,10 @@ body,
 
 body {
   background-color: var(--sm-bg);
-  /* 环境光：两团低饱和冷色光晕 + 顶部网格，避免大面积纯黑显得扁平。 */
+  /* 浅色画布：极淡的品牌冷色晕染，避免大面积纯白显得刺眼。 */
   background-image:
-    radial-gradient(1100px 620px at 12% -12%, rgba(34, 211, 238, 0.11), transparent 62%),
-    radial-gradient(900px 560px at 92% -6%, rgba(167, 139, 250, 0.1), transparent 60%),
-    radial-gradient(1200px 800px at 50% 118%, rgba(77, 141, 255, 0.08), transparent 65%);
+    radial-gradient(1100px 620px at 12% -12%, rgba(53, 106, 230, 0.05), transparent 62%),
+    radial-gradient(900px 560px at 92% -6%, rgba(109, 91, 208, 0.04), transparent 60%);
   background-attachment: fixed;
   color: var(--sm-text);
   font-family: var(--sm-font-sans);
@@ -53,12 +52,12 @@ button {
 }
 
 ::selection {
-  background: rgba(34, 211, 238, 0.28);
-  color: #ffffff;
+  background: rgba(53, 106, 230, 0.18);
+  color: #172033;
 }
 
 :focus-visible {
-  outline: 2px solid var(--sm-accent-cyan);
+  outline: 2px solid var(--sm-accent-blue);
   outline-offset: 2px;
   border-radius: var(--sm-radius-xs);
 }
@@ -79,14 +78,14 @@ button {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: var(--sm-border-strong);
+  background: #cbd5e1;
   border: 3px solid transparent;
   background-clip: content-box;
   border-radius: 8px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(122, 162, 220, 0.4);
+  background: #a8b3c2;
   background-clip: content-box;
 }
 
@@ -174,7 +173,7 @@ button {
 .sm-details {
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
-  background: rgba(10, 20, 34, 0.5);
+  background: var(--sm-surface);
 }
 
 .sm-details > summary {
@@ -426,7 +425,7 @@ html[data-reduce-motion='1'] *::after {
   padding: var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-md);
-  background: #06101d;
+  background: var(--sm-surface-2);
   color: var(--sm-text);
   font-family: var(--sm-font-mono);
   font-size: var(--sm-fs-xs);

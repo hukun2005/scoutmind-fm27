@@ -83,10 +83,10 @@ const tone = computed(() => {
 
 .coverage__track {
   height: 6px;
-  background: rgba(22, 37, 59, 0.9);
+  background: #e7ecf2;
   border-radius: var(--sm-radius-pill);
   overflow: hidden;
-  box-shadow: inset 0 0 0 1px rgba(122, 162, 220, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(23, 32, 51, 0.04);
 }
 
 .coverage--dense .coverage__track {
@@ -100,16 +100,15 @@ const tone = computed(() => {
 }
 
 .coverage__fill--good {
-  background: linear-gradient(90deg, #0d9488, #34d399);
-  box-shadow: 0 0 10px -3px rgba(52, 211, 153, 0.9);
+  background: linear-gradient(90deg, #16a36a, #34c58b);
 }
 
 .coverage__fill--mid {
-  background: linear-gradient(90deg, #b45309, #f5b544);
+  background: linear-gradient(90deg, #d99124, #e6ad4d);
 }
 
 .coverage__fill--low {
-  background: linear-gradient(90deg, #9f1239, #fb7185);
+  background: linear-gradient(90deg, #dc5b5b, #e88a8a);
 }
 
 .coverage__hint {

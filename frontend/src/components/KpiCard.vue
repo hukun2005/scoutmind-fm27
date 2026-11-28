@@ -47,9 +47,7 @@ withDefaults(
   padding: var(--sm-space-3) var(--sm-space-4) var(--sm-space-3);
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-lg);
-  background:
-    linear-gradient(160deg, rgba(24, 41, 65, 0.55) 0%, rgba(9, 18, 32, 0.92) 62%),
-    var(--sm-surface);
+  background: var(--sm-surface);
   color: inherit;
   box-shadow: var(--sm-shadow-1);
   transition:
@@ -65,7 +63,7 @@ withDefaults(
   inset: 0 0 auto;
   height: 2px;
   border-radius: var(--sm-radius-lg) var(--sm-radius-lg) 0 0;
-  background: linear-gradient(90deg, rgba(122, 162, 220, 0.35), rgba(122, 162, 220, 0.05));
+  background: linear-gradient(90deg, rgba(23, 32, 51, 0.12), rgba(23, 32, 51, 0.02));
   opacity: 0.7;
 }
 

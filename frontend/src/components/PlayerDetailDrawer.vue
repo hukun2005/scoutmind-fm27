@@ -455,16 +455,16 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .pd-root {
-  --pd-surface: #ffffff;
-  --pd-surface-2: #f5f7fa;
-  --pd-text: #172334;
-  --pd-text-2: #68778a;
-  --pd-text-3: #94a1b1;
-  --pd-primary: #2563eb;
-  --pd-primary-weak: #eff4ff;
-  --pd-border: #e4eaf1;
-  --pd-warn: #b45309;
-  --pd-danger: #b91c1c;
+  --pd-surface: var(--sm-surface);
+  --pd-surface-2: var(--sm-surface-2);
+  --pd-text: var(--sm-text-primary);
+  --pd-text-2: var(--sm-text-secondary);
+  --pd-text-3: var(--sm-text-tertiary);
+  --pd-primary: var(--sm-accent-blue);
+  --pd-primary-weak: var(--sm-accent-weak);
+  --pd-border: var(--sm-border);
+  --pd-warn: var(--sm-warn);
+  --pd-danger: var(--sm-danger);
   position: fixed;
   inset: 0;
   z-index: 1200;
