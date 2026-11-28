@@ -14,11 +14,19 @@
 
 .PARAMETER SkipFrontend / SkipBackend
 跳过对应构建步骤（已构建过时使用）。
+
+.PARAMETER CertificatePath
+代码签名 PFX 路径。不传时读取环境变量 CSC_LINK；两者都没有则构建未签名安装包。
+
+.PARAMETER CertificatePassword
+PFX 密码。不传时读取环境变量 CSC_KEY_PASSWORD。密码不会写入日志。
 #>
 param(
     [string]$Version = "",
     [switch]$SkipFrontend,
-    [switch]$SkipBackend
+    [switch]$SkipBackend,
+    [string]$CertificatePath = $env:CSC_LINK,
+    [string]$CertificatePassword = $env:CSC_KEY_PASSWORD
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,6 +40,22 @@ if (-not $Version) {
 }
 
 Write-Host "==> ScoutMind FM27 Desktop $Version" -ForegroundColor Cyan
+
+$signing = $false
+if ($CertificatePath) {
+    $resolvedCertificate = (Resolve-Path $CertificatePath -ErrorAction Stop).Path
+    if (-not $CertificatePassword) {
+        throw "已指定 PFX 证书，但缺少密码：请使用 -CertificatePassword 或环境变量 CSC_KEY_PASSWORD"
+    }
+    $env:CSC_LINK = $resolvedCertificate
+    $env:CSC_KEY_PASSWORD = $CertificatePassword
+    $signing = $true
+    Write-Host "==> 代码签名：已启用（$resolvedCertificate，时间戳 DigiCert）" -ForegroundColor Cyan
+} else {
+    Remove-Item Env:CSC_LINK -ErrorAction SilentlyContinue
+    Remove-Item Env:CSC_KEY_PASSWORD -ErrorAction SilentlyContinue
+    Write-Warning "未提供 PFX 证书，将构建未签名安装包（Windows SmartScreen 会提示未知发布者）"
+}
 
 if (-not $SkipFrontend) {
     Write-Host "==> 构建前端" -ForegroundColor Cyan
@@ -93,6 +117,17 @@ try {
 
 $installer = Join-Path $repo "release\ScoutMind-FM27-Setup-x64.exe"
 if (-not (Test-Path $installer)) { throw "未找到安装包：$installer" }
+
+$signature = Get-AuthenticodeSignature $installer
+if ($signing) {
+    if ($signature.Status -ne "Valid") {
+        throw "安装包签名校验失败：$($signature.Status) - $($signature.StatusMessage)"
+    }
+    Write-Host "==> 签名校验通过：$($signature.SignerCertificate.Subject)" -ForegroundColor Green
+} else {
+    Write-Warning "安装包未签名：$($signature.Status)"
+}
+
 $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLower()
 "$hash  ScoutMind-FM27-Setup-x64.exe" | Set-Content (Join-Path $repo "release\SHA256SUMS.txt") -Encoding ascii
 
