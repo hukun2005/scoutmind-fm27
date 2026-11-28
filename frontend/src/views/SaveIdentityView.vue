@@ -5,17 +5,22 @@
  */
 
 import { computed, onMounted, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { asApiError, type ApiError } from '../api/client'
 import { listImports } from '../api/imports'
 import { getSaveIdentity, listSaveIdentities, listSaveIdentityAudit } from '../api/saveIdentity'
 import DataTable from '../components/DataTable.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
+import InsightPanel from '../components/InsightPanel.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
+import StatStrip from '../components/StatStrip.vue'
 import { useSessionStore } from '../stores/session'
+import type { Save } from '../types/bootstrap'
 import type { ImportJob } from '../types/imports'
 import type { TableColumn } from '../types/table'
+import type { InsightItem, StatItem } from '../types/ui'
 import type {
   SaveIdentityAuditEvent,
   SaveEvidenceLevel,
@@ -25,7 +30,7 @@ import type {
   SaveIdentitySummary,
   SaveSession,
 } from '../types/saveIdentity'
-import { displayText, formatDateTime } from '../utils/format'
+import { EMPTY, displayText, formatDateTime, formatInt } from '../utils/format'
 
 const session = useSessionStore()
 
@@ -45,6 +50,16 @@ const STATUS_TAG_TYPES: Record<SaveIdentityStatus, 'success' | 'warning' | 'dang
   verified: 'success',
   conflict: 'danger',
   invalidated: 'danger',
+}
+
+/** 身份状态可信度排序，仅用于摘要展示。 */
+const STATUS_WEIGHT: Record<SaveIdentityStatus, number> = {
+  verified: 5,
+  candidate: 4,
+  discovered: 3,
+  unknown: 2,
+  conflict: 1,
+  invalidated: 0,
 }
 
 const EVIDENCE_LABELS: Record<SaveEvidenceLevel, string> = {
@@ -235,6 +250,94 @@ const cancelRequestedCount = computed(
   () => jobs.value.filter((job) => job.status === 'cancel_requested' || job.status === 'cancelled').length,
 )
 
+/** 导入任务仍在排队或运行。 */
+const runningJobs = computed(() =>
+  jobs.value.filter((job) => job.status === 'queued' || job.status === 'running' || job.status === 'cancel_requested'),
+)
+
+/** 身份识别摘要：优先使用已选身份，否则取列表中最可信的一条。 */
+const identitySummary = computed<SaveIdentityStatus | null>(() => {
+  if (detail.value) return detail.value.identity_status
+  const ranked = [...items.value].sort(
+    (a, b) => STATUS_WEIGHT[b.identity_status] - STATUS_WEIGHT[a.identity_status],
+  )
+  return ranked[0]?.identity_status ?? null
+})
+
+/** 存档状态结论：只复述 session 与身份/任务接口的真实数据。 */
+const statusItems = computed<InsightItem[]>(() => {
+  const active = session.activeSave
+  const status = identitySummary.value
+  const items: InsightItem[] = [
+    {
+      label: '当前存档',
+      text: active ? active.name : '未选择存档',
+      tone: active ? 'neutral' : 'warning',
+    },
+    {
+      label: '身份状态',
+      text: status ? STATUS_LABELS[status] : '还没有身份记录',
+      tone: status === 'verified' ? 'success' : status === 'conflict' || status === 'invalidated' ? 'danger' : 'warning',
+    },
+    {
+      label: '进行中任务',
+      text: runningJobs.value.length
+        ? `${runningJobs.value.length} 个导入任务未结束，切换存档会让旧会话与在途任务失效。`
+        : '当前没有排队或运行中的导入任务。',
+      tone: runningJobs.value.length ? 'warning' : 'neutral',
+    },
+    {
+      label: '下一步',
+      text: active ? '在存档列表选择要切换的存档；切换前会再次确认。' : '先到「游戏数据」导入或同步一个存档。',
+    },
+  ]
+  return items
+})
+
+/** 存档关键指标。 */
+const statusStats = computed<StatItem[]>(() => {
+  const active = session.activeSave
+  return [
+    { label: '存档数量', value: formatInt(session.saves.length) },
+    { label: '当前存档', value: active?.name ?? EMPTY },
+    {
+      label: '球员 / 快照',
+      value: active ? `${formatInt(active.player_count)} / ${formatInt(active.snapshot_count)}` : EMPTY,
+    },
+    { label: '最近读取', value: formatDateTime(active?.last_import_at ?? null) },
+    { label: '身份记录', value: formatInt(total.value) },
+  ]
+})
+
+/** 存档状态面板的整体状态色。 */
+const statusTone = computed<'success' | 'warning' | 'danger' | 'neutral'>(() => {
+  const status = identitySummary.value
+  if (!status) return 'neutral'
+  if (status === 'verified') return 'success'
+  if (status === 'conflict' || status === 'invalidated') return 'danger'
+  return 'warning'
+})
+
+/** 切换存档：有任务在跑时明确提示风险，确认后才切换。 */
+async function switchSave(target: Save): Promise<void> {
+  if (target.id === session.activeSaveId) return
+  const running = runningJobs.value.length
+  const message = running
+    ? `当前还有 ${running} 个导入任务未结束。切换存档后旧会话与在途任务会失效，可能导致本次同步中断。确定切换到「${target.name}」？`
+    : `切换后所有页面将使用「${target.name}」的数据；旧存档不会被修改。确定切换？`
+  try {
+    await ElMessageBox.confirm(message, '切换存档', {
+      type: 'warning',
+      confirmButtonText: '切换',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  session.selectSave(target.id)
+  ElMessage.success(`已切换到「${target.name}」`)
+}
+
 async function reload(): Promise<void> {
   loading.value = true
   error.value = null
@@ -312,7 +415,7 @@ onMounted(() => {
 })
 
 watch(
-  () => session.dataRevision,
+  [() => session.dataRevision, () => session.activeSaveId],
   () => {
     detail.value = null
     audit.value = []
@@ -336,6 +439,57 @@ watch(
         <el-button size="small" :loading="loading" @click="reload">刷新</el-button>
       </template>
     </PageHeader>
+
+    <InsightPanel
+      title="存档状态"
+      badge="数据事实"
+      :tone="statusTone"
+      :items="statusItems"
+      footnote="切换存档只改变当前页面使用的数据源，不写入游戏、不修改旧存档；身份状态由服务端判定，本页不会提升任何状态。"
+    />
+
+    <StatStrip :items="statusStats" />
+
+    <SectionCard title="我的存档" :subtitle="`共 ${session.saves.length} 个`">
+      <EmptyState
+        v-if="session.saves.length === 0"
+        title="还没有存档"
+        description="在「游戏数据」导入或同步一个 FM27 存档后，这里会显示可切换的存档。"
+        compact
+      />
+      <div v-else class="save-identity__saves">
+        <article
+          v-for="saveItem in session.saves"
+          :key="saveItem.id"
+          class="save-card"
+          :class="{ 'save-card--active': saveItem.id === session.activeSaveId }"
+        >
+          <header class="save-card__head">
+            <span class="save-card__name">{{ saveItem.name }}</span>
+            <el-tag v-if="saveItem.id === session.activeSaveId" size="small" type="success" disable-transitions>
+              当前存档
+            </el-tag>
+          </header>
+          <p class="save-card__meta">
+            版本 {{ displayText(saveItem.game_version) }} · build {{ displayText(saveItem.game_build) }}
+          </p>
+          <dl class="save-card__facts">
+            <div><dt>球员</dt><dd>{{ formatInt(saveItem.player_count) }}</dd></div>
+            <div><dt>快照</dt><dd>{{ formatInt(saveItem.snapshot_count) }}</dd></div>
+            <div><dt>转会</dt><dd>{{ formatInt(saveItem.transfer_count) }}</dd></div>
+            <div><dt>最近读取</dt><dd>{{ formatDateTime(saveItem.last_import_at) }}</dd></div>
+          </dl>
+          <el-button
+            v-if="saveItem.id !== session.activeSaveId"
+            size="small"
+            @click="switchSave(saveItem)"
+          >
+            切换到此存档
+          </el-button>
+          <span v-else class="sm-text-2xs sm-text-faint">所有页面正在使用该存档</span>
+        </article>
+      </div>
+    </SectionCard>
 
     <SectionCard title="身份列表" :subtitle="`共 ${total} 条`">
       <template #actions>
@@ -386,6 +540,12 @@ watch(
     <ErrorState v-if="detailError" :error="detailError" title="身份详情加载失败" @retry="detail && selectIdentity(detail)" />
 
     <template v-if="detail">
+      <el-collapse class="save-identity__advanced">
+        <el-collapse-item name="identity-detail">
+          <template #title>
+            <span class="sm-text-xs">身份证据、采集闸门与审计（高级）</span>
+          </template>
+          <div class="sm-stack">
       <SectionCard title="采集闸门" :subtitle="`身份 #${detail.identity_id}`">
         <div v-if="detail.capture_allowed" class="save-identity__gate save-identity__gate--ok">
           允许采集：身份为 verified，且最近会话心跳有效。
@@ -521,6 +681,9 @@ watch(
         <EmptyState v-else-if="!auditLoading && audit.length === 0" title="没有审计事件" compact />
         <DataTable v-else :columns="auditColumns" :rows="audit" :loading="auditLoading" row-key="event_id" dense />
       </SectionCard>
+          </div>
+        </el-collapse-item>
+      </el-collapse>
     </template>
 
     <EmptyState
@@ -536,6 +699,67 @@ watch(
   display: flex;
   flex-direction: column;
   gap: var(--sm-space-4);
+}
+
+.save-identity__saves {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--sm-space-3);
+}
+
+.save-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+  padding: var(--sm-space-3);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-md);
+  background: var(--sm-surface-2);
+}
+
+.save-card--active {
+  border-color: var(--sm-status-success);
+}
+
+.save-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sm-space-2);
+}
+
+.save-card__name {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-sm);
+  font-weight: var(--sm-fw-semibold);
+}
+
+.save-card__meta {
+  margin: 0;
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+.save-card__facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px var(--sm-space-3);
+  margin: 0;
+}
+
+.save-card__facts dt {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+}
+
+.save-card__facts dd {
+  margin: 0;
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-xs);
+}
+
+.save-identity__advanced {
+  border: 0;
 }
 
 .save-identity__meta {

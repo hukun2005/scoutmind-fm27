@@ -18,10 +18,11 @@ import { listPlayers } from '../api/players'
 import DataTable from '../components/DataTable.vue'
 import EmptyState from '../components/EmptyState.vue'
 import FilterPanel from '../components/FilterPanel.vue'
-import KpiCard from '../components/KpiCard.vue'
+import InsightPanel from '../components/InsightPanel.vue'
 import NumberCell from '../components/NumberCell.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SectionCard from '../components/SectionCard.vue'
+import StatStrip from '../components/StatStrip.vue'
 import ValueScatterCard from '../components/ValueScatterCard.vue'
 import { MAX_COMPARE, useCompareStore } from '../stores/compare'
 import { usePlayersStore } from '../stores/players'
@@ -29,6 +30,7 @@ import { useSessionStore } from '../stores/session'
 import type { Club } from '../types/clubs'
 import type { PlayerSummary } from '../types/players'
 import type { TableColumn, TableSortPayload } from '../types/table'
+import type { InsightItem, InsightTone, StatItem } from '../types/ui'
 import { EMPTY, displayText, formatInt, formatMoney, formatPercent } from '../utils/format'
 import { POSITION_GROUPS, POSITION_LABELS, POSITION_OPTIONS, coverageLabel } from '../utils/labels'
 
@@ -79,6 +81,100 @@ const columns: TableColumn<PlayerSummary>[] = [
 
 /** 是否存在任何生效中的筛选条件。 */
 const hasActiveFilters = computed(() => Object.keys(players.filters).length > 0)
+
+/** 当前筛选的可读描述；只用于解释结果，不参与请求。 */
+const activeFilterLabels = computed<string[]>(() => {
+  const filters = players.filters
+  const labels: string[] = []
+  if (filters.query) labels.push(`姓名包含「${filters.query}」`)
+  if (filters.position) labels.push(`位置 ${POSITION_LABELS[filters.position.toUpperCase()] ?? filters.position}`)
+  if (filters.position_group) {
+    const group = POSITION_GROUPS.find((item) => item.value === filters.position_group)
+    labels.push(`位置组 ${group?.label ?? filters.position_group}`)
+  }
+  if (filters.club_id !== undefined) {
+    const club = clubs.value.find((item) => item.club_id === filters.club_id)
+    labels.push(`俱乐部 ${club?.name ?? `#${filters.club_id}`}`)
+  }
+  if (filters.min_age !== undefined || filters.max_age !== undefined) {
+    labels.push(`年龄 ${filters.min_age ?? '不限'}–${filters.max_age ?? '不限'} 岁`)
+  }
+  if (filters.min_ca !== undefined) labels.push(`CA ≥ ${filters.min_ca}`)
+  if (filters.max_pa !== undefined) labels.push(`PA ≤ ${filters.max_pa}`)
+  if (filters.max_value !== undefined) labels.push(`身价 ≤ ${Math.round(filters.max_value / 10_000)} 万`)
+  if (filters.watchlist_only) labels.push('只看关注名单')
+  return labels
+})
+
+/** 关键字段覆盖率均值；没有覆盖数据时为 null，不用 0 代替。 */
+const coverageAverage = computed<number | null>(() => {
+  const values = Object.values(players.coverage).filter((value): value is number => typeof value === 'number')
+  if (values.length === 0) return null
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+})
+
+/** 结论面板：结果概览 + 当前条件 + 下一步，全部由接口返回值推导。 */
+const exploreInsight = computed<{ tone: InsightTone; items: InsightItem[] }>(() => {
+  const filtered = hasActiveFilters.value
+  const total = players.total
+  const overview = filtered
+    ? `当前条件命中 ${formatInt(total)} 名球员${players.items.length > 0 && players.page > 1 ? `，本页 ${formatInt(players.items.length)} 名` : ''}。`
+    : `当前存档共 ${formatInt(total)} 名球员${players.items.length > 0 ? `，本页 ${formatInt(players.items.length)} 名` : ''}。`
+
+  let next = '优先比较 CA 与 PA 差距大、合同临近到期的球员，并加入对比。'
+  let tone: InsightTone = 'info'
+  if (players.error) {
+    next = `球员列表加载失败：${players.error.message}。请重试，或到「游戏数据」检查同步状态。`
+    tone = 'danger'
+  } else if (players.loading && players.items.length === 0) {
+    next = '正在读取当前存档的球员数据…'
+  } else if (total === 0 && !filtered) {
+    next = '当前存档暂无球员。先到「游戏数据」同步扫描结果，球员才会出现在这里。'
+    tone = 'warning'
+  } else if (total === 0) {
+    next = '当前条件没有匹配结果。放宽年龄、位置或身价上限，或清空筛选后重新查看。'
+    tone = 'warning'
+  }
+
+  return {
+    tone,
+    items: [
+      { label: '结果概览', text: overview },
+      { label: '筛选条件', text: activeFilterLabels.value.length > 0 ? activeFilterLabels.value.join('；') : '未设置筛选，展示全部球员。' },
+      { label: '下一步', text: next, tone: tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'neutral' },
+    ],
+  }
+})
+
+/** 顶部紧凑指标：数量与覆盖度，不使用卡片堆叠。 */
+const metrics = computed<StatItem[]>(() => {
+  const coverageTone: StatItem['tone'] =
+    coverageAverage.value === null ? 'default' : coverageAverage.value < 0.6 ? 'warning' : 'success'
+  return [
+    {
+      label: hasActiveFilters.value ? '命中球员' : '球员总数',
+      value: players.loading && players.total === 0 ? '…' : formatInt(players.total),
+      hint: hasActiveFilters.value ? '当前筛选条件' : '当前存档',
+      tone: 'accent',
+    },
+    {
+      label: '本页显示',
+      value: formatInt(players.items.length),
+      hint: `第 ${players.page} 页`,
+    },
+    {
+      label: '已关注球员',
+      value: watchCount.value === null ? '—' : formatInt(watchCount.value),
+      hint: watchCount.value === null ? '关注统计不可用' : '来自关注名单',
+    },
+    {
+      label: '关键字段覆盖',
+      value: coverageAverage.value === null ? '—' : formatPercent(coverageAverage.value),
+      hint: coverageAverage.value === null ? '接口未返回覆盖度' : 'CA / PA / 身价等非空比例',
+      tone: coverageTone,
+    },
+  ]
+})
 
 /** 数据完整度条目，默认折叠在「更多筛选」里，不占用主视线。 */
 const coverageItems = computed(() => Object.entries(players.coverage))
@@ -243,6 +339,16 @@ void loadClubs()
       </template>
     </PageHeader>
 
+    <InsightPanel
+      title="球探概览"
+      badge="规则生成"
+      :tone="exploreInsight.tone"
+      :items="exploreInsight.items"
+      footnote="结论由当前筛选条件与球员接口返回的数量推导，不构成能力评价；适配度与风险需要进入球员详情查看。"
+    />
+
+    <StatStrip :items="metrics" />
+
     <FilterPanel
       title="筛选球员"
       hint="输入姓名即可搜索；条件变更后自动查询。"
@@ -306,36 +412,36 @@ void loadClubs()
         </div>
       </div>
 
-      <label class="sm-field">
-        <span class="sm-field__label">俱乐部</span>
-        <el-select
-          :model-value="players.filters.club_id"
-          size="default"
-          clearable
-          filterable
-          :loading="clubsLoading"
-          placeholder="全部俱乐部"
-          @update:model-value="(value) => players.setFilter('club_id', typeof value === 'number' ? value : undefined)"
-        >
-          <el-option v-for="club in clubs" :key="club.club_id" :label="club.name" :value="club.club_id" />
-        </el-select>
-      </label>
-
-      <label class="sm-field">
-        <span class="sm-field__label">潜力上限</span>
-        <el-input-number
-          :model-value="players.filters.max_pa"
-          size="default"
-          :min="1"
-          :max="200"
-          :controls="false"
-          placeholder="不限"
-          aria-label="潜力上限"
-          @update:model-value="(value) => players.setFilter('max_pa', typeof value === 'number' ? value : undefined)"
-        />
-      </label>
-
       <template #advanced>
+        <label class="sm-field">
+          <span class="sm-field__label">俱乐部</span>
+          <el-select
+            :model-value="players.filters.club_id"
+            size="default"
+            clearable
+            filterable
+            :loading="clubsLoading"
+            placeholder="全部俱乐部"
+            @update:model-value="(value) => players.setFilter('club_id', typeof value === 'number' ? value : undefined)"
+          >
+            <el-option v-for="club in clubs" :key="club.club_id" :label="club.name" :value="club.club_id" />
+          </el-select>
+        </label>
+
+        <label class="sm-field">
+          <span class="sm-field__label">潜力上限</span>
+          <el-input-number
+            :model-value="players.filters.max_pa"
+            size="default"
+            :min="1"
+            :max="200"
+            :controls="false"
+            placeholder="不限"
+            aria-label="潜力上限"
+            @update:model-value="(value) => players.setFilter('max_pa', typeof value === 'number' ? value : undefined)"
+          />
+        </label>
+
         <label class="sm-field">
           <span class="sm-field__label">当前能力下限</span>
           <el-input-number
@@ -398,21 +504,7 @@ void loadClubs()
       </template>
     </FilterPanel>
 
-    <div class="metrics">
-      <KpiCard label="球员总数" :value="formatInt(players.total)" hint="当前存档" :loading="players.loading && players.items.length === 0" />
-      <KpiCard
-        v-if="watchCount !== null"
-        label="已关注球员"
-        :value="formatInt(watchCount)"
-        hint="来自关注名单"
-        tone="accent"
-        to="/watchlist"
-      />
-    </div>
-
-    <ValueScatterCard :save-id="session.activeSaveId" :club-id="players.filters.club_id ?? null" />
-
-    <SectionCard title="球员列表" flush>
+    <SectionCard title="球员列表" :subtitle="`命中 ${formatInt(players.total)} 名 · 第 ${players.page} 页`" flush>
       <template #actions>
         <el-radio-group v-model="viewMode" size="small" aria-label="列表显示方式">
           <el-radio-button value="table">表格</el-radio-button>
@@ -548,6 +640,13 @@ void loadClubs()
       </template>
     </SectionCard>
 
+    <details class="sm-details">
+      <summary>价值分布（辅助分析）</summary>
+      <div class="sm-details__body">
+        <ValueScatterCard :save-id="session.activeSaveId" :club-id="players.filters.club_id ?? null" />
+      </div>
+    </details>
+
     <p class="page-note">
       点击球员进入详情查看技术、身体、精神属性与合同信息；CA 指当前能力，PA 指潜力上限。
     </p>
@@ -586,12 +685,6 @@ void loadClubs()
 .field-error {
   grid-column: 1 / -1;
   color: var(--sm-danger);
-}
-
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: var(--sm-space-3);
 }
 
 .player-link {

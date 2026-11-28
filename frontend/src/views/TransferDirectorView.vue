@@ -76,8 +76,11 @@ import type {
   OnlineLearningStatus,
 } from '../api/transferLearning'
 import { listTransfers } from '../api/transfers'
+import InsightPanel from '../components/InsightPanel.vue'
+import StatStrip from '../components/StatStrip.vue'
 import type { PlayerSummary } from '../types/players'
 import type { TransferListResponse } from '../types/transfers'
+import type { InsightItem, StatItem } from '../types/ui'
 import { formatDate, formatDateTime, formatMoney, formatPercent } from '../utils/format'
 
 const route = useRoute()
@@ -306,6 +309,59 @@ const contractCoverage = computed(() => {
   if (!overview.value || !overview.value.player_count) return '—'
   return formatPercent(overview.value.players_with_contract / overview.value.player_count)
 })
+
+/** 工作台关键指标：全部来自 overview 与机会雷达摘要，缺失显示 —。 */
+const workbenchStats = computed<StatItem[]>(() => {
+  const data = overview.value
+  if (!data) return []
+  const counts = oppSummary.value?.counts
+  return [
+    { label: '存档球员', value: String(data.player_count) },
+    { label: '合同覆盖', value: contractCoverage.value },
+    { label: '转会记录', value: String(data.transfer_count) },
+    { label: '谈判', value: String(data.negotiations_total) },
+    {
+      label: '已挂牌机会',
+      value: counts ? String(counts.listed) : '—',
+    },
+  ]
+})
+
+/** 工作台结论：只复述后端 overview 与当前选择状态。 */
+const workbenchItems = computed<InsightItem[]>(() => {
+  const data = overview.value
+  const items: InsightItem[] = [
+    { label: '当前目标', text: selectedPlayerName.value },
+    { label: '报价口径', text: '报价金额由确定性报价引擎计算；AI 只解释逻辑与风险，不决定金额。' },
+  ]
+  if (data) {
+    items.push({
+      label: '存档规模',
+      text: `${data.player_count} 名球员 · 合同覆盖 ${contractCoverage.value} · 转会记录 ${data.transfer_count} 条`,
+    })
+  }
+  if (data && !data.capabilities.auto_transfer_history) {
+    items.push({
+      label: '数据边界',
+      text: '历史转会与成交金额需手动导入，自动采集不可用。',
+      tone: 'warning',
+    })
+  }
+  return items
+})
+
+/** 主分区导航：与 el-tabs 共用同一个 section 状态。 */
+const sections = [
+  { name: 'radar', label: '机会雷达' },
+  { name: 'strategy', label: '成交策略' },
+  { name: 'workbench', label: '报价工作台' },
+  { name: 'intel', label: '转会情报' },
+  { name: 'purchase', label: '买入报价' },
+  { name: 'sale', label: '出售报价' },
+  { name: 'loan', label: '租借报价' },
+  { name: 'contract', label: '合同条款' },
+  { name: 'negotiation', label: '谈判记录' },
+]
 
 async function loadOverview() {
   try {
@@ -977,6 +1033,25 @@ function directionLabel(direction: string): string {
       :closable="false"
       show-icon
     />
+
+    <InsightPanel title="当前任务与结论" :tone="analysis ? 'info' : 'neutral'" badge="数据事实" :items="workbenchItems">
+      <template #actions>
+        <div class="section-nav" aria-label="工作区分区">
+          <button
+            v-for="item in sections"
+            :key="item.name"
+            type="button"
+            class="section-nav__item"
+            :class="{ 'section-nav__item--active': section === item.name }"
+            @click="section = item.name"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+      </template>
+    </InsightPanel>
+
+    <StatStrip :items="workbenchStats" dense />
 
     <section class="player-picker">
       <el-input
@@ -2273,6 +2348,30 @@ function directionLabel(direction: string): string {
 .section-tabs {
   margin-top: 4px;
 }
+.section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.section-nav__item {
+  padding: 4px 10px;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-pill);
+  background: transparent;
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  cursor: pointer;
+}
+.section-nav__item:hover {
+  border-color: var(--sm-border-glow);
+  color: var(--sm-text-primary);
+}
+.section-nav__item--active {
+  border-color: var(--sm-accent-cyan);
+  color: var(--sm-accent-cyan);
+}
+
 .radar-head {
   display: flex;
   justify-content: space-between;

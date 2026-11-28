@@ -10,8 +10,10 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import EmptyState from '../components/EmptyState.vue'
+import InsightPanel from '../components/InsightPanel.vue'
 import LoadingBlock from '../components/LoadingBlock.vue'
 import PageHeader from '../components/PageHeader.vue'
+import StatStrip from '../components/StatStrip.vue'
 import { asApiError, type ApiError } from '../api/client'
 import { askDirector, getDirectorContext } from '../api/director'
 import { addWatchlistItem } from '../api/watchlist'
@@ -23,6 +25,7 @@ import type {
   DirectorRecommendation,
   DirectorSection,
 } from '../types/director'
+import type { InsightItem, StatItem } from '../types/ui'
 import { EMPTY, formatMoney } from '../utils/format'
 
 const QUICK_QUESTIONS = [
@@ -35,6 +38,22 @@ const QUICK_QUESTIONS = [
   '分析当前关注名单',
   '制定下一阶段引援计划',
 ]
+
+/** 任务卡：与快捷问题使用同一批后端意图，只补充面向用户的任务说明。 */
+const TASKS = [
+  { label: '分析我的球队阵容', goal: '看清阵容结构、短板与可用球员' },
+  { label: '我的球队最需要补强什么位置？', goal: '确定当前最该补强的位置' },
+  { label: '帮我寻找年轻引援目标', goal: '按年龄与潜力筛选可引进球员' },
+  { label: '哪些球员值得重点培养？', goal: '识别成长空间最大的球员' },
+  { label: '哪些球员可以考虑出售？', goal: '发现可以变现或清理的合同' },
+  { label: '帮我分析球队年龄结构', goal: '检查阵容老化与接班风险' },
+  { label: '制定下一阶段引援计划', goal: '形成可执行的引援顺序' },
+]
+
+/** 任务卡之外的其他问题，仍保留为轻量入口。 */
+const MORE_QUESTIONS = QUICK_QUESTIONS.filter(
+  (prompt) => !TASKS.some((task) => task.label === prompt),
+)
 
 const RELIABILITY: Record<string, string> = {
   fact: '数据事实',
@@ -70,6 +89,64 @@ const updatedAt = computed(() => {
 })
 
 const cards = computed(() => answer.value?.player_cards ?? [])
+
+/** 总监简报：只复述上下文接口返回的俱乐部、数据时间、完整度与缺口。 */
+const briefTone = computed<'info' | 'warning' | 'danger' | 'neutral'>(() => {
+  if (contextError.value) return 'danger'
+  if (!context.value) return 'neutral'
+  return context.value.data_completeness < 0.6 ? 'warning' : 'info'
+})
+
+const briefItems = computed<InsightItem[]>(() => {
+  const data = context.value
+  if (!data) return []
+  const items: InsightItem[] = [
+    { label: '存档数据', text: `${data.counts.players} 名球员 · ${data.counts.snapshots} 份快照` },
+    { label: '数据更新时间', text: updatedAt.value },
+    { label: '数据完整度', text: completeness.value, tone: data.data_completeness < 0.6 ? 'warning' : 'neutral' },
+    {
+      label: '已知数据缺口',
+      text: data.data_gaps.length > 0 ? data.data_gaps.join('；') : '暂无已知缺口',
+      tone: data.data_gaps.length > 0 ? 'warning' : 'neutral',
+    },
+    { label: '下一步', text: '选择左侧任务，或直接输入问题；分析结果会给出结论、依据与数据缺口。' },
+  ]
+  return items
+})
+
+/** 本次分析的执行指标：全部取自后端回答字段。 */
+const reportStats = computed<StatItem[]>(() => {
+  const current = answer.value
+  if (!current) return []
+  return [
+    { label: '任务类型', value: current.intent_label },
+    { label: '分析区块', value: String(current.sections.length) },
+    { label: '推荐球员', value: String(current.recommendations.length) },
+    {
+      label: '数据缺口',
+      value: String(current.data_gaps.length),
+      tone: current.data_gaps.length > 0 ? 'warning' : 'default',
+    },
+    { label: '工具引用', value: String(current.citations.length) },
+  ]
+})
+
+/** 基于本次回答的下一步建议，不引入后端未返回的结论。 */
+const nextSteps = computed<string[]>(() => {
+  const current = answer.value
+  if (!current) return []
+  const steps: string[] = []
+  if (current.recommendations.length > 0) {
+    steps.push(`在右侧查看 ${current.recommendations.length} 名推荐球员，确认位置、年龄与身价后再决定是否加入关注。`)
+  }
+  if (current.data_gaps.length > 0) {
+    steps.push('先补齐上方数据缺口，再次分析可以得到更完整的结论。')
+  }
+  if (steps.length === 0) {
+    steps.push('继续追问具体位置、预算或球员姓名，以得到可执行的下一步。')
+  }
+  return steps
+})
 
 async function loadContext(): Promise<void> {
   contextLoading.value = true
@@ -170,6 +247,14 @@ onMounted(() => {
       </template>
     </PageHeader>
 
+    <InsightPanel
+      title="总监简报"
+      badge="数据事实"
+      :tone="briefTone"
+      :items="briefItems"
+      footnote="阵容问题与引援需求在你选择任务后由本地规则分析得出；简报不会预先下结论。"
+    />
+
     <div class="director-grid">
       <aside class="director-panel">
         <LoadingBlock v-if="contextLoading" :rows="3" compact label="读取球队上下文" />
@@ -198,19 +283,36 @@ onMounted(() => {
           </div>
         </div>
 
-        <p class="director-context__label">快捷问题</p>
-        <div class="director-quick">
+        <p class="director-context__label">选择任务</p>
+        <div class="director-tasks">
           <button
-            v-for="prompt in QUICK_QUESTIONS"
-            :key="prompt"
+            v-for="task in TASKS"
+            :key="task.label"
             type="button"
-            class="director-quick__item"
+            class="director-task"
             :disabled="asking"
-            @click="ask(prompt)"
+            @click="ask(task.label)"
           >
-            {{ prompt }}
+            <span class="director-task__label">{{ task.label }}</span>
+            <span class="director-task__goal">{{ task.goal }}</span>
           </button>
         </div>
+
+        <template v-if="MORE_QUESTIONS.length">
+          <p class="director-context__label">其他问题</p>
+          <div class="director-quick">
+            <button
+              v-for="prompt in MORE_QUESTIONS"
+              :key="prompt"
+              type="button"
+              class="director-quick__item"
+              :disabled="asking"
+              @click="ask(prompt)"
+            >
+              {{ prompt }}
+            </button>
+          </div>
+        </template>
       </aside>
 
       <section class="director-main">
@@ -249,6 +351,12 @@ onMounted(() => {
           </header>
           <p class="director-answer__conclusion">{{ answer.conclusion }}</p>
 
+          <div class="director-report">
+            <p class="director-report__goal"><span class="sm-label">任务目标</span>{{ lastQuestion || answer.intent_label }}</p>
+            <StatStrip :items="reportStats" dense />
+          </div>
+
+          <p class="director-report__label">依据分析</p>
           <section v-for="section in answer.sections" :key="section.key" :class="sectionClass(section)">
             <p class="director-section__title">
               {{ section.title }}
@@ -272,14 +380,21 @@ onMounted(() => {
           </section>
 
           <section v-if="answer.data_gaps.length" class="director-section director-section--unavailable">
-            <p class="director-section__title">数据缺失</p>
+            <p class="director-section__title">风险与数据缺口</p>
             <ul class="director-section__list">
               <li v-for="gap in answer.data_gaps" :key="gap">{{ gap }}</li>
             </ul>
           </section>
 
+          <section v-if="nextSteps.length" class="director-section director-section--next">
+            <p class="director-section__title">下一步</p>
+            <ul class="director-section__list">
+              <li v-for="step in nextSteps" :key="step">{{ step }}</li>
+            </ul>
+          </section>
+
           <footer class="director-answer__foot">
-            <span>数据来源：{{ answer.citations.map((item) => item.tool).filter(Boolean).join('、') || '本地数据库' }}</span>
+            <span>来源与声明 · 数据来源：{{ answer.citations.map((item) => item.tool).filter(Boolean).join('、') || '本地数据库' }}</span>
             <span v-for="note in answer.disclaimers ?? []" :key="note">{{ note }}</span>
           </footer>
         </article>
@@ -678,6 +793,68 @@ onMounted(() => {
 .director-card__chip:hover {
   border-color: var(--sm-border-glow);
   color: var(--sm-text-primary);
+}
+
+.director-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.director-task {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 10px;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-sm);
+  background: rgba(12, 23, 39, 0.55);
+  text-align: left;
+  cursor: pointer;
+}
+
+.director-task:hover:not(:disabled) {
+  border-color: var(--sm-border-glow);
+}
+
+.director-task__label {
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-xs);
+  font-weight: var(--sm-fw-medium);
+}
+
+.director-task__goal {
+  color: var(--sm-text-3);
+  font-size: var(--sm-fs-2xs);
+  line-height: 1.45;
+}
+
+.director-report {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-space-2);
+}
+
+.director-report__goal {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sm-space-2);
+  margin: 0;
+  color: var(--sm-text-primary);
+  font-size: var(--sm-fs-xs);
+}
+
+.director-report__label {
+  margin: var(--sm-space-2) 0 0;
+  color: var(--sm-text-3);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.director-section--next {
+  border-left: 3px solid var(--sm-accent-cyan);
 }
 
 @media (max-width: 1200px) {
